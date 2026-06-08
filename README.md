@@ -99,7 +99,7 @@ mkdir -p "$HOME/apps" && git clone https://github.com/lucashahnndev/LLMKeyRotato
 Windows PowerShell:
 
 ```powershell
-$dest = Join-Path $env:LOCALAPPDATA 'LLMKeyRotator'; if (-not (Test-Path $dest)) { New-Item -ItemType Directory -Path $dest | Out-Null }; git clone https://github.com/lucashahnndev/LLMKeyRotator.git $dest; Set-Location $dest; .\bootstrap.bat
+$dest = Join-Path $env:ProgramData 'LLMKeyRotator'; if (-not (Test-Path $dest)) { New-Item -ItemType Directory -Path $dest | Out-Null }; git clone https://github.com/lucashahnndev/LLMKeyRotator.git $dest; Set-Location $dest; .\bootstrap.bat
 ```
 
 The bootstrap will create or repair `backend/.env` with the minimum required values:
