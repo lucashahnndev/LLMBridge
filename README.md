@@ -93,13 +93,13 @@ This is the order I recommend for a fresh install:
 Linux:
 
 ```bash
-git clone https://github.com/lucashahnndev/LLMKeyRotator.git && cd LLMKeyRotator && bash bootstrap.sh
+mkdir -p "$HOME/apps" && git clone https://github.com/lucashahnndev/LLMKeyRotator.git "$HOME/apps/LLMKeyRotator" && cd "$HOME/apps/LLMKeyRotator" && bash bootstrap.sh
 ```
 
 Windows PowerShell:
 
 ```powershell
-git clone https://github.com/lucashahnndev/LLMKeyRotator.git; Set-Location LLMKeyRotator; .\bootstrap.bat
+$dest = Join-Path $env:LOCALAPPDATA 'LLMKeyRotator'; if (-not (Test-Path $dest)) { New-Item -ItemType Directory -Path $dest | Out-Null }; git clone https://github.com/lucashahnndev/LLMKeyRotator.git $dest; Set-Location $dest; .\bootstrap.bat
 ```
 
 The bootstrap will create or repair `backend/.env` with the minimum required values:
@@ -114,6 +114,7 @@ The bootstrap will create or repair `backend/.env` with the minimum required val
 
 If `SECRET_KEY` or `ADMIN_PASSWORD` is missing or blank, the bootstrap generates them automatically.
 After that, it registers the full-stack service automatically on Linux or Windows.
+On Windows, the service installer downloads NSSM automatically if it is not already present under `bin/`.
 
 ### 1. Bootstrap
 
