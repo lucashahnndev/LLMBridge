@@ -116,7 +116,7 @@ echo [6/6] Bootstrap local concluido.
 echo.
 echo [7/7] Registrando o servico automatico do Windows...
 powershell -NoProfile -ExecutionPolicy Bypass -Command ^
-    "Start-Process powershell -ArgumentList '-NoProfile -ExecutionPolicy Bypass -File \"scripts\install-service.ps1\"' -Verb RunAs -Wait"
+    "$p = Start-Process -FilePath powershell -ArgumentList @('-NoProfile','-ExecutionPolicy','Bypass','-File','scripts\install-service.ps1') -Verb RunAs -Wait -PassThru; exit $p.ExitCode"
 if errorlevel 1 (
     echo [ERRO] Falha ao registrar o servico automatico do Windows.
     pause

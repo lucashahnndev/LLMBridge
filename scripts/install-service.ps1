@@ -17,6 +17,19 @@ $NssmExe = Join-Path $NssmRoot "$ArchFolder\nssm.exe"
 $ServiceName = "LLMKeyRotator"
 $DisplayName = "LLMKeyRotator Full Stack Service"
 $RunScript = Join-Path $RepoRoot "scripts\run-service.ps1"
+$PowerShellExe = Join-Path $PSHOME "powershell.exe"
+
+function Invoke-Nssm {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string[]]$Arguments
+    )
+
+    $process = Start-Process -FilePath $NssmExe -ArgumentList $Arguments -Wait -PassThru -NoNewWindow
+    if ($process.ExitCode -ne 0) {
+        throw "NSSM returned exit code $($process.ExitCode) while running: $($Arguments -join ' ')"
+    }
+}
 
 if (-not (Test-Path (Join-Path $RepoRoot ".venv\Scripts\python.exe"))) {
     Write-Host "[ERRO] Ambiente virtual (.venv) nao encontrado em $RepoRoot." -ForegroundColor Red
@@ -53,9 +66,15 @@ Write-Host "[2/3] Instalando ou atualizando o servico '$ServiceName'..." -Foregr
 
 if (Get-Service -Name $ServiceName -ErrorAction SilentlyContinue) {
     Write-Host "[*] Servico '$ServiceName' ja existe. Reconfigurando..." -ForegroundColor Yellow
-} else {
-    & $NssmExe install $ServiceName "powershell.exe" | Out-Null
+    try {
+        Invoke-Nssm -Arguments @("stop", $ServiceName)
+    } catch {
+        Write-Host "[*] O servico nao estava em execucao ou nao respondeu ao stop." -ForegroundColor DarkYellow
+    }
+    Invoke-Nssm -Arguments @("remove", $ServiceName, "confirm")
 }
+
+Invoke-Nssm -Arguments @("install", $ServiceName, $PowerShellExe)
 
 $AppParameters = @(
     "-NoProfile",
@@ -65,19 +84,19 @@ $AppParameters = @(
     $RunScript
 ) -join " "
 
-& $NssmExe set $ServiceName AppParameters $AppParameters | Out-Null
-& $NssmExe set $ServiceName AppDirectory $RepoRoot | Out-Null
-& $NssmExe set $ServiceName DisplayName $DisplayName | Out-Null
-& $NssmExe set $ServiceName Start SERVICE_AUTO_START | Out-Null
-& $NssmExe set $ServiceName AppStdout (Join-Path $LogsFolder "service.log") | Out-Null
-& $NssmExe set $ServiceName AppStderr (Join-Path $LogsFolder "service.log") | Out-Null
+Invoke-Nssm -Arguments @("set", $ServiceName, "AppParameters", $AppParameters)
+Invoke-Nssm -Arguments @("set", $ServiceName, "AppDirectory", $RepoRoot)
+Invoke-Nssm -Arguments @("set", $ServiceName, "DisplayName", $DisplayName)
+Invoke-Nssm -Arguments @("set", $ServiceName, "Start", "SERVICE_AUTO_START")
+Invoke-Nssm -Arguments @("set", $ServiceName, "AppStdout", (Join-Path $LogsFolder "service.log"))
+Invoke-Nssm -Arguments @("set", $ServiceName, "AppStderr", (Join-Path $LogsFolder "service.log"))
 
 Write-Host "[3/3] Iniciando servico..." -ForegroundColor Yellow
-try {
-    Start-Service -Name $ServiceName
-} catch {
-    Write-Host "[!] O servico foi registrado, mas nao foi possivel iniciar automaticamente." -ForegroundColor Yellow
-    Write-Host "    Verifique os logs em $LogsFolder." -ForegroundColor Yellow
+Start-Service -Name $ServiceName
+
+Start-Sleep -Seconds 2
+if (-not (Get-Service -Name $ServiceName -ErrorAction SilentlyContinue)) {
+    throw "O servico '$ServiceName' nao apareceu na lista do Windows apos a instalacao."
 }
 
 Write-Host ""
