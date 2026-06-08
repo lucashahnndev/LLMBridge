@@ -99,7 +99,7 @@ mkdir -p "$HOME/apps" && git clone https://github.com/lucashahnndev/LLMKeyRotato
 Windows PowerShell:
 
 ```powershell
-$src = Join-Path $HOME 'apps\LLMKeyRotator'; if (-not (Test-Path $src)) { New-Item -ItemType Directory -Path $src -Force | Out-Null }; git clone https://github.com/lucashahnndev/LLMKeyRotator.git $src; Set-Location $src; .\bootstrap.bat
+git clone https://github.com/lucashahnndev/LLMKeyRotator.git; Set-Location LLMKeyRotator; .\bootstrap.bat
 ```
 
 The Windows bootstrap keeps your working clone local and stages the runnable service workspace under `C:\ProgramData\LLMKeyRotator`.
