@@ -90,6 +90,9 @@ if not exist "backend" mkdir backend
 if not exist "logs" mkdir logs
 if not exist "bin" mkdir bin
 
+set "INSTALL_ROOT=%ProgramData%\LLMKeyRotator"
+if not exist "%INSTALL_ROOT%" mkdir "%INSTALL_ROOT%" >nul 2>&1
+
 echo %STEP% 5/7 preparando backend\.env e banco SQLite
 python scripts\bootstrap_env.py
 if errorlevel 1 (
@@ -121,7 +124,7 @@ echo %STEP% 7/7 registrando o servico automatico do Windows
 set "SERVICE_INSTALL_LOG=%TEMP%\llmkeyrotator-install-service.log"
 if exist "%SERVICE_INSTALL_LOG%" del /f /q "%SERVICE_INSTALL_LOG%" >nul 2>&1
 powershell -NoProfile -ExecutionPolicy Bypass -Command ^
-    "$repo = (Get-Location).Path; $log = '%SERVICE_INSTALL_LOG%'; $script = Join-Path $repo 'scripts\install-service.ps1'; $serviceArgs = @('-NoProfile','-ExecutionPolicy','Bypass','-File',$script,'-LogPath',$log,'-NoPause'); $p = Start-Process -FilePath powershell -ArgumentList $serviceArgs -WorkingDirectory $repo -Verb RunAs -Wait -PassThru; exit $p.ExitCode"
+    "$repo = (Get-Location).Path; $installRoot = Join-Path $env:ProgramData 'LLMKeyRotator'; $log = '%SERVICE_INSTALL_LOG%'; $script = Join-Path $repo 'scripts\install-service.ps1'; $serviceArgs = @('-NoProfile','-ExecutionPolicy','Bypass','-File',$script,'-SourceRoot',$repo,'-InstallRoot',$installRoot,'-LogPath',$log,'-NoPause'); $p = Start-Process -FilePath powershell -ArgumentList $serviceArgs -WorkingDirectory $installRoot -Verb RunAs -Wait -PassThru; exit $p.ExitCode"
 if errorlevel 1 (
     echo %ERR% Falha ao registrar o servico automatico do Windows.
     if exist "%SERVICE_INSTALL_LOG%" (

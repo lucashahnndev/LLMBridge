@@ -1,4 +1,6 @@
 param(
+    [string]$SourceRoot = "",
+    [string]$InstallRoot = "",
     [switch]$Uninstall,
     [switch]$RemoveFiles,
     [string]$LogPath = "",
@@ -34,8 +36,12 @@ Write-Host "=======================================================" -Foreground
 Write-Host ""
 
 $ScriptPath = Split-Path -Parent $MyInvocation.MyCommand.Definition
-$SourceRoot = Split-Path -Parent $ScriptPath
-$InstallRoot = if ($env:ProgramData) { Join-Path $env:ProgramData "LLMKeyRotator" } else { Join-Path $env:LOCALAPPDATA "LLMKeyRotator" }
+if (-not $SourceRoot) {
+    $SourceRoot = Split-Path -Parent $ScriptPath
+}
+if (-not $InstallRoot) {
+    $InstallRoot = if ($env:ProgramData) { Join-Path $env:ProgramData "LLMKeyRotator" } else { Join-Path $env:LOCALAPPDATA "LLMKeyRotator" }
+}
 $InstallScriptsRoot = Join-Path $InstallRoot "scripts"
 $InstallBackendRoot = Join-Path $InstallRoot "backend"
 $InstallFrontendRoot = Join-Path $InstallRoot "frontend"
@@ -44,7 +50,7 @@ $InstallRunScript = Join-Path $InstallScriptsRoot "run-service.ps1"
 $InstallEnvPath = Join-Path $InstallBackendRoot ".env"
 $InstallDbPath = Join-Path $InstallBackendRoot "database.db"
 $InstallLogsFolder = Join-Path $InstallRoot "logs"
-$NssmSourceFolder = Join-Path $SourceRoot "bin"
+$NssmSourceFolder = Join-Path $InstallRoot "bin"
 $NssmZip = Join-Path $NssmSourceFolder "nssm-2.24.zip"
 $NssmRoot = Join-Path $NssmSourceFolder "nssm-2.24"
 $ArchFolder = if ([Environment]::Is64BitOperatingSystem) { "win64" } else { "win32" }
