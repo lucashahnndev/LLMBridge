@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import codecs
 import json
 from typing import Annotated
 
@@ -38,6 +39,19 @@ def _extract_sse_payloads(raw_text: str) -> list[str]:
     return payloads
 
 
+def _extract_sse_payload_from_block(block: str) -> list[str]:
+    stripped_block = block.strip()
+    if not stripped_block:
+        return []
+    data_lines: list[str] = []
+    for line in stripped_block.splitlines():
+        if line.startswith("data:"):
+            data_lines.append(line[5:].lstrip())
+    if not data_lines:
+        return []
+    return ["\n".join(data_lines).strip()]
+
+
 def _anthropic_stream_events(message_id: str, model_name: str, openai_stream: StreamingResponse):
     async def generator() -> object:
         sent_block_starts: set[int] = set()
@@ -45,127 +59,146 @@ def _anthropic_stream_events(message_id: str, model_name: str, openai_stream: St
         stop_reason = "end_turn"
         usage: dict[str, int] = {"input_tokens": 0, "output_tokens": 0}
         message_started = False
-        try:
-            async for chunk in openai_stream.body_iterator:
-                if isinstance(chunk, bytes):
-                    chunk_text = chunk.decode("utf-8", errors="ignore")
-                else:
-                    chunk_text = str(chunk)
-                for payload in _extract_sse_payloads(chunk_text):
-                    if payload == "[DONE]":
-                        continue
-                    try:
-                        parsed = json.loads(payload)
-                    except json.JSONDecodeError:
-                        continue
-                    if not isinstance(parsed, dict):
-                        continue
-                    choices = parsed.get("choices")
-                    if not isinstance(choices, list) or not choices:
-                        continue
-                    choice = choices[0] if isinstance(choices[0], dict) else {}
-                    delta = choice.get("delta") if isinstance(choice, dict) else None
-                    if not message_started:
-                        message_started = True
+        decoder = codecs.getincrementaldecoder("utf-8")("replace")
+        buffer = ""
+
+        async def handle_payload(payload: str):
+            nonlocal message_started, content_block_index, stop_reason, usage
+            if payload == "[DONE]":
+                return
+            try:
+                parsed = json.loads(payload)
+            except json.JSONDecodeError:
+                return
+            if not isinstance(parsed, dict):
+                return
+            choices = parsed.get("choices")
+            if not isinstance(choices, list) or not choices:
+                return
+            choice = choices[0] if isinstance(choices[0], dict) else {}
+            delta = choice.get("delta") if isinstance(choice, dict) else None
+            if not message_started:
+                message_started = True
+                yield anthropic_sse_event(
+                    "message_start",
+                    {
+                        "type": "message_start",
+                        "message": {
+                            "id": message_id,
+                            "type": "message",
+                            "role": "assistant",
+                            "model": model_name,
+                            "content": [],
+                            "stop_reason": None,
+                            "stop_sequence": None,
+                            "usage": {
+                                "input_tokens": 0,
+                                "output_tokens": 0,
+                            },
+                        },
+                    },
+                )
+            if isinstance(delta, dict):
+                text = delta.get("content")
+                tool_calls = delta.get("tool_calls")
+                if isinstance(text, str) and text:
+                    if content_block_index not in sent_block_starts:
+                        sent_block_starts.add(content_block_index)
                         yield anthropic_sse_event(
-                            "message_start",
+                            "content_block_start",
                             {
-                                "type": "message_start",
-                                "message": {
-                                    "id": message_id,
-                                    "type": "message",
-                                    "role": "assistant",
-                                    "model": model_name,
-                                    "content": [],
-                                    "stop_reason": None,
-                                    "stop_sequence": None,
-                                    "usage": {
-                                        "input_tokens": 0,
-                                        "output_tokens": 0,
-                                    },
+                                "type": "content_block_start",
+                                "index": content_block_index,
+                                "content_block": {
+                                    "type": "text",
+                                    "text": "",
                                 },
                             },
                         )
-                    if isinstance(delta, dict):
-                        text = delta.get("content")
-                        tool_calls = delta.get("tool_calls")
-                        if isinstance(text, str) and text:
-                            if content_block_index not in sent_block_starts:
-                                sent_block_starts.add(content_block_index)
-                                yield anthropic_sse_event(
-                                    "content_block_start",
-                                    {
-                                        "type": "content_block_start",
-                                        "index": content_block_index,
-                                        "content_block": {
-                                            "type": "text",
-                                            "text": "",
-                                        },
-                                    },
-                                )
+                    yield anthropic_sse_event(
+                        "content_block_delta",
+                        {
+                            "type": "content_block_delta",
+                            "index": content_block_index,
+                            "delta": {
+                                "type": "text_delta",
+                                "text": text,
+                            },
+                        },
+                    )
+                if isinstance(tool_calls, list) and tool_calls:
+                    for tool_call in tool_calls:
+                        if not isinstance(tool_call, dict):
+                            continue
+                        function = tool_call.get("function")
+                        if not isinstance(function, dict):
+                            continue
+                        tool_name = function.get("name")
+                        if not isinstance(tool_name, str) or not tool_name.strip():
+                            continue
+                        if content_block_index not in sent_block_starts:
+                            sent_block_starts.add(content_block_index)
                             yield anthropic_sse_event(
-                                "content_block_delta",
+                                "content_block_start",
                                 {
-                                    "type": "content_block_delta",
+                                    "type": "content_block_start",
                                     "index": content_block_index,
-                                    "delta": {
-                                        "type": "text_delta",
-                                        "text": text,
+                                    "content_block": {
+                                        "type": "tool_use",
+                                        "id": tool_call.get("id") or f"tool_{content_block_index}",
+                                        "name": tool_name.strip(),
+                                        "input": {},
                                     },
                                 },
                             )
-                        if isinstance(tool_calls, list) and tool_calls:
-                            for tool_call in tool_calls:
-                                if not isinstance(tool_call, dict):
-                                    continue
-                                function = tool_call.get("function")
-                                if not isinstance(function, dict):
-                                    continue
-                                tool_name = function.get("name")
-                                if not isinstance(tool_name, str) or not tool_name.strip():
-                                    continue
-                                if content_block_index not in sent_block_starts:
-                                    sent_block_starts.add(content_block_index)
-                                    yield anthropic_sse_event(
-                                        "content_block_start",
-                                        {
-                                            "type": "content_block_start",
-                                            "index": content_block_index,
-                                            "content_block": {
-                                                "type": "tool_use",
-                                                "id": tool_call.get("id") or f"tool_{content_block_index}",
-                                                "name": tool_name.strip(),
-                                                "input": {},
-                                            },
-                                        },
-                                    )
-                                yield anthropic_sse_event(
-                                    "content_block_delta",
-                                    {
-                                        "type": "content_block_delta",
-                                        "index": content_block_index,
-                                        "delta": {
-                                            "type": "input_json_delta",
-                                            "partial_json": function.get("arguments") or "{}",
-                                        },
-                                    },
-                                )
-                            content_block_index += 1
+                        yield anthropic_sse_event(
+                            "content_block_delta",
+                            {
+                                "type": "content_block_delta",
+                                "index": content_block_index,
+                                "delta": {
+                                    "type": "input_json_delta",
+                                    "partial_json": function.get("arguments") or "{}",
+                                },
+                            },
+                        )
+                    content_block_index += 1
 
-                    finish_reason = choice.get("finish_reason")
-                    if isinstance(finish_reason, str) and finish_reason:
-                        stop_reason = {
-                            "stop": "end_turn",
-                            "length": "max_tokens",
-                            "tool_calls": "tool_use",
-                            "function_call": "tool_use",
-                            "content_filter": "refusal",
-                        }.get(finish_reason, stop_reason)
+            finish_reason = choice.get("finish_reason")
+            if isinstance(finish_reason, str) and finish_reason:
+                stop_reason = {
+                    "stop": "end_turn",
+                    "length": "max_tokens",
+                    "tool_calls": "tool_use",
+                    "function_call": "tool_use",
+                    "content_filter": "refusal",
+                }.get(finish_reason, stop_reason)
 
-                    if isinstance(parsed.get("usage"), dict):
-                        usage_payload = parsed["usage"]
-                        usage["input_tokens"] = int(usage_payload.get("prompt_tokens") or usage["input_tokens"])
-                        usage["output_tokens"] = int(usage_payload.get("completion_tokens") or usage["output_tokens"])
+            if isinstance(parsed.get("usage"), dict):
+                usage_payload = parsed["usage"]
+                usage["input_tokens"] = int(usage_payload.get("prompt_tokens") or usage["input_tokens"])
+                usage["output_tokens"] = int(usage_payload.get("completion_tokens") or usage["output_tokens"])
+
+        try:
+            async for chunk in openai_stream.body_iterator:
+                if isinstance(chunk, bytes):
+                    chunk_text = decoder.decode(chunk)
+                else:
+                    chunk_text = str(chunk)
+                buffer += chunk_text
+                while "\n\n" in buffer:
+                    block, buffer = buffer.split("\n\n", 1)
+                    for payload in _extract_sse_payload_from_block(block):
+                        async for event in handle_payload(payload):
+                            yield event
+
+            tail = decoder.decode(b"", final=True)
+            if tail:
+                buffer += tail
+            if buffer.strip():
+                for payload in _extract_sse_payload_from_block(buffer):
+                    async for event in handle_payload(payload):
+                        yield event
 
             if message_started:
                 for index in sorted(sent_block_starts):

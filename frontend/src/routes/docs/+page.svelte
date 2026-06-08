@@ -74,6 +74,16 @@ console.log(data.content[0].text);`;
   ]
 }`;
 
+  const openaiCurl = `curl -X POST http://127.0.0.1:8009/v1/chat/completions \\
+  -H "Authorization: Bearer my-app-token" \\
+  -H "Content-Type: application/json" \\
+  -d '{
+    "model": "queue/production",
+    "messages": [
+      { "role": "user", "content": "Say hello." }
+    ]
+  }'`;
+
   onMount(() => {
     // Redoc style scroll spy could go here
   });
@@ -186,6 +196,9 @@ console.log(data.content[0].text);`;
       <div class="api-code">
         <div class="code-panel">
           <div class="code-header">AUTHORIZATION HEADER</div>
+          <button class="copy-btn" on:click={() => copySnippet('auth', 'Authorization: Bearer my-app-token')}>
+            {#if copiedId === 'auth'}<CheckCircle2 size={14}/>{:else}<Copy size={14}/>{/if}
+          </button>
           <pre><code>Authorization: Bearer my-app-token</code></pre>
         </div>
       </div>
@@ -213,7 +226,7 @@ console.log(data.content[0].text);`;
             </tr>
             <tr>
               <td><span class="badge cooldown">COOLDOWN</span></td>
-              <td>Key is temporarily suspended due to 429 Too Many Requests or 500 errors.</td>
+              <td>Key is suspended due to 429 Too Many Requests or 500 errors.</td>
             </tr>
             <tr>
               <td><span class="badge invalid">INVALID</span></td>
@@ -323,9 +336,27 @@ console.log(data.content[0].text);`;
         </div>
         <h2>Create Chat Completion (OpenAI Protocol)</h2>
         <p>Provides a native OpenAI-compatible API interface. Downstream providers are translated back into the OpenAI schema.</p>
+        
+        <h3>Body Parameters</h3>
+        <ul class="param-list">
+          <li>
+            <div class="param-name">model <span class="param-type">string</span> <span class="param-req">required</span></div>
+            <div class="param-desc">The routing target. Use <code>queue/&lt;name&gt;</code> or <code>&lt;provider&gt;/&lt;model&gt;</code>.</div>
+          </li>
+          <li>
+            <div class="param-name">messages <span class="param-type">array</span> <span class="param-req">required</span></div>
+            <div class="param-desc">An array of message objects (role, content).</div>
+          </li>
+        </ul>
       </div>
       <div class="api-code">
-        <!-- Optional code block for OpenAI -->
+        <div class="code-panel">
+          <div class="code-header">Example Request (cURL)</div>
+          <button class="copy-btn" on:click={() => copySnippet('openaicurl', openaiCurl)}>
+            {#if copiedId === 'openaicurl'}<CheckCircle2 size={14}/>{:else}<Copy size={14}/>{/if}
+          </button>
+          <pre><code>{openaiCurl}</code></pre>
+        </div>
       </div>
     </div>
 
@@ -382,38 +413,42 @@ console.log(data.content[0].text);`;
 </div>
 
 <style>
-  /* Redoc uses a very distinct color palette and layout */
+  /* Base Variables - Hardcoded Light/Dark Redoc Split */
   :root {
-    --rd-bg-left: #ffffff;
-    --rd-bg-right: #1e2227; /* Dark panel for code */
+    --rd-bg-text: #ffffff;
+    --rd-bg-code: #1e2227; 
     --rd-sidebar-bg: #f4f5f7;
-    --rd-sidebar-width: 260px;
-    --rd-text: #333333;
+    --rd-sidebar-width: 280px;
+    
+    --rd-text-main: #333333;
     --rd-text-muted: #666666;
+    --rd-text-code: #c9d1d9;
     --rd-border: #e0e0e0;
     --rd-accent: #0065ff;
-    --rd-font-main: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu, Cantarell, "Fira Sans", "Droid Sans", "Helvetica Neue", sans-serif;
+    
+    --rd-font-main: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu, Cantarell, "Helvetica Neue", sans-serif;
     --rd-font-code: "Source Code Pro", Consolas, Inconsolata, "Liberation Mono", Courier, monospace;
   }
 
-  /* Support for Dark Mode - Inverts left side, keeps right side dark */
+  /* Support for global dark mode toggles: If the user prefers dark mode, flip the text column to dark */
   @media (prefers-color-scheme: dark) {
     :root {
-      --rd-bg-left: #0d1117;
-      --rd-bg-right: #161b22; 
+      --rd-bg-text: #0d1117;
+      --rd-bg-code: #161b22; 
       --rd-sidebar-bg: #090c10;
-      --rd-text: #c9d1d9;
+      --rd-text-main: #c9d1d9;
       --rd-text-muted: #8b949e;
       --rd-border: #30363d;
       --rd-accent: #58a6ff;
     }
   }
 
+  /* Reset layout constraints to ensure absolute override over app.css */
   :global(body[data-route="docs"]) {
-    margin: 0;
-    padding: 0;
-    background-color: var(--rd-bg-left);
-    color: var(--rd-text);
+    margin: 0 !important;
+    padding: 0 !important;
+    background-color: var(--rd-bg-text) !important;
+    background-image: none !important; /* Strip any global gradients */
   }
 
   /* Overall Layout */
@@ -421,7 +456,10 @@ console.log(data.content[0].text);`;
     display: flex;
     min-height: 100vh;
     font-family: var(--rd-font-main);
-    line-height: 1.5;
+    line-height: 1.6;
+    background: var(--rd-bg-text);
+    position: relative;
+    z-index: 100; /* Ensure we sit above global app wrappers */
   }
 
   /* Sidebar */
@@ -434,13 +472,14 @@ console.log(data.content[0].text);`;
     top: 0;
     height: 100vh;
     overflow-y: auto;
+    overflow-x: hidden;
     display: flex;
     flex-direction: column;
     z-index: 10;
   }
 
   .sidebar-header {
-    padding: 1.5rem 1rem;
+    padding: 1.5rem 1.25rem;
     display: flex;
     flex-direction: column;
     gap: 0.2rem;
@@ -448,8 +487,9 @@ console.log(data.content[0].text);`;
   }
 
   .sidebar-header strong {
-    font-size: 1.2rem;
-    color: var(--rd-text);
+    font-size: 1.25rem;
+    color: var(--rd-text-main);
+    font-weight: 600;
   }
 
   .sidebar-header span {
@@ -458,17 +498,18 @@ console.log(data.content[0].text);`;
   }
 
   .sidebar-search {
-    padding: 1rem;
+    padding: 1rem 1.25rem;
   }
 
   .sidebar-search input {
     width: 100%;
-    padding: 0.5rem;
+    padding: 0.6rem;
     border: 1px solid var(--rd-border);
     border-radius: 4px;
     background: transparent;
-    color: var(--rd-text);
+    color: var(--rd-text-main);
     font-family: var(--rd-font-main);
+    box-sizing: border-box;
   }
 
   .sidebar-nav {
@@ -480,24 +521,25 @@ console.log(data.content[0].text);`;
   .nav-section {
     display: flex;
     flex-direction: column;
-    margin-top: 1rem;
+    margin-top: 1.5rem;
   }
 
   .nav-section strong {
     font-size: 0.75rem;
     text-transform: uppercase;
     color: var(--rd-text-muted);
-    padding: 0.5rem 1rem;
+    padding: 0.5rem 1.25rem;
     letter-spacing: 0.05em;
+    font-weight: 600;
   }
 
   .nav-section a {
     text-decoration: none;
-    color: var(--rd-text);
+    color: var(--rd-text-main);
     font-size: 0.9rem;
-    padding: 0.4rem 1rem;
+    padding: 0.4rem 1.25rem;
     border-left: 3px solid transparent;
-    transition: background 0.1s, border-color 0.1s;
+    transition: background 0.1s, border-color 0.1s, color 0.1s;
   }
 
   .nav-section a:hover {
@@ -505,21 +547,20 @@ console.log(data.content[0].text);`;
     color: var(--rd-accent);
   }
 
-  /* Main Content Area - Split Background Hack */
+  /* Main Content Area */
   .redoc-main {
     flex-grow: 1;
     position: relative;
-    /* Redoc uses a 50/50 split or 60/40. We do 50/50 for simplicity */
-    background: linear-gradient(to right, var(--rd-bg-left) 50%, var(--rd-bg-right) 50%);
+    /* Redoc uses a 50/50 split */
+    background: linear-gradient(to right, var(--rd-bg-text) 50%, var(--rd-bg-code) 50%);
     display: flex;
     flex-direction: column;
-    min-width: 0; /* Prevent overflow */
+    min-width: 0;
   }
 
   @media (max-width: 1000px) {
-    /* Stack layout on smaller screens */
     .redoc-main {
-      background: var(--rd-bg-left);
+      background: var(--rd-bg-text);
     }
   }
 
@@ -527,7 +568,6 @@ console.log(data.content[0].text);`;
   .api-section {
     display: flex;
     width: 100%;
-    border-bottom: 1px solid var(--rd-border);
   }
 
   @media (max-width: 1000px) {
@@ -539,63 +579,69 @@ console.log(data.content[0].text);`;
   /* Text Half (Left) */
   .api-text {
     flex: 1;
-    padding: 3rem;
-    background: var(--rd-bg-left);
-    max-width: 800px;
+    padding: 3.5rem;
+    background: var(--rd-bg-text);
+    color: var(--rd-text-main);
+    border-bottom: 1px solid var(--rd-border);
   }
 
   /* Code Half (Right) */
   .api-code {
     flex: 1;
-    padding: 3rem;
-    background: var(--rd-bg-right);
+    padding: 3.5rem;
+    background: var(--rd-bg-code);
     display: flex;
     flex-direction: column;
     gap: 1.5rem;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.05); /* Subtle dark border */
   }
 
   @media (max-width: 1000px) {
     .api-text {
-      padding: 2rem 1.5rem;
+      padding: 2.5rem 1.5rem;
+      border-bottom: none;
     }
     .api-code {
       padding: 2rem 1.5rem;
+      border-bottom: 1px solid var(--rd-border);
     }
   }
 
-  /* Typography inside Text Area */
+  /* Typography */
   .api-text h1 {
     font-size: 2.2rem;
     margin: 0 0 1rem 0;
-    font-weight: 400;
+    font-weight: 500;
+    color: var(--rd-text-main);
   }
 
   .api-text h2 {
     font-size: 1.6rem;
     margin: 0 0 1rem 0;
-    font-weight: 400;
+    font-weight: 500;
+    color: var(--rd-text-main);
   }
 
   .api-text h3 {
     font-size: 1.1rem;
-    margin: 1.5rem 0 0.5rem 0;
+    margin: 2rem 0 0.75rem 0;
     font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-    color: var(--rd-text-muted);
+    color: var(--rd-text-main);
   }
 
   .api-text p {
     margin: 0 0 1rem 0;
     line-height: 1.6;
+    color: var(--rd-text-main);
   }
 
   .api-text code {
     background: rgba(128, 128, 128, 0.15);
-    padding: 0.15em 0.3em;
-    border-radius: 3px;
+    padding: 0.15em 0.35em;
+    border-radius: 4px;
     font-family: var(--rd-font-code);
     font-size: 0.85em;
+    color: var(--rd-text-main);
   }
 
   /* Parameter Lists */
@@ -606,8 +652,8 @@ console.log(data.content[0].text);`;
   }
 
   .param-list li {
-    padding: 1rem 0;
-    border-bottom: 1px dashed var(--rd-border);
+    padding: 1.25rem 0;
+    border-bottom: 1px solid var(--rd-border);
   }
 
   .param-list li:last-child {
@@ -618,7 +664,8 @@ console.log(data.content[0].text);`;
     font-family: var(--rd-font-code);
     font-weight: 600;
     font-size: 0.9rem;
-    margin-bottom: 0.25rem;
+    margin-bottom: 0.35rem;
+    color: var(--rd-text-main);
   }
 
   .param-type {
@@ -647,24 +694,24 @@ console.log(data.content[0].text);`;
     border: 1px solid var(--rd-border);
     border-radius: 4px;
     overflow: hidden;
-    margin-bottom: 1rem;
+    margin-bottom: 1.5rem;
     font-family: var(--rd-font-code);
     font-size: 0.85rem;
   }
 
   .method {
-    padding: 0.2rem 0.5rem;
+    padding: 0.3rem 0.6rem;
     font-weight: 600;
     color: white;
   }
 
-  .method.post {
-    background-color: #2da44e; /* GitHub green */
-  }
+  .method.post { background-color: #2da44e; }
+  .method.get { background-color: #0969da; }
 
   .path {
-    padding: 0.2rem 0.5rem;
+    padding: 0.3rem 0.6rem;
     background: rgba(128, 128, 128, 0.05);
+    color: var(--rd-text-main);
   }
 
   /* Callouts */
@@ -673,41 +720,44 @@ console.log(data.content[0].text);`;
     gap: 0.75rem;
     padding: 1rem;
     border-radius: 4px;
-    background: rgba(128, 128, 128, 0.05);
-    margin: 1rem 0;
+    background: var(--rd-sidebar-bg);
+    margin: 1.5rem 0;
+    border: 1px solid var(--rd-border);
   }
 
-  .callout-warning { border-left: 3px solid #d29922; }
+  .callout-warning { border-left: 4px solid #d29922; }
   .callout-warning :global(svg) { color: #d29922; flex-shrink: 0; margin-top: 0.1rem; }
-  .callout-info { border-left: 3px solid var(--rd-accent); }
+  .callout-info { border-left: 4px solid var(--rd-accent); }
   .callout-info :global(svg) { color: var(--rd-accent); flex-shrink: 0; margin-top: 0.1rem; }
 
-  .callout strong { display: block; margin-bottom: 0.2rem; }
-  .callout p { margin: 0; font-size: 0.9rem; }
+  .callout strong { display: block; margin-bottom: 0.2rem; color: var(--rd-text-main); }
+  .callout p { margin: 0; font-size: 0.9rem; color: var(--rd-text-muted); }
 
   /* Tables */
   .redoc-table {
     width: 100%;
     border-collapse: collapse;
-    margin: 1rem 0;
+    margin: 1.5rem 0;
     font-size: 0.9rem;
   }
 
   .redoc-table th,
   .redoc-table td {
-    padding: 0.75rem;
+    padding: 0.85rem 1rem;
     text-align: left;
     border-bottom: 1px solid var(--rd-border);
+    color: var(--rd-text-main);
   }
 
   .redoc-table th {
     color: var(--rd-text-muted);
     font-weight: 600;
+    background: var(--rd-sidebar-bg);
   }
 
   /* Badges */
   .badge {
-    padding: 0.15rem 0.4rem;
+    padding: 0.2rem 0.5rem;
     border-radius: 3px;
     font-size: 0.7rem;
     font-weight: 600;
@@ -719,18 +769,19 @@ console.log(data.content[0].text);`;
 
   /* Code Panels (Right Side) */
   .code-panel {
-    background: #0d1117; /* Very dark for contrast */
+    background: #0d1117; /* GitHub Dark Dimmed background */
     border-radius: 6px;
     border: 1px solid rgba(255, 255, 255, 0.1);
     position: relative;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.15);
   }
 
   .code-header {
-    background: rgba(255, 255, 255, 0.05);
-    padding: 0.5rem 1rem;
+    background: rgba(255, 255, 255, 0.03);
+    padding: 0.6rem 1rem;
     font-size: 0.75rem;
     color: #8b949e;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
     border-radius: 6px 6px 0 0;
     font-weight: 600;
     text-transform: uppercase;
@@ -739,28 +790,32 @@ console.log(data.content[0].text);`;
 
   .code-panel pre {
     margin: 0;
-    padding: 1rem;
+    padding: 1.25rem 1rem;
     overflow-x: auto;
   }
 
   .code-panel code {
     font-family: var(--rd-font-code);
-    font-size: 0.8rem;
-    color: #c9d1d9;
+    font-size: 0.85rem;
+    color: #c9d1d9; /* Light grey code */
     line-height: 1.5;
+    background: transparent;
   }
 
   .copy-btn {
     position: absolute;
-    top: 0.35rem;
+    top: 0.45rem;
     right: 0.5rem;
     background: transparent;
     border: none;
     color: #8b949e;
     cursor: pointer;
-    padding: 0.2rem;
-    border-radius: 3px;
-    transition: color 0.1s, background 0.1s;
+    padding: 0.3rem;
+    border-radius: 4px;
+    transition: color 0.15s, background 0.15s;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
   }
 
   .copy-btn:hover {
@@ -769,20 +824,20 @@ console.log(data.content[0].text);`;
   }
 
   .response-panel .code-header {
-    color: #3fb950; /* Green tint for successful response */
+    color: #3fb950;
   }
 
   .api-footer {
-    padding: 2rem;
+    padding: 3rem;
     text-align: center;
     color: var(--rd-text-muted);
     font-size: 0.85rem;
-    background: var(--rd-bg-left);
+    background: var(--rd-bg-text);
   }
 
-  @media (max-width: 768px) {
+  @media (max-width: 800px) {
     .redoc-sidebar {
-      display: none; /* In a real app we'd need a hamburger menu */
+      display: none;
     }
   }
 </style>

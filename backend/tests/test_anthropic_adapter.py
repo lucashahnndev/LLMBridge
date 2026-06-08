@@ -22,6 +22,9 @@ class AnthropicAdapterTest(unittest.TestCase):
     def test_anthropic_route_streams_openai_style_sse_as_anthropic_events(self) -> None:
         asyncio.run(self._run_stream())
 
+    def test_anthropic_route_handles_split_sse_chunks_without_losing_text(self) -> None:
+        asyncio.run(self._run_split_stream())
+
     async def _create_session(self):
         temp_dir = tempfile.TemporaryDirectory()
         db_path = Path(temp_dir.name) / "anthropic-adapter.sqlite"
@@ -230,6 +233,96 @@ class AnthropicAdapterTest(unittest.TestCase):
             self.assertIn("event: content_block_start", payload_text)
             self.assertIn("event: message_delta", payload_text)
             self.assertIn("event: message_stop", payload_text)
+        finally:
+            await session.close()
+            await engine.dispose()
+            temp_dir.cleanup()
+
+    async def _run_split_stream(self) -> None:
+        temp_dir, engine, session, app_token = await self._create_session()
+        try:
+            chunk_one = (
+                "data: "
+                + json.dumps(
+                    {
+                        "id": "chatcmpl-stream-2",
+                        "object": "chat.completion.chunk",
+                        "created": 1_719_000_010,
+                        "model": "gemini-3-flash-preview",
+                        "choices": [
+                            {
+                                "index": 0,
+                                "delta": {"role": "assistant", "content": "Hello "},
+                                "finish_reason": None,
+                            }
+                        ],
+                    }
+                )
+            )
+            chunk_two = (
+                "\n\n"
+                + "data: "
+                + json.dumps(
+                    {
+                        "id": "chatcmpl-stream-2",
+                        "object": "chat.completion.chunk",
+                        "created": 1_719_000_011,
+                        "model": "gemini-3-flash-preview",
+                        "choices": [
+                            {
+                                "index": 0,
+                                "delta": {"content": "world"},
+                                "finish_reason": "stop",
+                            }
+                        ],
+                    }
+                )
+                + "\n\n"
+                + "data: [DONE]\n\n"
+            )
+
+            async def upstream_stream():
+                yield chunk_one[: len(chunk_one) // 2].encode("utf-8")
+                yield chunk_one[len(chunk_one) // 2 :].encode("utf-8")
+                yield chunk_two[: len(chunk_two) // 3].encode("utf-8")
+                yield chunk_two[len(chunk_two) // 3 :].encode("utf-8")
+
+            class FakeStreamResponse:
+                def __init__(self) -> None:
+                    self.body_iterator = upstream_stream()
+
+            async def fake_proxy_chat_completion_stream(*args, **kwargs):
+                _ = args, kwargs
+                return FakeStreamResponse()
+
+            payload = AnthropicMessagesRequest(
+                model="google/gemini-3.1-flash",
+                max_tokens=256,
+                stream=True,
+                messages=[
+                    {
+                        "role": "user",
+                        "content": "Say hello.",
+                    }
+                ],
+            )
+
+            with patch("backend.app.routes.messages.proxy_chat_completion_stream", side_effect=fake_proxy_chat_completion_stream):
+                response = await anthropic_messages_route(payload, session, app_token)
+
+            chunks: list[str] = []
+            async for chunk in response.body_iterator:
+                if isinstance(chunk, bytes):
+                    chunks.append(chunk.decode("utf-8"))
+                else:
+                    chunks.append(str(chunk))
+
+            payload_text = "".join(chunks)
+            self.assertIn("event: message_start", payload_text)
+            self.assertIn("event: content_block_delta", payload_text)
+            self.assertIn("event: message_stop", payload_text)
+            self.assertIn("Hello ", payload_text)
+            self.assertIn("world", payload_text)
         finally:
             await session.close()
             await engine.dispose()
