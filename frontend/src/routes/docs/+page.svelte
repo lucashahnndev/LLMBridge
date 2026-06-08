@@ -1,78 +1,39 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import {
-    Copy,
-    KeyRound,
-    Layers3,
-    PlugZap,
-    Server,
-    Settings2,
-    ShieldCheck,
-    WandSparkles
-  } from 'lucide-svelte';
-
-  type DocSection = {
-    id: string;
-    label: string;
-    eyebrow: string;
-    title: string;
-    body: string;
-  };
+  import { Copy, Terminal, CheckCircle2, AlertCircle, Info, BookOpen } from 'lucide-svelte';
 
   type Snippet = {
     id: string;
-    title: string;
-    description: string;
     code: string;
-    language: string;
   };
 
-  const sections: DocSection[] = [
-    {
-      id: 'quickstart',
-      eyebrow: 'Start here',
-      title: 'Order of use',
-      body:
-        'Set the runtime, create your app token, register provider keys, then group them into queues. The proxy keeps the public contract stable while routing and rotating behind the scenes.'
-    },
-    {
-      id: 'convention',
-      eyebrow: 'Routing',
-      title: 'Model convention',
-      body:
-        'Use direct routes for real provider/model pairs. Use queues when you want ordered fallback, smart ranking, or latency-aware routing.'
-    },
-    {
-      id: 'claude-code',
-      eyebrow: 'Client setup',
-      title: 'Claude Code',
-      body:
-        'Point Claude Code to the gateway with Anthropic-compatible settings. The gateway accepts Anthropic-style traffic and normalizes the response shape for the provider behind the queue.'
-    },
-    {
-      id: 'examples',
-      eyebrow: 'Usage',
-      title: 'Request examples',
-      body:
-        'The same gateway can serve OpenAI-like consumers and Anthropic-like consumers. Use the direct provider route when you want one model; use queue aliases when you want rotation and fallback.'
-    },
-    {
-      id: 'ops',
-      eyebrow: 'Operations',
-      title: 'Run it safely',
-      body:
-        'Keep the service running as a single Linux or Windows service, restart it after runtime changes, and use the dashboard for the health and telemetry view.'
-    }
-  ];
+  let copiedId = '';
 
-  const snippets: Snippet[] = [
-    {
-      id: 'settings-json',
-      title: 'VS Code / Claude Code settings',
-      description:
-        'Use this shape in the Claude Code settings file or in the VS Code integration settings that expose claudeCode.* keys.',
-      language: 'json',
-      code: `{
+  async function copySnippet(snippet: Snippet) {
+    try {
+      await navigator.clipboard.writeText(snippet.code);
+      copiedId = snippet.id;
+      window.setTimeout(() => {
+        if (copiedId === snippet.id) {
+          copiedId = '';
+        }
+      }, 2000);
+    } catch {
+      // fallback handling if needed
+    }
+  }
+
+  const curlExample = `curl -X POST http://127.0.0.1:8009/v1/messages \\
+  -H "Authorization: Bearer my-app-token" \\
+  -H "Content-Type: application/json" \\
+  -d '{
+    "model": "queue/production",
+    "messages": [
+      { "role": "user", "content": "Hello, how are you?" }
+    ]
+  }'`;
+
+  const claudeCodeSettings = `{
   "claudeCode.preferredLocation": "panel",
   "claudeCode.environmentVariables": [
     {
@@ -81,678 +42,681 @@
     },
     {
       "name": "ANTHROPIC_AUTH_TOKEN",
-      "value": "lk-key-I9rd48IM8vjUh_PsUTFEhFubh0rsq2R-"
+      "value": "my-app-token"
     },
     {
       "name": "ANTHROPIC_MODEL",
-      "value": "queue/gemini"
+      "value": "queue/production"
     }
   ]
-}`
-    },
-    {
-      id: 'direct-route',
-      title: 'Direct provider route',
-      description: 'Use the real provider/model path when you know the exact backend target.',
-      language: 'bash',
-      code: `POST /v1/chat/completions
-{
-  "model": "google/gemini-3.1-flash",
-  "messages": [
-    { "role": "user", "content": "Resuma este texto." }
-  ]
-}`
-    },
-    {
-      id: 'queue-route',
-      title: 'Queue route',
-      description: 'Use a queue alias to let the proxy try models in the configured order or strategy.',
-      language: 'bash',
-      code: `POST /v1/messages
-{
-  "model": "queue/gemini",
-  "messages": [
-    { "role": "user", "content": "olá" }
-  ]
-}`
-    }
-  ];
+}`;
 
-  const quickSteps = [
-    {
-      title: 'Set the runtime',
-      text: 'Confirm HOST and PORT in backend/.env, then start the service. The dashboard reads the runtime from the backend and shows the active base URL.'
-    },
-    {
-      title: 'Create an app token',
-      text: 'Use an app token for each consumer project. This is the public token clients send to the gateway.'
-    },
-    {
-      title: 'Add provider keys',
-      text: 'Register one or more keys per provider. The proxy rotates through eligible keys when a call fails or a key is in cooldown.'
-    },
-    {
-      title: 'Build queues',
-      text: 'Create queues when you want ordered fallback, smart ranking, or latency-aware routing across provider/model candidates.'
-    }
-  ];
+  const jsExample = `const response = await fetch('http://127.0.0.1:8009/v1/messages', {
+  method: 'POST',
+  headers: {
+    'Authorization': 'Bearer my-app-token',
+    'Content-Type': 'application/json'
+  },
+  body: JSON.stringify({
+    model: 'google/gemini-3.1-flash',
+    messages: [{ role: 'user', content: 'Explain quantum computing.' }]
+  })
+});
 
-  const queueStrategies = [
-    {
-      name: 'ordered',
-      text: 'Always follows the candidate order from top to bottom.'
-    },
-    {
-      name: 'smart',
-      text: 'Re-ranks candidates using observed failures, latency, and success history.'
-    },
-    {
-      name: 'latency',
-      text: 'Prefers faster candidates when several are available.'
-    }
-  ];
-
-  let copiedId = '';
-  let copyError = '';
-
-  async function copySnippet(snippet: Snippet) {
-    copyError = '';
-    try {
-      await navigator.clipboard.writeText(snippet.code);
-      copiedId = snippet.id;
-      window.setTimeout(() => {
-        if (copiedId === snippet.id) {
-          copiedId = '';
-        }
-      }, 1800);
-    } catch {
-      copyError = 'Copy failed in this browser.';
-    }
-  }
+const data = await response.json();
+console.log(data.content[0].text);`;
 
   onMount(() => {
-    document.documentElement.dataset.route = 'docs';
+    // Allows highlighting or smooth scrolling
   });
 </script>
 
 <svelte:head>
-  <title>LLMKeyRotator Docs</title>
-  <meta
-    name="description"
-    content="Technical documentation for LLMKeyRotator, queue routing, provider keys, app tokens, and Claude Code setup."
-  />
+  <title>LLMKeyRotator Documentation</title>
 </svelte:head>
 
-<main class="docs-shell">
-  <aside class="docs-nav">
-    <div class="docs-brand">
-      <span class="docs-eyebrow">LLMKeyRotator</span>
-      <h1>Docs</h1>
-      <p>Technical usage guide for the gateway, queues, and client integrations.</p>
+<div class="docs-layout">
+  <aside class="docs-sidebar">
+    <div class="sidebar-header">
+      <BookOpen size={20} />
+      <span>LLMKeyRotator</span>
     </div>
-
-    <nav>
-      {#each sections as section}
-        <a href={`#${section.id}`} class="docs-nav-link">
-          <span>{section.eyebrow}</span>
-          <strong>{section.title}</strong>
-        </a>
-      {/each}
+    <nav class="sidebar-nav">
+      <div class="nav-group">
+        <strong>Getting Started</strong>
+        <a href="#overview">Overview</a>
+        <a href="#quickstart">Quickstart</a>
+        <a href="#runtime-setup">Runtime Setup</a>
+      </div>
+      <div class="nav-group">
+        <strong>Core Concepts</strong>
+        <a href="#app-tokens">App Tokens</a>
+        <a href="#provider-keys">Provider Keys</a>
+        <a href="#queues">Queues & Routing</a>
+      </div>
+      <div class="nav-group">
+        <strong>API Reference</strong>
+        <a href="#authentication">Authentication</a>
+        <a href="#endpoints">Endpoints</a>
+        <a href="#examples">Examples</a>
+      </div>
+      <div class="nav-group">
+        <strong>Operations</strong>
+        <a href="#errors">Errors & Troubleshooting</a>
+        <a href="#telemetry">Telemetry & Limits</a>
+      </div>
     </nav>
-
-    <div class="docs-side-note">
-      <span class="docs-icon"><ShieldCheck size={16} /></span>
-      <span>OpenAI-like output on the public proxy, Anthropic-like adapter at /v1/messages.</span>
-    </div>
   </aside>
 
-  <section class="docs-main">
-    <header class="docs-hero">
-      <div>
-        <span class="docs-eyebrow">Control plane docs</span>
-        <h2>Use the gateway in the right order.</h2>
-        <p>
-          This gateway is built around three primitives: app tokens, provider keys, and model queues.
-          Configure the runtime first, then create the public token, then add provider credentials,
-          and finally map them into queues for ordered fallback or smart routing.
-        </p>
-      </div>
-      <div class="docs-hero-card">
-        <div class="hero-stat">
-          <span>Routes</span>
-          <strong>provider/model · queue/name</strong>
-        </div>
-        <div class="hero-stat">
-          <span>Protocols</span>
-          <strong>OpenAI-like · Anthropic-like</strong>
-        </div>
-        <div class="hero-stat">
-          <span>Focus</span>
-          <strong>Rotation, fallback, telemetry</strong>
-        </div>
-      </div>
-    </header>
-
-    <section class="docs-panel" id="quickstart">
-      <div class="panel-head">
-        <span class="panel-eyebrow">Start here</span>
-        <h3>Order of use</h3>
-      </div>
-
-      <div class="step-grid">
-        {#each quickSteps as step, index}
-          <article class="step-card">
-            <span class="step-index">0{index + 1}</span>
-            <h4>{step.title}</h4>
-            <p>{step.text}</p>
-          </article>
-        {/each}
-      </div>
-    </section>
-
-    <section class="docs-panel" id="convention">
-      <div class="panel-head">
-        <span class="panel-eyebrow">Routing</span>
-        <h3>Model convention</h3>
-      </div>
-
-      <div class="convention-grid">
-        <article class="callout">
-          <span class="docs-icon"><Layers3 size={18} /></span>
-          <div>
-            <strong>Direct route</strong>
-            <p>Use <code>provider/model</code> when you want a specific upstream model path.</p>
-          </div>
-        </article>
-        <article class="callout">
-          <span class="docs-icon"><WandSparkles size={18} /></span>
-          <div>
-            <strong>Queue route</strong>
-            <p>Use <code>queue/name</code> when you want the proxy to try a configured list.</p>
-          </div>
-        </article>
-      </div>
-
-      <div class="queue-strategies">
-        {#each queueStrategies as strategy}
-          <article class="strategy-pill">
-            <strong>{strategy.name}</strong>
-            <span>{strategy.text}</span>
-          </article>
-        {/each}
-      </div>
-    </section>
-
-    <section class="docs-panel" id="claude-code">
-      <div class="panel-head">
-        <span class="panel-eyebrow">Client setup</span>
-        <h3>Claude Code</h3>
-      </div>
-
-      <p class="panel-text">
-        Claude Code can point at the gateway through Anthropic-compatible settings. Use your app
-        token as the auth token, and point the model at a queue alias so the proxy can rotate and
-        fall back behind the scenes.
+  <main class="docs-content">
+    <div class="content-wrapper">
+      <h1 id="overview">Documentation</h1>
+      <p class="lead">
+        LLMKeyRotator is an AI API Gateway designed to stabilize upstream provider APIs. It acts as a middle layer, receiving requests from your applications and routing them to external providers with built-in failover, load balancing, and rotation logic.
       </p>
 
-      <div class="snippet-grid">
-        {#each snippets.filter((snippet) => snippet.id === 'settings-json') as snippet}
-          <article class="snippet-card">
-            <div class="snippet-head">
-              <div>
-                <span>{snippet.language.toUpperCase()}</span>
-                <h4>{snippet.title}</h4>
-              </div>
-              <button type="button" class="copy-btn" on:click={() => copySnippet(snippet)}>
-                <Copy size={14} />
-                {copiedId === snippet.id ? 'Copied' : 'Copy'}
-              </button>
-            </div>
-            <p>{snippet.description}</p>
-            <pre><code>{snippet.code}</code></pre>
-          </article>
-        {/each}
-      </div>
-    </section>
+      <hr />
 
-    <section class="docs-panel" id="examples">
-      <div class="panel-head">
-        <span class="panel-eyebrow">Usage</span>
-        <h3>Request examples</h3>
-      </div>
+      <h2 id="quickstart">Quickstart</h2>
+      <p>To start routing requests through the gateway, follow this strict sequence of operations in the Admin Dashboard:</p>
+      
+      <ol class="docs-list">
+        <li><strong>Configure runtime:</strong> Set the backend host and port in the runtime config and ensure the service is running.</li>
+        <li><strong>Create an App Token:</strong> Generate a token for your client applications to authenticate against the gateway.</li>
+        <li><strong>Add Provider Keys:</strong> Register upstream API keys (e.g., OpenAI, Google, OpenRouter).</li>
+        <li><strong>Create Queues:</strong> Group your models into logical queues (e.g., <code>production</code>) to enable ordered fallback and automatic rotation.</li>
+        <li><strong>Send Requests:</strong> Point your client code to the gateway URL using your App Token and target your queue alias.</li>
+      </ol>
 
-      <div class="snippet-grid">
-        {#each snippets.filter((snippet) => snippet.id !== 'settings-json') as snippet}
-          <article class="snippet-card">
-            <div class="snippet-head">
-              <div>
-                <span>{snippet.language.toUpperCase()}</span>
-                <h4>{snippet.title}</h4>
-              </div>
-              <button type="button" class="copy-btn" on:click={() => copySnippet(snippet)}>
-                <Copy size={14} />
-                {copiedId === snippet.id ? 'Copied' : 'Copy'}
-              </button>
-            </div>
-            <p>{snippet.description}</p>
-            <pre><code>{snippet.code}</code></pre>
-          </article>
-        {/each}
-      </div>
-    </section>
+      <hr />
 
-    <section class="docs-panel" id="ops">
-      <div class="panel-head">
-        <span class="panel-eyebrow">Operations</span>
-        <h3>Run it safely</h3>
+      <h2 id="runtime-setup">Runtime Setup</h2>
+      <p>
+        The gateway consists of a frontend administrative dashboard and a backend API engine. The backend must be bound to a local or public host.
+      </p>
+      <div class="callout callout-info">
+        <Info size={18} />
+        <div>
+          <strong>Restart Required</strong>
+          <p>If you modify the Host or Port settings in the Runtime section of the dashboard, you must restart the backend process for the changes to take effect at the socket level.</p>
+        </div>
       </div>
 
-      <div class="ops-grid">
-        <article class="ops-card">
-          <span class="docs-icon"><Server size={18} /></span>
-          <strong>One service</strong>
-          <p>Run backend and frontend together through the combined service launcher.</p>
-        </article>
-        <article class="ops-card">
-          <span class="docs-icon"><Settings2 size={18} /></span>
-          <strong>Restart after runtime changes</strong>
-          <p>When host or port changes, save the runtime config and restart the service.</p>
-        </article>
-        <article class="ops-card">
-          <span class="docs-icon"><KeyRound size={18} /></span>
-          <strong>Token-first access</strong>
-          <p>Use app tokens for consumers, provider keys for upstream credentials, and queues for routing.</p>
-        </article>
-        <article class="ops-card">
-          <span class="docs-icon"><PlugZap size={18} /></span>
-          <strong>Gateway contract</strong>
-          <p>The proxy normalizes responses so clients can stay OpenAI-like or Anthropic-like.</p>
-        </article>
+      <hr />
+
+      <h2 id="app-tokens">App Tokens</h2>
+      <p>
+        App Tokens represent your downstream clients (e.g., an internal service, a mobile app, or Claude Code). 
+        These tokens must be included in the <code>Authorization: Bearer &lt;token&gt;</code> header of every request made to the gateway.
+      </p>
+      <ul>
+        <li>Tokens can be temporarily disabled.</li>
+        <li>Tokens can be constrained with strict <strong>Rate Limits (RPM)</strong>.</li>
+        <li>Tokens only exist in the database and must be safely distributed to your consumers.</li>
+      </ul>
+
+      <hr />
+
+      <h2 id="provider-keys">Provider Keys</h2>
+      <p>
+        Provider keys are your actual billing credentials for upstream AI providers (OpenAI, Anthropic, Google, OpenRouter). 
+        The gateway securely holds these keys and injects them into downstream requests.
+      </p>
+      <table class="docs-table">
+        <thead>
+          <tr>
+            <th>Provider State</th>
+            <th>Behavior</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><span class="status-badge status-active">ACTIVE</span></td>
+            <td>Key is healthy and available for routing.</td>
+          </tr>
+          <tr>
+            <td><span class="status-badge status-cooldown">COOLDOWN</span></td>
+            <td>Key is temporarily suspended due to 429 Too Many Requests or 500 errors.</td>
+          </tr>
+          <tr>
+            <td><span class="status-badge status-invalid">INVALID</span></td>
+            <td>Key returned a 401/403. It will not be used until manually verified.</td>
+          </tr>
+          <tr>
+            <td><span class="status-badge status-suspended">SUSPENDED_BILLING</span></td>
+            <td>Provider rejected the key due to missing funds or quota limits.</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <hr />
+
+      <h2 id="queues">Queues & Routing</h2>
+      <p>
+        Queues map an abstract model target (e.g., <code>queue/production</code>) to an ordered list of real models. 
+        When a request is sent to a queue, the gateway tries the candidates in sequence.
+      </p>
+
+      <h3>Routing Patterns</h3>
+      <table class="docs-table">
+        <thead>
+          <tr>
+            <th>Pattern</th>
+            <th>Format</th>
+            <th>Use Case</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>Direct Route</strong></td>
+            <td><code>provider/model_name</code></td>
+            <td>Target a specific provider unconditionally (e.g., <code>google/gemini-1.5-pro</code>). Fails directly if the provider errors.</td>
+          </tr>
+          <tr>
+            <td><strong>Queue Route</strong></td>
+            <td><code>queue/queue_name</code></td>
+            <td>Target a managed queue. Evaluates candidates based on the queue strategy and fails over automatically.</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <h3>Queue Strategies</h3>
+      <ul>
+        <li><strong>ordered:</strong> Iterates over candidates strictly by their configured position (e.g., 0, 1, 2).</li>
+        <li><strong>smart:</strong> Penalizes candidates with high failure rates dynamically to ensure maximum uptime.</li>
+        <li><strong>latency:</strong> Prefers candidates that historically respond faster.</li>
+      </ul>
+
+      <hr />
+
+      <h2 id="authentication">Authentication</h2>
+      <p>The API expects an App Token provided as a Bearer token in the Authorization header.</p>
+      
+      <div class="code-block">
+        <div class="code-header">
+          <span>Header</span>
+        </div>
+        <pre><code>Authorization: Bearer your-app-token-here</code></pre>
       </div>
 
-      {#if copyError}
-        <p class="copy-error">{copyError}</p>
-      {/if}
-    </section>
-  </section>
-</main>
+      <div class="callout callout-warning">
+        <AlertCircle size={18} />
+        <div>
+          <strong>Missing or invalid token</strong>
+          <p>Failing to provide a valid, active App Token will immediately result in a <code>401 Unauthorized</code> response.</p>
+        </div>
+      </div>
+
+      <hr />
+
+      <h2 id="endpoints">Endpoints</h2>
+      
+      <h3>Anthropic Protocol</h3>
+      <p><code>POST /v1/messages</code></p>
+      <p>The gateway implements the Anthropic <code>/v1/messages</code> standard. It acts as an adapter, parsing Anthropic payloads and normalizing the responses from OpenAI, Google, or OpenRouter behind the scenes.</p>
+
+      <h3>OpenAI Protocol</h3>
+      <p><code>POST /v1/chat/completions</code></p>
+      <p>Provides a native OpenAI-compatible API interface. Downstream providers are translated back into the OpenAI schema.</p>
+
+      <hr />
+
+      <h2 id="examples">Examples</h2>
+
+      <h3>cURL Example</h3>
+      <div class="code-block">
+        <div class="code-header">
+          <span>bash</span>
+          <button on:click={() => copySnippet({ id: 'curl', code: curlExample })} class="copy-btn">
+            {#if copiedId === 'curl'}<CheckCircle2 size={14} />{:else}<Copy size={14} />{/if}
+            {copiedId === 'curl' ? 'Copied' : 'Copy'}
+          </button>
+        </div>
+        <pre><code>{curlExample}</code></pre>
+      </div>
+
+      <h3>Node.js / Fetch</h3>
+      <div class="code-block">
+        <div class="code-header">
+          <span>javascript</span>
+          <button on:click={() => copySnippet({ id: 'js', code: jsExample })} class="copy-btn">
+            {#if copiedId === 'js'}<CheckCircle2 size={14} />{:else}<Copy size={14} />{/if}
+            {copiedId === 'js' ? 'Copied' : 'Copy'}
+          </button>
+        </div>
+        <pre><code>{jsExample}</code></pre>
+      </div>
+
+      <h3>Claude Code Integration</h3>
+      <p>To use LLMKeyRotator as your backend for Claude Code, update your Claude Code settings profile to point the Base URL to the Gateway.</p>
+      <div class="code-block">
+        <div class="code-header">
+          <span>json</span>
+          <button on:click={() => copySnippet({ id: 'json', code: claudeCodeSettings })} class="copy-btn">
+            {#if copiedId === 'json'}<CheckCircle2 size={14} />{:else}<Copy size={14} />{/if}
+            {copiedId === 'json' ? 'Copied' : 'Copy'}
+          </button>
+        </div>
+        <pre><code>{claudeCodeSettings}</code></pre>
+      </div>
+
+      <hr />
+
+      <h2 id="errors">Errors & Troubleshooting</h2>
+      <p>The gateway intercepts standard provider errors and implements failover. If all candidates fail, or if a direct route fails, the gateway surfaces the error.</p>
+      
+      <table class="docs-table">
+        <thead>
+          <tr>
+            <th>Status Code</th>
+            <th>Gateway Meaning</th>
+            <th>Resolution</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>400</strong></td>
+            <td>Bad Request</td>
+            <td>The payload structure was malformed or unsupported.</td>
+          </tr>
+          <tr>
+            <td><strong>401</strong></td>
+            <td>Unauthorized</td>
+            <td>Missing or invalid App Token.</td>
+          </tr>
+          <tr>
+            <td><strong>403</strong></td>
+            <td>Forbidden</td>
+            <td>App token is disabled or unauthorized.</td>
+          </tr>
+          <tr>
+            <td><strong>404</strong></td>
+            <td>Not Found</td>
+            <td>The specified queue or direct provider does not exist.</td>
+          </tr>
+          <tr>
+            <td><strong>429</strong></td>
+            <td>Too Many Requests</td>
+            <td>Your App Token hit its configured RPM limit, or all providers are exhausted.</td>
+          </tr>
+          <tr>
+            <td><strong>502</strong></td>
+            <td>Bad Gateway</td>
+            <td>Queue routing failed. All candidates in the queue were exhausted or timed out.</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <hr />
+
+      <h2 id="telemetry">Telemetry & Limits</h2>
+      <p>
+        The gateway passively tracks usage across all requests.
+        You can view Real-time Traffic, Latency averages, and Total Token consumption in the Admin Dashboard's <strong>Overview</strong> and <strong>Usage</strong> pages.
+      </p>
+      <ul>
+        <li><strong>App Token Quotas:</strong> Restrict traffic by assigning RPM (Requests Per Minute). Exceeding this limit immediately short-circuits the request with a 429.</li>
+        <li><strong>Key Cooldowns:</strong> The proxy isolates failing keys. If a key returns a 429, it enters a cooldown phase and is bypassed on subsequent requests.</li>
+      </ul>
+      
+      <div class="spacer"></div>
+    </div>
+  </main>
+</div>
 
 <style>
-  :global(html[data-route='docs']) {
-    color-scheme: light;
-    scroll-behavior: smooth;
+  /* Base Variables */
+  :root {
+    --doc-bg: #ffffff;
+    --doc-sidebar-bg: #f8f9fa;
+    --doc-text: #202124;
+    --doc-text-muted: #5f6368;
+    --doc-border: #e0e0e0;
+    --doc-border-light: #f1f3f4;
+    --doc-accent: #0f52ba; /* A serious, technical blue */
+    --doc-accent-hover: #0a3d8f;
+    --doc-code-bg: #f1f3f4;
+    --doc-code-text: #202124;
+    --doc-code-block-bg: #1e1e1e;
+    --doc-code-block-text: #d4d4d4;
+    --doc-table-head-bg: #f8f9fa;
+    --doc-radius: 6px;
+    --doc-max-width: 860px;
   }
 
-  .docs-shell {
+  /* Dark Mode Support via media query */
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --doc-bg: #0d1117;
+      --doc-sidebar-bg: #161b22;
+      --doc-text: #c9d1d9;
+      --doc-text-muted: #8b949e;
+      --doc-border: #30363d;
+      --doc-border-light: #21262d;
+      --doc-accent: #58a6ff;
+      --doc-accent-hover: #79c0ff;
+      --doc-code-bg: rgba(110, 118, 129, 0.4);
+      --doc-code-text: #c9d1d9;
+      --doc-code-block-bg: #0d1117;
+      --doc-code-block-text: #c9d1d9;
+      --doc-table-head-bg: #161b22;
+    }
+  }
+
+  /* Global Reset & Layout */
+  :global(body[data-route="docs"]) {
+    background-color: var(--doc-bg);
+    color: var(--doc-text);
+  }
+
+  .docs-layout {
+    display: flex;
     min-height: 100vh;
-    display: grid;
-    grid-template-columns: 300px minmax(0, 1fr);
-    background: #f6f8fa;
-    color: #24292f;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu, Cantarell, "Open Sans", "Helvetica Neue", sans-serif;
+    line-height: 1.6;
+    background: var(--doc-bg);
+    color: var(--doc-text);
   }
 
-  .docs-nav {
+  /* Sidebar */
+  .docs-sidebar {
+    width: 280px;
+    flex-shrink: 0;
+    background: var(--doc-sidebar-bg);
+    border-right: 1px solid var(--doc-border);
     position: sticky;
     top: 0;
     height: 100vh;
-    padding: 1.5rem 1.25rem;
-    border-right: 1px solid #d0d7de;
-    background: #ffffff;
+    overflow-y: auto;
     display: flex;
     flex-direction: column;
-    gap: 1.2rem;
   }
 
-  .docs-brand {
-    padding-bottom: 1rem;
-    border-bottom: 1px solid #d8dee4;
+  .sidebar-header {
+    padding: 1.5rem;
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    font-weight: 600;
+    font-size: 1.1rem;
+    color: var(--doc-text);
+    border-bottom: 1px solid var(--doc-border);
   }
 
-  .docs-brand h1,
-  .docs-hero h2,
-  .panel-head h3 {
-    margin: 0;
-    line-height: 1.1;
+  .sidebar-nav {
+    padding: 1.5rem 1rem;
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
   }
 
-  .docs-brand h1 {
-    margin-top: 0.35rem;
-    font-size: 1.5rem;
-  }
-
-  .docs-brand p,
-  .docs-hero p,
-  .panel-text,
-  .step-card p,
-  .callout p,
-  .ops-card p,
-  .snippet-card p {
-    color: #57606a;
-  }
-
-  .docs-nav nav {
-    display: grid;
+  .nav-group {
+    display: flex;
+    flex-direction: column;
     gap: 0.5rem;
   }
 
-  .docs-nav-link {
-    display: grid;
-    gap: 0.2rem;
-    padding: 0.9rem 1rem;
-    border: 1px solid #d8dee4;
-    border-radius: 6px;
-    text-decoration: none;
-    background: #ffffff;
-  }
-
-  .docs-nav-link span,
-  .docs-eyebrow,
-  .panel-eyebrow {
-    font-size: 0.72rem;
+  .nav-group strong {
+    font-size: 0.75rem;
     text-transform: uppercase;
-    letter-spacing: 0.16em;
-    color: #0969da;
+    letter-spacing: 0.05em;
+    color: var(--doc-text-muted);
+    margin-bottom: 0.25rem;
+    padding-left: 0.5rem;
   }
 
-  .docs-nav-link strong {
-    font-size: 0.98rem;
-    font-weight: 600;
+  .nav-group a {
+    text-decoration: none;
+    color: var(--doc-text);
+    font-size: 0.9rem;
+    padding: 0.4rem 0.5rem;
+    border-radius: var(--doc-radius);
+    transition: background 0.15s, color 0.15s;
   }
 
-  .docs-side-note {
-    margin-top: auto;
-    display: flex;
-    gap: 0.75rem;
-    align-items: flex-start;
-    padding: 0.9rem 1rem;
-    border: 1px solid #d8dee4;
-    border-radius: 6px;
-    background: #f6f8fa;
-    color: #57606a;
+  .nav-group a:hover {
+    background: var(--doc-border-light);
+    color: var(--doc-accent);
   }
 
-  .docs-main {
-    padding: 2rem 2rem 3rem;
-    display: grid;
-    gap: 1.25rem;
-    align-content: start;
-    max-width: 1200px;
-    width: 100%;
+  /* Main Content */
+  .docs-content {
+    flex-grow: 1;
+    padding: 3rem 2rem;
+    overflow-x: hidden;
+  }
+
+  .content-wrapper {
+    max-width: var(--doc-max-width);
     margin: 0 auto;
   }
 
-  .docs-hero,
-  .docs-panel {
-    border: 1px solid #d8dee4;
-    border-radius: 6px;
-    background: #ffffff;
+  /* Typography */
+  h1, h2, h3 {
+    color: var(--doc-text);
+    font-weight: 600;
+    margin-top: 2.5rem;
+    margin-bottom: 1rem;
+    line-height: 1.3;
   }
 
-  .docs-hero {
-    display: grid;
-    grid-template-columns: minmax(0, 1.5fr) minmax(260px, 0.75fr);
-    gap: 1rem;
-    padding: 1.25rem;
+  h1 { font-size: 2.2rem; margin-top: 0; }
+  h2 { font-size: 1.6rem; border-bottom: 1px solid var(--doc-border-light); padding-bottom: 0.5rem; }
+  h3 { font-size: 1.2rem; margin-top: 2rem; }
+
+  p {
+    margin-top: 0;
+    margin-bottom: 1rem;
+    color: var(--doc-text);
   }
 
-  .docs-hero h2 {
-    margin-top: 0.35rem;
-    font-size: clamp(2rem, 3vw, 2.8rem);
-    max-width: 10ch;
+  .lead {
+    font-size: 1.15rem;
+    color: var(--doc-text-muted);
+    margin-bottom: 2rem;
   }
 
-  .docs-hero p {
-    max-width: 72ch;
-    margin-bottom: 0;
+  hr {
+    border: 0;
+    height: 1px;
+    background: var(--doc-border);
+    margin: 3rem 0;
   }
 
-  .docs-hero-card {
-    display: grid;
-    gap: 0.75rem;
-    padding: 1rem;
-    border: 1px solid #d8dee4;
-    border-radius: 6px;
-    background: #f6f8fa;
+  .spacer {
+    height: 4rem;
   }
 
-  .hero-stat {
-    display: grid;
-    gap: 0.15rem;
-    padding-bottom: 0.7rem;
-    border-bottom: 1px solid #d8dee4;
+  /* Lists */
+  ul, ol {
+    margin-top: 0;
+    margin-bottom: 1.5rem;
+    padding-left: 1.5rem;
+    color: var(--doc-text);
   }
 
-  .hero-stat:last-child {
-    padding-bottom: 0;
-    border-bottom: 0;
-  }
-
-  .hero-stat span {
-    color: #57606a;
-    font-size: 0.78rem;
-    text-transform: uppercase;
-    letter-spacing: 0.12em;
-  }
-
-  .panel-head {
-    display: grid;
-    gap: 0.25rem;
-    padding: 1rem 1.25rem 0.85rem;
-    border-bottom: 1px solid #d8dee4;
-  }
-
-  .panel-head h3 {
-    font-size: 1.2rem;
-  }
-
-  .step-grid,
-  .convention-grid,
-  .snippet-grid,
-  .ops-grid {
-    display: grid;
-    gap: 0.85rem;
-    padding: 1rem 1.25rem 1.25rem;
-  }
-
-  .step-grid {
-    grid-template-columns: repeat(4, minmax(0, 1fr));
-  }
-
-  .step-card,
-  .callout,
-  .strategy-pill,
-  .snippet-card,
-  .ops-card {
-    border: 1px solid #d8dee4;
-    border-radius: 6px;
-    background: #ffffff;
-  }
-
-  .step-card,
-  .callout,
-  .strategy-pill,
-  .ops-card {
-    padding: 0.95rem 1rem;
-  }
-
-  .step-index {
-    display: inline-flex;
-    width: fit-content;
+  li {
     margin-bottom: 0.5rem;
-    padding: 0.18rem 0.45rem;
-    border: 1px solid #d0d7de;
-    border-radius: 999px;
-    color: #0969da;
-    font-size: 0.72rem;
-    letter-spacing: 0.12em;
   }
 
-  .step-card h4,
-  .ops-card strong,
-  .callout strong,
-  .strategy-pill strong {
-    margin: 0 0 0.35rem;
-    font-size: 1rem;
+  .docs-list li {
+    padding-left: 0.25rem;
   }
 
-  .step-card p,
-  .callout p,
-  .strategy-pill span,
-  .ops-card p {
-    margin: 0;
+  /* Inline Code */
+  code {
+    background: var(--doc-code-bg);
+    color: var(--doc-code-text);
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+    font-size: 0.85em;
+    padding: 0.2em 0.4em;
+    border-radius: 3px;
   }
 
-  .convention-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  .callout {
-    display: flex;
-    gap: 0.85rem;
-    align-items: flex-start;
-  }
-
-  .docs-icon {
-    display: inline-flex;
-    flex: none;
-    color: #0969da;
-    margin-top: 0.2rem;
-  }
-
-  .queue-strategies {
-    display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: 0.75rem;
-    padding: 0 1.25rem 1.25rem;
-  }
-
-  .strategy-pill strong {
-    display: block;
-    text-transform: lowercase;
-  }
-
-  .panel-text {
-    margin: 0;
-    padding: 1rem 1.25rem 0;
-  }
-
-  .snippet-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  .snippet-card {
+  /* Code Blocks */
+  .code-block {
+    background: var(--doc-code-block-bg);
+    border: 1px solid var(--doc-border);
+    border-radius: var(--doc-radius);
     overflow: hidden;
+    margin-bottom: 1.5rem;
+    box-shadow: 0 4px 6px rgba(0,0,0,0.05);
   }
 
-  .snippet-head {
+  .code-header {
     display: flex;
     justify-content: space-between;
-    gap: 0.75rem;
-    align-items: flex-start;
-    padding: 1rem 1rem 0.75rem;
-    border-bottom: 1px solid #d8dee4;
+    align-items: center;
+    padding: 0.5rem 1rem;
+    background: rgba(0, 0, 0, 0.2);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
   }
 
-  .snippet-head h4 {
-    margin: 0.15rem 0 0;
-    font-size: 1rem;
-  }
-
-  .snippet-head span {
-    color: #57606a;
-    font-size: 0.72rem;
+  .code-header span {
+    font-size: 0.75rem;
     text-transform: uppercase;
-    letter-spacing: 0.12em;
-  }
-
-  .snippet-card p {
-    margin: 0;
-    padding: 0.85rem 1rem 0;
-  }
-
-  .snippet-card pre {
-    margin: 0;
-    padding: 1rem;
-    overflow: auto;
-    font-size: 0.87rem;
-    line-height: 1.55;
-    background: #f6f8fa;
-    border-top: 1px solid #d8dee4;
-  }
-
-  .snippet-card code {
-    font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+    letter-spacing: 0.05em;
+    color: #8b949e;
+    font-weight: 600;
   }
 
   .copy-btn {
     display: inline-flex;
     align-items: center;
-    gap: 0.4rem;
-    padding: 0.5rem 0.75rem;
-    border-radius: 6px;
-    font-size: 0.82rem;
-    background: #ffffff;
-    border: 1px solid #d0d7de;
+    gap: 0.35rem;
+    background: transparent;
+    border: 1px solid rgba(255,255,255,0.2);
+    color: #c9d1d9;
+    padding: 0.3rem 0.6rem;
+    border-radius: 4px;
+    font-size: 0.75rem;
+    cursor: pointer;
+    transition: background 0.15s, border-color 0.15s;
   }
 
-  .ops-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+  .copy-btn:hover {
+    background: rgba(255, 255, 255, 0.1);
+    border-color: rgba(255,255,255,0.4);
   }
 
-  .ops-card {
-    display: grid;
-    gap: 0.45rem;
-  }
-
-  .copy-error {
+  .code-block pre {
     margin: 0;
-    padding: 0 1.25rem 1.25rem;
-    color: #cf222e;
+    padding: 1rem;
+    overflow-x: auto;
   }
 
-  @media (max-width: 1180px) {
-    .docs-shell {
-      grid-template-columns: 1fr;
+  .code-block code {
+    background: transparent;
+    color: var(--doc-code-block-text);
+    padding: 0;
+    font-size: 0.85rem;
+    border-radius: 0;
+    line-height: 1.5;
+  }
+
+  /* Tables */
+  .docs-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-bottom: 1.5rem;
+    font-size: 0.9rem;
+  }
+
+  .docs-table th,
+  .docs-table td {
+    padding: 0.75rem 1rem;
+    border: 1px solid var(--doc-border);
+    text-align: left;
+  }
+
+  .docs-table th {
+    background: var(--doc-table-head-bg);
+    font-weight: 600;
+    color: var(--doc-text);
+  }
+
+  /* Status Badges */
+  .status-badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.15rem 0.4rem;
+    border-radius: 3px;
+    font-size: 0.7rem;
+    font-weight: 600;
+    letter-spacing: 0.05em;
+  }
+
+  .status-active { background: rgba(46, 160, 67, 0.15); color: #3fb950; border: 1px solid rgba(46, 160, 67, 0.4); }
+  .status-cooldown { background: rgba(210, 153, 34, 0.15); color: #d29922; border: 1px solid rgba(210, 153, 34, 0.4); }
+  .status-invalid { background: rgba(248, 81, 73, 0.15); color: #f85149; border: 1px solid rgba(248, 81, 73, 0.4); }
+  .status-suspended { background: rgba(139, 148, 158, 0.15); color: #8b949e; border: 1px solid rgba(139, 148, 158, 0.4); }
+
+  /* Callouts */
+  .callout {
+    display: flex;
+    gap: 1rem;
+    padding: 1rem 1.25rem;
+    border-radius: var(--doc-radius);
+    border: 1px solid var(--doc-border);
+    margin-bottom: 1.5rem;
+    background: var(--doc-sidebar-bg);
+  }
+
+  .callout-info {
+    border-left: 4px solid var(--doc-accent);
+  }
+  
+  .callout-info :global(svg) {
+    color: var(--doc-accent);
+    margin-top: 0.15rem;
+    flex-shrink: 0;
+  }
+
+  .callout-warning {
+    border-left: 4px solid #d29922;
+  }
+
+  .callout-warning :global(svg) {
+    color: #d29922;
+    margin-top: 0.15rem;
+    flex-shrink: 0;
+  }
+
+  .callout strong {
+    display: block;
+    font-size: 0.95rem;
+    margin-bottom: 0.25rem;
+    color: var(--doc-text);
+  }
+
+  .callout p {
+    margin: 0;
+    font-size: 0.9rem;
+    color: var(--doc-text-muted);
+  }
+
+  /* Responsive */
+  @media (max-width: 900px) {
+    .docs-layout {
+      flex-direction: column;
     }
 
-    .docs-nav {
-      position: relative;
+    .docs-sidebar {
+      width: 100%;
       height: auto;
-      border-right: 0;
-      border-bottom: 1px solid #d8dee4;
+      position: relative;
+      border-right: none;
+      border-bottom: 1px solid var(--doc-border);
+    }
+    
+    .sidebar-nav {
+      flex-direction: row;
+      flex-wrap: wrap;
+      gap: 1rem 2rem;
     }
 
-    .docs-hero,
-    .step-grid,
-    .convention-grid,
-    .queue-strategies,
-    .snippet-grid,
-    .ops-grid {
-      grid-template-columns: 1fr;
-    }
-  }
-
-  @media (max-width: 720px) {
-    .docs-main {
-      padding: 1rem;
-    }
-
-    .docs-hero {
-      padding: 1rem;
-    }
-
-    .panel-head,
-    .panel-text,
-    .step-grid,
-    .convention-grid,
-    .snippet-grid,
-    .ops-grid {
-      padding-left: 1rem;
-      padding-right: 1rem;
-    }
-
-    .queue-strategies {
-      padding: 0 1rem 1rem;
+    .docs-content {
+      padding: 2rem 1.5rem;
     }
   }
 </style>

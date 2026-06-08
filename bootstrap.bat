@@ -87,24 +87,12 @@ if not exist "logs" mkdir logs
 if not exist "bin" mkdir bin
 
 echo [5/6] Preparando arquivo backend\.env e banco SQLite...
-if not exist "backend\.env" (
-    for /f "delims=" %%i in ('".venv\Scripts\python.exe" -c "import secrets; print(secrets.token_urlsafe(32))"') do set "SECRET_KEY=%%i"
-    for /f "delims=" %%i in ('".venv\Scripts\python.exe" -c "import secrets; print(secrets.token_urlsafe(24))"') do set "ADMIN_PASSWORD=%%i"
-
-    > "backend\.env" (
-        echo SECRET_KEY=!SECRET_KEY!
-        echo ADMIN_PASSWORD=!ADMIN_PASSWORD!
-        echo DATABASE_URL=sqlite+aiosqlite:///./backend/database.db
-        echo TELEGRAM_BOT_TOKEN=
-        echo TELEGRAM_CHAT_ID=
-        echo HOST=127.0.0.1
-        echo PORT=8009
-    )
-
-    echo [+] backend\.env criado.
-    echo [+] ADMIN_PASSWORD inicial: !ADMIN_PASSWORD!
-) else (
-    echo [*] backend\.env ja existe. Mantendo configuracao atual.
+python scripts\bootstrap_env.py
+if errorlevel 1 (
+    echo [ERRO] Falha ao preparar backend\.env.
+    pause
+    popd
+    exit /b 1
 )
 
 ".venv\Scripts\python.exe" -c "import sqlite3, pathlib; db = pathlib.Path('backend/database.db'); db.parent.mkdir(parents=True, exist_ok=True); sqlite3.connect(db).close()"
@@ -126,20 +114,14 @@ if errorlevel 1 (
 
 echo [6/6] Bootstrap local concluido.
 echo.
-echo Deseja registrar o LLMKeyRotator como servico automatico do Windows? (S/N)
-set /p INSTALL_SERVICE=
-
-if /i "!INSTALL_SERVICE!"=="S" (
-    powershell -NoProfile -ExecutionPolicy Bypass -Command ^
-        "Start-Process powershell -ArgumentList '-NoProfile -ExecutionPolicy Bypass -File \"scripts\install-service.ps1\"' -Verb RunAs"
-) else (
-    echo.
-    echo [*] Instalacao concluida sem servico automatico.
-    echo Para iniciar manualmente:
-    echo     .venv\Scripts\python.exe -m backend.run
-    echo.
-    echo Para iniciar o frontend em desenvolvimento:
-    echo     cd frontend ^&^& npm run dev
+echo [7/7] Registrando o servico automatico do Windows...
+powershell -NoProfile -ExecutionPolicy Bypass -Command ^
+    "Start-Process powershell -ArgumentList '-NoProfile -ExecutionPolicy Bypass -File \"scripts\install-service.ps1\"' -Verb RunAs -Wait"
+if errorlevel 1 (
+    echo [ERRO] Falha ao registrar o servico automatico do Windows.
+    pause
+    popd
+    exit /b 1
 )
 
 echo.

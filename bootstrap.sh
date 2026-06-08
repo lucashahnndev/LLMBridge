@@ -52,23 +52,7 @@ fi
 mkdir -p backend logs bin
 
 echo "[5/6] Preparando arquivo backend/.env e banco SQLite..."
-if [[ ! -f "backend/.env" ]]; then
-  SECRET_KEY=$(".venv/bin/python" -c "import secrets; print(secrets.token_urlsafe(32))")
-  ADMIN_PASSWORD=$(".venv/bin/python" -c "import secrets; print(secrets.token_urlsafe(24))")
-  cat > backend/.env <<EOF
-SECRET_KEY=${SECRET_KEY}
-ADMIN_PASSWORD=${ADMIN_PASSWORD}
-DATABASE_URL=sqlite+aiosqlite:///./backend/database.db
-TELEGRAM_BOT_TOKEN=
-TELEGRAM_CHAT_ID=
-HOST=127.0.0.1
-PORT=8009
-EOF
-  echo "[+] backend/.env criado."
-  echo "[+] ADMIN_PASSWORD inicial: ${ADMIN_PASSWORD}"
-else
-  echo "[*] backend/.env ja existe. Mantendo configuracao atual."
-fi
+python3 scripts/bootstrap_env.py
 
 ".venv/bin/python" - <<'PY'
 import pathlib, sqlite3
@@ -82,16 +66,5 @@ echo "[5.1/6] Aplicando migracoes automaticas do schema..."
 
 echo "[6/6] Bootstrap local concluido."
 echo
-read -r -p "Deseja registrar o LLMKeyRotator como servico automatico do Linux? (S/N) " INSTALL_SERVICE
-
-if [[ "${INSTALL_SERVICE^^}" == "S" ]]; then
-  bash scripts/install-service.sh
-else
-  echo
-  echo "[*] Instalacao concluida sem servico automatico."
-  echo "Para iniciar manualmente:"
-  echo "    .venv/bin/python -m backend.run"
-  echo
-  echo "Para iniciar o frontend em desenvolvimento:"
-  echo "    cd frontend && npm run dev"
-fi
+echo "[7/7] Registrando o servico automatico do Linux..."
+bash scripts/install-service.sh
