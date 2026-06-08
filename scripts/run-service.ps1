@@ -37,7 +37,8 @@ try {
     & $BackendPython -m backend.migrate
 
     Write-Host "[*] Iniciando backend..." -ForegroundColor Yellow
-    $backendProcess = Start-Process -FilePath $BackendPython -ArgumentList "-m backend.run" -WorkingDirectory $RepoRoot -PassThru
+    $backendArgs = @("-m", "backend.run")
+    $backendProcess = Start-Process -FilePath $BackendPython -ArgumentList $backendArgs -WorkingDirectory $RepoRoot -PassThru
 
     Write-Host "[*] Iniciando frontend preview em $FrontendHost`:$FrontendPort..." -ForegroundColor Yellow
     $frontendProcess = Start-Process -FilePath "npm.cmd" -ArgumentList @("run", "preview", "--", "--host", $FrontendHost, "--port", $FrontendPort, "--strictPort") -WorkingDirectory $FrontendDir -PassThru
