@@ -63,6 +63,37 @@ class DatabaseMigrationTest(unittest.TestCase):
                 self.assertIn("route_kind", column_names)
                 self.assertIn("tool_calling", column_names)
 
+                queue_result = await conn.exec_driver_sql(
+                    "SELECT id FROM model_queues WHERE name = 'gemini'"
+                )
+                queue_row = queue_result.fetchone()
+                self.assertIsNotNone(queue_row)
+                if queue_row is not None:
+                    candidate_result = await conn.exec_driver_sql(
+                        """
+                        SELECT provider, model_name
+                        FROM model_queue_candidates
+                        WHERE queue_id = ?
+                        ORDER BY position ASC, id ASC
+                        """,
+                        (queue_row[0],),
+                    )
+                    candidates = candidate_result.fetchall()
+                    self.assertEqual([candidate[0] for candidate in candidates], ["google"] * 8)
+                    self.assertEqual(
+                        [candidate[1] for candidate in candidates],
+                        [
+                            "gemini-2.5-pro",
+                            "gemini-3-flash-preview",
+                            "gemini-2.5-flash",
+                            "gemini-flash-latest",
+                            "gemini-3.1-flash-lite",
+                            "gemini-2.5-flash-lite",
+                            "gemini-flash-lite-latest",
+                            "gemini-3.1-flash-live-preview",
+                        ],
+                    )
+
                 version_result = await conn.exec_driver_sql(
                     "SELECT version FROM schema_versions WHERE \"key\" = 'schema'"
                 )

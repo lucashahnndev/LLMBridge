@@ -3,11 +3,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Callable
 
-from sqlalchemy import inspect, select, text
+from sqlalchemy import inspect, insert, select, text
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 from backend.app.core.version import SCHEMA_BASE_VERSION, SCHEMA_VERSION, compare_semver
-from backend.app.database.models import SchemaVersion
+from backend.app.database.models import ModelQueue, ModelQueueCandidate, QueueStrategy, SchemaVersion
 
 
 SchemaUpgrade = Callable[[object], None]
@@ -40,6 +40,64 @@ def _ensure_usage_log_telemetry_columns(sync_conn) -> None:
         sync_conn.execute(text(f"ALTER TABLE usage_logs ADD COLUMN {column_name} {column_def}"))
 
 
+DEFAULT_GEMINI_QUEUE_NAME = "gemini"
+DEFAULT_GEMINI_QUEUE_DESCRIPTION = "Default Gemini fallback queue"
+DEFAULT_GEMINI_QUEUE_MODELS = (
+    "models/gemini-2.5-pro",
+    "models/gemini-3-flash-preview",
+    "models/gemini-2.5-flash",
+    "models/gemini-flash-latest",
+    "models/gemini-3.1-flash-lite",
+    "models/gemini-2.5-flash-lite",
+    "models/gemini-flash-lite-latest",
+    "models/gemini-3.1-flash-live-preview",
+)
+
+
+def _normalize_model_name(model_name: str) -> str:
+    cleaned = model_name.strip()
+    if cleaned.startswith("models/"):
+        return cleaned.split("/", 1)[1]
+    return cleaned
+
+
+def _seed_default_gemini_queue(sync_conn) -> None:
+    existing_queue = sync_conn.execute(
+        select(ModelQueue.__table__.c.id).where(ModelQueue.__table__.c.name == DEFAULT_GEMINI_QUEUE_NAME)
+    ).scalar_one_or_none()
+    if existing_queue is not None:
+        return
+
+    result = sync_conn.execute(
+        insert(ModelQueue.__table__).values(
+            name=DEFAULT_GEMINI_QUEUE_NAME,
+            description=DEFAULT_GEMINI_QUEUE_DESCRIPTION,
+            strategy=QueueStrategy.ORDERED,
+            is_active=True,
+        )
+    )
+    queue_id = result.inserted_primary_key[0]
+
+    sync_conn.execute(
+        insert(ModelQueueCandidate.__table__),
+        [
+            {
+                "queue_id": queue_id,
+                "provider": "google",
+                "model_name": _normalize_model_name(model_name),
+                "position": position,
+                "is_active": True,
+            }
+            for position, model_name in enumerate(DEFAULT_GEMINI_QUEUE_MODELS)
+        ],
+    )
+
+
+def _upgrade_telemetry_and_seed_gemini_queue(sync_conn) -> None:
+    _ensure_usage_log_telemetry_columns(sync_conn)
+    _seed_default_gemini_queue(sync_conn)
+
+
 def _read_schema_version(sync_conn) -> str:
     version = sync_conn.execute(
         select(SchemaVersion.version).where(SchemaVersion.key == "schema")
@@ -62,8 +120,8 @@ def _write_schema_version(sync_conn, version: str) -> None:
 MIGRATION_STEPS: tuple[MigrationStep, ...] = (
     MigrationStep(
         version=SCHEMA_VERSION,
-        description="Add usage log telemetry columns",
-        upgrade=_ensure_usage_log_telemetry_columns,
+        description="Add usage log telemetry columns and seed default Gemini queue",
+        upgrade=_upgrade_telemetry_and_seed_gemini_queue,
     ),
 )
 

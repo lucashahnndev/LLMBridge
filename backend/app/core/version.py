@@ -4,9 +4,9 @@ import re
 from functools import total_ordering
 
 
-APP_VERSION = "0.2.0"
+APP_VERSION = "0.2.1"
 SCHEMA_BASE_VERSION = "0.1.0"
-SCHEMA_VERSION = "0.2.0"
+SCHEMA_VERSION = "0.2.1"
 
 _SEMVER_PATTERN = re.compile(
     r"^(?P<major>0|[1-9]\d*)\.(?P<minor>0|[1-9]\d*)\.(?P<patch>0|[1-9]\d*)"
