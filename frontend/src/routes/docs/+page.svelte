@@ -1,8 +1,9 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { Copy, CheckCircle2, Info, AlertCircle } from 'lucide-svelte';
+  import { Copy, CheckCircle2, Info, AlertCircle, Moon, Sun } from 'lucide-svelte';
 
   let copiedId = '';
+  let isDarkMode = false;
 
   async function copySnippet(id: string, code: string) {
     try {
@@ -85,8 +86,29 @@ console.log(data.content[0].text);`;
   }'`;
 
   onMount(() => {
-    // Redoc style scroll spy could go here
+    // Check local storage or system preference
+    const storedTheme = localStorage.getItem('docs-theme');
+    if (storedTheme === 'dark') {
+      isDarkMode = true;
+    } else if (storedTheme === 'light') {
+      isDarkMode = false;
+    } else {
+      isDarkMode = window.matchMedia('(prefers-color-scheme: dark)').matches;
+    }
   });
+
+  function toggleTheme() {
+    isDarkMode = !isDarkMode;
+    localStorage.setItem('docs-theme', isDarkMode ? 'dark' : 'light');
+  }
+
+  $: if (typeof document !== 'undefined') {
+    if (isDarkMode) {
+      document.body.classList.add('docs-dark');
+    } else {
+      document.body.classList.remove('docs-dark');
+    }
+  }
 </script>
 
 <svelte:head>
@@ -97,7 +119,16 @@ console.log(data.content[0].text);`;
   <!-- Left Sidebar -->
   <aside class="redoc-sidebar">
     <div class="sidebar-header">
-      <strong>LLMKeyRotator</strong>
+      <div class="header-top">
+        <strong>LLMKeyRotator</strong>
+        <button class="theme-toggle" on:click={toggleTheme} aria-label="Toggle Theme">
+          {#if isDarkMode}
+            <Sun size={18} />
+          {:else}
+            <Moon size={18} />
+          {/if}
+        </button>
+      </div>
       <span>API Reference v1.0</span>
     </div>
     <div class="sidebar-search">
@@ -413,7 +444,7 @@ console.log(data.content[0].text);`;
 </div>
 
 <style>
-  /* Base Variables - Hardcoded Light/Dark Redoc Split */
+  /* Base Variables - Light Mode */
   :root {
     --rd-bg-text: #ffffff;
     --rd-bg-code: #1e2227; 
@@ -430,17 +461,15 @@ console.log(data.content[0].text);`;
     --rd-font-code: "Source Code Pro", Consolas, Inconsolata, "Liberation Mono", Courier, monospace;
   }
 
-  /* Support for global dark mode toggles: If the user prefers dark mode, flip the text column to dark */
-  @media (prefers-color-scheme: dark) {
-    :root {
-      --rd-bg-text: #0d1117;
-      --rd-bg-code: #161b22; 
-      --rd-sidebar-bg: #090c10;
-      --rd-text-main: #c9d1d9;
-      --rd-text-muted: #8b949e;
-      --rd-border: #30363d;
-      --rd-accent: #58a6ff;
-    }
+  /* Support for Dark Mode via class on body */
+  :global(body.docs-dark) {
+    --rd-bg-text: #0d1117;
+    --rd-bg-code: #161b22; 
+    --rd-sidebar-bg: #090c10;
+    --rd-text-main: #c9d1d9;
+    --rd-text-muted: #8b949e;
+    --rd-border: #30363d;
+    --rd-accent: #58a6ff;
   }
 
   /* Reset layout constraints to ensure absolute override over app.css */
@@ -486,6 +515,12 @@ console.log(data.content[0].text);`;
     border-bottom: 1px solid var(--rd-border);
   }
 
+  .header-top {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+
   .sidebar-header strong {
     font-size: 1.25rem;
     color: var(--rd-text-main);
@@ -495,6 +530,24 @@ console.log(data.content[0].text);`;
   .sidebar-header span {
     font-size: 0.8rem;
     color: var(--rd-text-muted);
+  }
+
+  .theme-toggle {
+    background: transparent;
+    border: none;
+    color: var(--rd-text-muted);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0.4rem;
+    border-radius: 4px;
+    transition: background 0.15s, color 0.15s;
+  }
+
+  .theme-toggle:hover {
+    background: rgba(128, 128, 128, 0.15);
+    color: var(--rd-text-main);
   }
 
   .sidebar-search {
