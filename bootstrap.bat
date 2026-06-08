@@ -74,38 +74,13 @@ if exist "backend\requirements.txt" (
     echo %WARN% backend\requirements.txt nao encontrado. Backend ignorado.
 )
 
-if exist "frontend\package.json" (
-    echo %STEP% 4/7 instalando dependencias do frontend
-    pushd frontend
-    call npm install
-    if errorlevel 1 (
-        echo %ERR% Falha ao instalar as dependencias do frontend.
-        popd
-        pause
-        popd
-        exit /b 1
-    )
-    echo %STEP% 4.1/7 gerando build do frontend
-    call npm run build
-    if errorlevel 1 (
-        echo %ERR% Falha ao gerar o build do frontend.
-        popd
-        pause
-        popd
-        exit /b 1
-    )
-    popd
-) else (
-    echo %WARN% frontend\package.json nao encontrado. Frontend ignorado.
-)
-
 if not exist "backend" mkdir backend
 if not exist "logs" mkdir logs
 if not exist "bin" mkdir bin
 
 if not exist "%INSTALL_ROOT%" mkdir "%INSTALL_ROOT%" >nul 2>&1
 
-echo %STEP% 5/7 preparando backend\.env e banco SQLite
+echo %STEP% 4/6 preparando backend\.env e banco SQLite
 python scripts\bootstrap_env.py
 if errorlevel 1 (
     echo %ERR% Falha ao preparar backend\.env.
@@ -122,7 +97,7 @@ if errorlevel 1 (
     exit /b 1
 )
 
-echo %STEP% 6/7 aplicando migracoes automaticas
+echo %STEP% 5/6 aplicando migracoes automaticas
 ".venv\Scripts\python.exe" -m backend.migrate
 if errorlevel 1 (
     echo %ERR% Falha ao aplicar migracoes automaticas.
@@ -132,7 +107,7 @@ if errorlevel 1 (
 )
 
 echo %OK% Bootstrap local concluido.
-echo %STEP% 7/7 registrando o servico automatico do Windows
+echo %STEP% 6/6 registrando o servico automatico do Windows
 set "SERVICE_INSTALL_LOG=%TEMP%\llmkeyrotator-install-service.log"
 if exist "%SERVICE_INSTALL_LOG%" del /f /q "%SERVICE_INSTALL_LOG%" >nul 2>&1
 powershell -NoProfile -ExecutionPolicy Bypass -Command ^
