@@ -50,6 +50,7 @@ $InstallRunScript = Join-Path $InstallScriptsRoot "run-service.ps1"
 $InstallEnvPath = Join-Path $InstallBackendRoot ".env"
 $InstallDbPath = Join-Path $InstallBackendRoot "database.db"
 $InstallLogsFolder = Join-Path $InstallRoot "logs"
+$FrontendBuildStamp = Join-Path $InstallFrontendRoot ".llmkeyrotator-build.sha256"
 $NssmSourceFolder = Join-Path $InstallRoot "bin"
 $NssmZip = Join-Path $NssmSourceFolder "nssm-2.24.zip"
 $NssmRoot = Join-Path $NssmSourceFolder "nssm-2.24"
@@ -107,6 +108,39 @@ function Normalize-PathForComparison {
     param([Parameter(Mandatory = $true)][string]$Path)
 
     return [System.IO.Path]::GetFullPath($Path).TrimEnd([System.IO.Path]::DirectorySeparatorChar, [System.IO.Path]::AltDirectorySeparatorChar).ToLowerInvariant()
+}
+
+function Get-FrontendBuildFingerprint {
+    if (-not (Test-Path -LiteralPath $SourceRoot)) {
+        return $null
+    }
+
+    $sourceFrontendRoot = Join-Path $SourceRoot "frontend"
+    if (-not (Test-Path -LiteralPath $sourceFrontendRoot)) {
+        return $null
+    }
+
+    $hashBuilder = New-Object System.Text.StringBuilder
+    $files = Get-ChildItem -LiteralPath $sourceFrontendRoot -Recurse -File | Where-Object {
+        $normalized = $_.FullName -replace '/', '\'
+        $normalized -notmatch '[\\\/](node_modules|\.svelte-kit)[\\\/]'
+    } | Sort-Object FullName
+
+    foreach ($file in $files) {
+        $relative = $file.FullName.Substring($sourceFrontendRoot.Length).TrimStart([System.IO.Path]::DirectorySeparatorChar, [System.IO.Path]::AltDirectorySeparatorChar)
+        $fileHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $file.FullName).Hash
+        [void]$hashBuilder.AppendLine("$relative|$fileHash")
+    }
+
+    $bytes = [System.Text.Encoding]::UTF8.GetBytes($hashBuilder.ToString())
+    $sha = [System.Security.Cryptography.SHA256]::Create()
+    try {
+        $digest = $sha.ComputeHash($bytes)
+    } finally {
+        $sha.Dispose()
+    }
+
+    return ([System.BitConverter]::ToString($digest) -replace '-', '').ToLowerInvariant()
 }
 
 function Test-SameDirectory {
@@ -319,21 +353,37 @@ function Install-Dependencies {
         }
 
         if (Test-Path -LiteralPath $FrontendPackageJson) {
-            Write-Stage "Instalando dependencias do frontend"
-            Push-Location $InstallFrontendRoot
-            try {
-                & npm install
-                if ($LASTEXITCODE -ne 0) {
-                    throw "Falha ao instalar as dependencias do frontend."
-                }
+            $frontendFingerprint = Get-FrontendBuildFingerprint
+            $frontendNodeModules = Join-Path $InstallFrontendRoot "node_modules"
+            $frontendBuildIsFresh = $false
+            if ($frontendFingerprint -and (Test-Path -LiteralPath $FrontendBuildStamp)) {
+                $storedFingerprint = (Get-Content -LiteralPath $FrontendBuildStamp -ErrorAction SilentlyContinue | Select-Object -First 1).Trim()
+                $frontendBuildIsFresh = $storedFingerprint -eq $frontendFingerprint -and (Test-Path -LiteralPath (Join-Path $InstallFrontendRoot ".svelte-kit"))
+            }
 
-                Write-Stage "Gerando build do frontend"
-                & npm run build
-                if ($LASTEXITCODE -ne 0) {
-                    throw "Falha ao gerar o build do frontend."
+            if ($frontendBuildIsFresh -and (Test-Path -LiteralPath $frontendNodeModules)) {
+                Write-Ok "Frontend ja esta atualizado; build reutilizado."
+            } else {
+                Write-Stage "Instalando dependencias do frontend"
+                Push-Location $InstallFrontendRoot
+                try {
+                    & npm install
+                    if ($LASTEXITCODE -ne 0) {
+                        throw "Falha ao instalar as dependencias do frontend."
+                    }
+
+                    Write-Stage "Gerando build do frontend"
+                    & npm run build
+                    if ($LASTEXITCODE -ne 0) {
+                        throw "Falha ao gerar o build do frontend."
+                    }
+
+                    if ($frontendFingerprint) {
+                        Set-Content -LiteralPath $FrontendBuildStamp -Value $frontendFingerprint -Encoding ASCII
+                    }
+                } finally {
+                    Pop-Location
                 }
-            } finally {
-                Pop-Location
             }
         } else {
             Write-Warn "frontend/package.json nao encontrado. Frontend ignorado."
