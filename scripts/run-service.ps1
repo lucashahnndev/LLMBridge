@@ -3,6 +3,7 @@ $ErrorActionPreference = "Stop"
 $ScriptPath = Split-Path -Parent $MyInvocation.MyCommand.Definition
 $RepoRoot = Split-Path -Parent $ScriptPath
 $BackendPython = Join-Path $RepoRoot ".venv\Scripts\python.exe"
+$BackendRequirements = Join-Path $RepoRoot "backend\requirements.txt"
 $FrontendDir = Join-Path $RepoRoot "frontend"
 $FrontendHost = if ($env:FRONTEND_HOST) { $env:FRONTEND_HOST } else { "127.0.0.1" }
 $FrontendPort = if ($env:FRONTEND_PORT) { $env:FRONTEND_PORT } else { "4173" }
@@ -32,7 +33,24 @@ function Stop-Children {
     }
 }
 
+function Ensure-BackendDependencies {
+    if (-not (Test-Path $BackendRequirements)) {
+        throw "backend/requirements.txt nao encontrado em $BackendRequirements"
+    }
+
+    $probe = Start-Process -FilePath $BackendPython -ArgumentList @("-c", "import annotated_types") -WorkingDirectory $RepoRoot -Wait -PassThru -NoNewWindow
+    if ($probe.ExitCode -ne 0) {
+        Write-Host "[!] Dependencias do backend ausentes; reinstalando requirements..." -ForegroundColor DarkYellow
+        $install = Start-Process -FilePath $BackendPython -ArgumentList @("-m", "pip", "install", "-r", $BackendRequirements) -WorkingDirectory $RepoRoot -Wait -PassThru -NoNewWindow
+        if ($install.ExitCode -ne 0) {
+            throw "Falha ao reinstalar dependencias do backend (exit code $($install.ExitCode))."
+        }
+    }
+}
+
 try {
+    Ensure-BackendDependencies
+
     Write-Host "[*] Aplicando migracoes automaticas..." -ForegroundColor Yellow
     & $BackendPython -m backend.migrate
 
