@@ -118,10 +118,18 @@ if errorlevel 1 (
 
 echo %OK% Bootstrap local concluido.
 echo %STEP% 7/7 registrando o servico automatico do Windows
+set "SERVICE_INSTALL_LOG=%TEMP%\llmkeyrotator-install-service.log"
+if exist "%SERVICE_INSTALL_LOG%" del /f /q "%SERVICE_INSTALL_LOG%" >nul 2>&1
 powershell -NoProfile -ExecutionPolicy Bypass -Command ^
-    "$p = Start-Process -FilePath powershell -ArgumentList @('-NoProfile','-ExecutionPolicy','Bypass','-File','scripts\install-service.ps1') -Verb RunAs -Wait -PassThru; exit $p.ExitCode"
+    "$repo = (Get-Location).Path; $log = '%SERVICE_INSTALL_LOG%'; $script = Join-Path $repo 'scripts\install-service.ps1'; $serviceArgs = @('-NoProfile','-ExecutionPolicy','Bypass','-File',$script,'-LogPath',$log,'-NoPause'); $p = Start-Process -FilePath powershell -ArgumentList $serviceArgs -WorkingDirectory $repo -Verb RunAs -Wait -PassThru; exit $p.ExitCode"
 if errorlevel 1 (
     echo %ERR% Falha ao registrar o servico automatico do Windows.
+    if exist "%SERVICE_INSTALL_LOG%" (
+        echo.
+        echo ===== service installer log =====
+        type "%SERVICE_INSTALL_LOG%"
+        echo ===== end log =====
+    )
     pause
     popd
     exit /b 1
@@ -129,5 +137,12 @@ if errorlevel 1 (
 
 echo.
 echo %OK% Instalacao concluida.
+if exist "%SERVICE_INSTALL_LOG%" (
+    echo.
+    echo ===== service installer log =====
+    type "%SERVICE_INSTALL_LOG%"
+    echo ===== end log =====
+    del /f /q "%SERVICE_INSTALL_LOG%" >nul 2>&1
+)
 pause
 popd

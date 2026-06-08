@@ -1,5 +1,29 @@
+param(
+    [string]$LogPath = "",
+    [switch]$NoPause
+)
+
 $ErrorActionPreference = "Stop"
 $OutputEncoding = [System.Text.Encoding]::UTF8
+
+$transcriptStarted = $false
+if ($LogPath) {
+    $logParent = Split-Path -Parent $LogPath
+    if ($logParent -and -not (Test-Path $logParent)) {
+        New-Item -ItemType Directory -Path $logParent | Out-Null
+    }
+    Start-Transcript -Path $LogPath -Append | Out-Null
+    $transcriptStarted = $true
+}
+
+trap {
+    if ($transcriptStarted) {
+        try {
+            Stop-Transcript | Out-Null
+        } catch {}
+    }
+    throw
+}
 
 Write-Host "=======================================================" -ForegroundColor Cyan
 Write-Host "   Configurando Servico Windows - LLMKeyRotator" -ForegroundColor Cyan
@@ -127,4 +151,11 @@ Write-Host "    Frontend: http://127.0.0.1:4173" -ForegroundColor Gray
 Write-Host "    Logs    : $LogsFolder\service.log" -ForegroundColor Gray
 Write-Host "=======================================================" -ForegroundColor Green
 Write-Host ""
-Read-Host "Pressione Enter para fechar esta janela..."
+
+if (-not $NoPause) {
+    Read-Host "Pressione Enter para fechar esta janela..."
+}
+
+if ($transcriptStarted) {
+    Stop-Transcript | Out-Null
+}
