@@ -14,7 +14,12 @@ if [[ ! -x "$RUN_SCRIPT" ]]; then
   chmod +x "$RUN_SCRIPT"
 fi
 
+stage() { echo "[>] $*"; }
+ok() { echo "[+] $*"; }
+warn() { echo "[!] $*"; }
+
 if [[ "${EUID:-$(id -u)}" -eq 0 ]]; then
+  stage "Instalando servico systemd (root)"
   cat > "$SERVICE_FILE_ROOT" <<EOF
 [Unit]
 Description=LLMKeyRotator full-stack service
@@ -42,9 +47,10 @@ EOF
   systemctl enable "$SERVICE_NAME"
   systemctl restart "$SERVICE_NAME"
 
-  echo "[OK] Servico systemd '${SERVICE_NAME}' instalado e reiniciado."
-  echo "     Logs: journalctl -u ${SERVICE_NAME} -f"
+  ok "Servico '${SERVICE_NAME}' instalado e reiniciado."
+  echo "    Logs: journalctl -u ${SERVICE_NAME} -f"
 else
+  stage "Instalando servico systemd (usuario)"
   mkdir -p "${HOME}/.config/systemd/user"
   cat > "$SERVICE_FILE_USER" <<EOF
 [Unit]
@@ -70,6 +76,6 @@ EOF
   systemctl --user enable "$SERVICE_NAME"
   systemctl --user restart "$SERVICE_NAME"
 
-  echo "[OK] Servico de usuario '${SERVICE_NAME}' instalado e reiniciado."
-  echo "     Logs: journalctl --user -u ${SERVICE_NAME} -f"
+  ok "Servico de usuario '${SERVICE_NAME}' instalado e reiniciado."
+  echo "    Logs: journalctl --user -u ${SERVICE_NAME} -f"
 fi

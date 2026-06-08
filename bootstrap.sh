@@ -6,52 +6,77 @@ REPO_ROOT="$(cd "$SCRIPT_DIR" && pwd)"
 
 cd "$REPO_ROOT"
 
-echo "======================================================="
-echo "    LLMKeyRotator - Instalador One-Shot (Linux)"
-echo "======================================================="
+if [[ -t 1 ]]; then
+  C_RESET=$'\033[0m'
+  C_DIM=$'\033[2m'
+  C_CYAN=$'\033[36m'
+  C_GREEN=$'\033[32m'
+  C_YELLOW=$'\033[33m'
+  C_RED=$'\033[31m'
+else
+  C_RESET=''
+  C_DIM=''
+  C_CYAN=''
+  C_GREEN=''
+  C_YELLOW=''
+  C_RED=''
+fi
+
+banner() {
+  printf '%s\n' "${C_CYAN}==============================================${C_RESET}"
+  printf '%s\n' "${C_CYAN}  LLMKeyRotator${C_RESET} ${C_DIM}one-shot installer${C_RESET}"
+  printf '%s\n' "${C_CYAN}==============================================${C_RESET}"
+}
+
+step() { printf '%s\n' "${C_YELLOW}[>]${C_RESET} $*"; }
+ok() { printf '%s\n' "${C_GREEN}[+]${C_RESET} $*"; }
+warn() { printf '%s\n' "${C_YELLOW}[!]${C_RESET} $*"; }
+fail() { printf '%s\n' "${C_RED}[x]${C_RESET} $*"; }
+
+banner
 echo
 
 command -v python3 >/dev/null 2>&1 || {
-  echo "[ERRO] python3 nao foi encontrado no PATH."
-  echo "Instale Python 3.10+ e tente novamente."
+  fail "python3 nao foi encontrado no PATH."
+  warn "Instale Python 3.10+ e tente novamente."
   exit 1
 }
 
 command -v node >/dev/null 2>&1 || {
-  echo "[ERRO] Node.js nao foi encontrado no PATH."
-  echo "Instale Node.js 20+ para preparar o frontend SvelteKit."
+  fail "Node.js nao foi encontrado no PATH."
+  warn "Instale Node.js 20+ para preparar o frontend SvelteKit."
   exit 1
 }
 
 if [[ ! -d ".venv" ]]; then
-  echo "[1/6] Criando ambiente virtual .venv..."
+  step "1/7 criando ambiente virtual .venv"
   python3 -m venv .venv
 else
-  echo "[*] Ambiente virtual .venv ja existe."
+  ok "Ambiente virtual .venv ja existe."
 fi
 
-echo "[2/6] Atualizando pip..."
+step "2/7 atualizando pip"
 ".venv/bin/python" -m pip install --upgrade pip
 
 if [[ -f "backend/requirements.txt" ]]; then
-  echo "[3/6] Instalando dependencias do backend..."
+  step "3/7 instalando dependencias do backend"
   ".venv/bin/python" -m pip install -r backend/requirements.txt
 else
-  echo "[!] backend/requirements.txt nao encontrado. Instalacao do backend ignorada."
+  warn "backend/requirements.txt nao encontrado. Backend ignorado."
 fi
 
 if [[ -f "frontend/package.json" ]]; then
-  echo "[4/6] Instalando dependencias do frontend..."
+  step "4/7 instalando dependencias do frontend"
   (cd frontend && npm install)
-  echo "[4.1/6] Gerando build do frontend..."
+  step "4.1/7 gerando build do frontend"
   (cd frontend && npm run build)
 else
-  echo "[!] frontend/package.json nao encontrado. Instalacao do frontend ignorada."
+  warn "frontend/package.json nao encontrado. Frontend ignorado."
 fi
 
 mkdir -p backend logs bin
 
-echo "[5/6] Preparando arquivo backend/.env e banco SQLite..."
+step "5/7 preparando backend/.env e banco SQLite"
 python3 scripts/bootstrap_env.py
 
 ".venv/bin/python" - <<'PY'
@@ -61,10 +86,9 @@ db.parent.mkdir(parents=True, exist_ok=True)
 sqlite3.connect(db).close()
 PY
 
-echo "[5.1/6] Aplicando migracoes automaticas do schema..."
+step "6/7 aplicando migracoes automaticas"
 ".venv/bin/python" -m backend.migrate
 
-echo "[6/6] Bootstrap local concluido."
-echo
-echo "[7/7] Registrando o servico automatico do Linux..."
+ok "Bootstrap local concluido."
+step "7/7 registrando o servico automatico do Linux"
 bash scripts/install-service.sh

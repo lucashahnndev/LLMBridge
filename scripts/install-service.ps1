@@ -19,6 +19,26 @@ $DisplayName = "LLMKeyRotator Full Stack Service"
 $RunScript = Join-Path $RepoRoot "scripts\run-service.ps1"
 $PowerShellExe = Join-Path $PSHOME "powershell.exe"
 
+function Write-Stage {
+    param([string]$Message)
+    Write-Host "[>] $Message" -ForegroundColor Yellow
+}
+
+function Write-Ok {
+    param([string]$Message)
+    Write-Host "[+] $Message" -ForegroundColor Green
+}
+
+function Write-Warn {
+    param([string]$Message)
+    Write-Host "[!] $Message" -ForegroundColor DarkYellow
+}
+
+function Write-Fail {
+    param([string]$Message)
+    Write-Host "[x] $Message" -ForegroundColor Red
+}
+
 function Invoke-Nssm {
     param(
         [Parameter(Mandatory = $true)]
@@ -32,8 +52,8 @@ function Invoke-Nssm {
 }
 
 if (-not (Test-Path (Join-Path $RepoRoot ".venv\Scripts\python.exe"))) {
-    Write-Host "[ERRO] Ambiente virtual (.venv) nao encontrado em $RepoRoot." -ForegroundColor Red
-    Write-Host "Execute o 'bootstrap.bat' primeiro." -ForegroundColor Red
+    Write-Fail "Ambiente virtual (.venv) nao encontrado em $RepoRoot."
+    Write-Warn "Execute o 'bootstrap.bat' primeiro."
     Read-Host "Pressione Enter para sair..."
     exit 1
 }
@@ -47,29 +67,29 @@ if (-not (Test-Path $LogsFolder)) {
 }
 
 if (-not (Test-Path $NssmExe)) {
-    Write-Host "[1/3] Baixando NSSM..." -ForegroundColor Yellow
+    Write-Stage "1/3 baixando NSSM"
     $NssmUrl = "https://nssm.cc/release/nssm-2.24.zip"
     [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
     Invoke-WebRequest -Uri $NssmUrl -OutFile $NssmZip
     Expand-Archive -Path $NssmZip -DestinationPath $BinFolder -Force
     Remove-Item $NssmZip -Force
-    Write-Host "[+] NSSM instalado em $NssmExe" -ForegroundColor Green
+    Write-Ok "NSSM pronto em $NssmExe"
 }
 
 if (-not (Test-Path $NssmExe)) {
-    Write-Host "[ERRO] nssm.exe nao foi encontrado apos o download." -ForegroundColor Red
+    Write-Fail "nssm.exe nao foi encontrado apos o download."
     Read-Host "Pressione Enter para sair..."
     exit 1
 }
 
-Write-Host "[2/3] Instalando ou atualizando o servico '$ServiceName'..." -ForegroundColor Yellow
+Write-Stage "2/3 instalando servico '$ServiceName'"
 
 if (Get-Service -Name $ServiceName -ErrorAction SilentlyContinue) {
-    Write-Host "[*] Servico '$ServiceName' ja existe. Reconfigurando..." -ForegroundColor Yellow
+    Write-Warn "Servico '$ServiceName' ja existe. Reconfigurando."
     try {
         Invoke-Nssm -Arguments @("stop", $ServiceName)
     } catch {
-        Write-Host "[*] O servico nao estava em execucao ou nao respondeu ao stop." -ForegroundColor DarkYellow
+        Write-Warn "O servico nao estava em execucao ou nao respondeu ao stop."
     }
     Invoke-Nssm -Arguments @("remove", $ServiceName, "confirm")
 }
@@ -91,7 +111,7 @@ Invoke-Nssm -Arguments @("set", $ServiceName, "Start", "SERVICE_AUTO_START")
 Invoke-Nssm -Arguments @("set", $ServiceName, "AppStdout", (Join-Path $LogsFolder "service.log"))
 Invoke-Nssm -Arguments @("set", $ServiceName, "AppStderr", (Join-Path $LogsFolder "service.log"))
 
-Write-Host "[3/3] Iniciando servico..." -ForegroundColor Yellow
+Write-Stage "3/3 iniciando servico"
 Start-Service -Name $ServiceName
 
 Start-Sleep -Seconds 2
@@ -101,10 +121,10 @@ if (-not (Get-Service -Name $ServiceName -ErrorAction SilentlyContinue)) {
 
 Write-Host ""
 Write-Host "=======================================================" -ForegroundColor Green
-Write-Host " [+] SUCESSO: o LLMKeyRotator foi configurado como" -ForegroundColor Green
-Write-Host "     servico automatico do Windows." -ForegroundColor Green
-Write-Host "     Backend: http://127.0.0.1:8009" -ForegroundColor Green
-Write-Host "     Frontend: http://127.0.0.1:4173" -ForegroundColor Green
+Write-Ok "LLMKeyRotator configurado como servico automatico do Windows"
+Write-Host "    Backend : http://127.0.0.1:8009" -ForegroundColor Gray
+Write-Host "    Frontend: http://127.0.0.1:4173" -ForegroundColor Gray
+Write-Host "    Logs    : $LogsFolder\service.log" -ForegroundColor Gray
 Write-Host "=======================================================" -ForegroundColor Green
 Write-Host ""
 Read-Host "Pressione Enter para fechar esta janela..."
