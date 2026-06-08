@@ -98,8 +98,8 @@ function Invoke-Nssm {
 
 function Ensure-Directory {
     param([Parameter(Mandatory = $true)][string]$Path)
-    if (-not (Test-Path $Path)) {
-        New-Item -ItemType Directory -Path $Path | Out-Null
+    if (-not (Test-Path -LiteralPath $Path)) {
+        [System.IO.Directory]::CreateDirectory($Path) | Out-Null
     }
 }
 
@@ -171,7 +171,7 @@ function Stop-And-RemoveService {
 }
 
 function Remove-InstallFiles {
-    if (-not (Test-Path $InstallRoot)) {
+    if (-not (Test-Path -LiteralPath $InstallRoot)) {
         return
     }
 
@@ -180,7 +180,7 @@ function Remove-InstallFiles {
 }
 
 function Sync-SourceTree {
-    if (-not (Test-Path $SourceRoot)) {
+    if (-not (Test-Path -LiteralPath $SourceRoot)) {
         throw "Diretorio de origem nao encontrado em $SourceRoot"
     }
 
@@ -248,10 +248,10 @@ function Restore-DataFiles {
         [string]$ExistingDbBackup
     )
 
-    if ($ExistingEnvBackup -and (Test-Path $ExistingEnvBackup)) {
+    if ($ExistingEnvBackup -and (Test-Path -LiteralPath $ExistingEnvBackup)) {
         Ensure-Directory -Path $InstallBackendRoot
         Copy-Item -LiteralPath $ExistingEnvBackup -Destination $InstallEnvPath -Force
-    } elseif (-not (Test-Path $InstallEnvPath) -and (Test-Path $SourceEnvPath)) {
+    } elseif (-not (Test-Path -LiteralPath $InstallEnvPath) -and (Test-Path -LiteralPath $SourceEnvPath)) {
         Ensure-Directory -Path $InstallBackendRoot
         Copy-Item -LiteralPath $SourceEnvPath -Destination $InstallEnvPath -Force
     }
@@ -263,15 +263,15 @@ function Restore-DataFiles {
         Pop-Location
     }
 
-    if ($ExistingDbBackup -and (Test-Path $ExistingDbBackup)) {
+    if ($ExistingDbBackup -and (Test-Path -LiteralPath $ExistingDbBackup)) {
         Ensure-Directory -Path $InstallBackendRoot
         Copy-Item -LiteralPath $ExistingDbBackup -Destination $InstallDbPath -Force
-    } elseif (-not (Test-Path $InstallDbPath) -and (Test-Path $SourceDbPath)) {
+    } elseif (-not (Test-Path -LiteralPath $InstallDbPath) -and (Test-Path -LiteralPath $SourceDbPath)) {
         Ensure-Directory -Path $InstallBackendRoot
         Copy-Item -LiteralPath $SourceDbPath -Destination $InstallDbPath -Force
     }
 
-    if (-not (Test-Path $InstallDbPath)) {
+    if (-not (Test-Path -LiteralPath $InstallDbPath)) {
         Push-Location $InstallRoot
         try {
             & python -c "import sqlite3, pathlib; db = pathlib.Path('backend/database.db'); db.parent.mkdir(parents=True, exist_ok=True); sqlite3.connect(db).close()"
@@ -282,7 +282,7 @@ function Restore-DataFiles {
 }
 
 function Ensure-InstallPython {
-    if (Test-Path $InstallPython) {
+    if (Test-Path -LiteralPath $InstallPython) {
         return
     }
 
@@ -294,13 +294,13 @@ function Ensure-InstallPython {
         Pop-Location
     }
 
-    if (-not (Test-Path $InstallPython)) {
+    if (-not (Test-Path -LiteralPath $InstallPython)) {
         throw "Falha ao criar o ambiente virtual do servico em $InstallRoot"
     }
 }
 
 function Install-Dependencies {
-    if (-not (Test-Path $BackendRequirements)) {
+    if (-not (Test-Path -LiteralPath $BackendRequirements)) {
         throw "backend/requirements.txt nao encontrado em $BackendRequirements"
     }
 
@@ -318,7 +318,7 @@ function Install-Dependencies {
             throw "Falha ao instalar as dependencias do backend."
         }
 
-        if (Test-Path $FrontendPackageJson) {
+        if (Test-Path -LiteralPath $FrontendPackageJson) {
             Write-Stage "Instalando dependencias do frontend"
             Push-Location $InstallFrontendRoot
             try {
@@ -346,7 +346,7 @@ function Install-Dependencies {
 function Ensure-Nssm {
     Ensure-Directory -Path $NssmSourceFolder
 
-    if (Test-Path $NssmExe) {
+    if (Test-Path -LiteralPath $NssmExe) {
         return
     }
 
@@ -444,7 +444,7 @@ if ($Uninstall) {
     exit 0
 }
 
-if (-not (Test-Path (Join-Path $SourceRoot ".venv\Scripts\python.exe"))) {
+if (-not (Test-Path -LiteralPath (Join-Path $SourceRoot ".venv\Scripts\python.exe"))) {
     Write-Fail "Ambiente virtual (.venv) nao encontrado em $SourceRoot."
     Write-Warn "Execute o 'bootstrap.bat' primeiro."
     if ($transcriptStarted) {
