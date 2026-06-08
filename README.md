@@ -99,8 +99,10 @@ mkdir -p "$HOME/apps" && git clone https://github.com/lucashahnndev/LLMKeyRotato
 Windows PowerShell:
 
 ```powershell
-$dest = Join-Path $env:ProgramData 'LLMKeyRotator'; if (-not (Test-Path $dest)) { New-Item -ItemType Directory -Path $dest | Out-Null }; git clone https://github.com/lucashahnndev/LLMKeyRotator.git $dest; Set-Location $dest; .\bootstrap.bat
+$src = Join-Path $HOME 'apps\LLMKeyRotator'; if (-not (Test-Path $src)) { New-Item -ItemType Directory -Path $src -Force | Out-Null }; git clone https://github.com/lucashahnndev/LLMKeyRotator.git $src; Set-Location $src; .\bootstrap.bat
 ```
+
+The Windows bootstrap keeps your working clone local and stages the runnable service workspace under `C:\ProgramData\LLMKeyRotator`.
 
 The bootstrap will create or repair `backend/.env` with the minimum required values:
 
@@ -114,7 +116,7 @@ The bootstrap will create or repair `backend/.env` with the minimum required val
 
 If `SECRET_KEY` or `ADMIN_PASSWORD` is missing or blank, the bootstrap generates them automatically.
 After that, it registers the full-stack service automatically on Linux or Windows.
-On Windows, the service installer downloads NSSM automatically if it is not already present under `bin/`.
+On Windows, the service installer downloads NSSM automatically into the service workspace under `C:\ProgramData\LLMKeyRotator\bin\`.
 
 ### 1. Bootstrap
 

@@ -103,6 +103,21 @@ function Ensure-Directory {
     }
 }
 
+function Normalize-PathForComparison {
+    param([Parameter(Mandatory = $true)][string]$Path)
+
+    return [System.IO.Path]::GetFullPath($Path).TrimEnd([System.IO.Path]::DirectorySeparatorChar, [System.IO.Path]::AltDirectorySeparatorChar).ToLowerInvariant()
+}
+
+function Test-SameDirectory {
+    param(
+        [Parameter(Mandatory = $true)][string]$Left,
+        [Parameter(Mandatory = $true)][string]$Right
+    )
+
+    return (Normalize-PathForComparison $Left) -eq (Normalize-PathForComparison $Right)
+}
+
 function Read-EnvValue {
     param(
         [Parameter(Mandatory = $true)][string]$Path,
@@ -167,6 +182,11 @@ function Remove-InstallFiles {
 function Sync-SourceTree {
     if (-not (Test-Path $SourceRoot)) {
         throw "Diretorio de origem nao encontrado em $SourceRoot"
+    }
+
+    if (Test-SameDirectory -Left $SourceRoot -Right $InstallRoot) {
+        Write-Warn "SourceRoot e InstallRoot apontam para o mesmo diretorio. Pulando sincronizacao."
+        return
     }
 
     Ensure-Directory -Path $InstallRoot
