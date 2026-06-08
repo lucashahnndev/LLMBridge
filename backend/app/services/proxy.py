@@ -18,9 +18,17 @@ from backend.app.database.models import AppToken, KeyStatus, ModelQueueCandidate
 from backend.app.database.session import get_session
 from backend.app.drivers import get_provider_driver
 from backend.app.schemas.proxy import ChatCompletionRequest
+from backend.app.services.alerts import (
+    format_provider_pool_exhausted_alert,
+    format_proxy_failure_alert,
+    format_queue_exhausted_alert,
+    send_telegram_alert,
+)
 from backend.app.services.crypto import decrypt_text
 from backend.app.services.queues import (
     ResolvedRouteCandidate,
+    is_queue_route,
+    parse_queue_name,
     resolve_model_routes,
     update_queue_candidate_on_failure,
     update_queue_candidate_on_success,
@@ -244,6 +252,63 @@ async def log_usage(
     )
     session.add(usage_log)
     await session.commit()
+
+
+async def _best_effort_send_alert(message: str) -> None:
+    try:
+        await send_telegram_alert(message)
+    except Exception:
+        return
+
+
+def _extract_error_text(body: dict[str, object] | list[object] | str | None) -> str | dict[str, object] | list[object] | None:
+    if body is None:
+        return None
+    if isinstance(body, str):
+        return body
+    if isinstance(body, list):
+        return body
+    detail = body.get("detail")
+    if isinstance(detail, str) and detail.strip():
+        return detail.strip()
+    error = body.get("error")
+    if isinstance(error, dict):
+        message = error.get("message")
+        if isinstance(message, str) and message.strip():
+            return message.strip()
+    return body
+
+
+async def _send_resolution_alert(
+    *,
+    app_token: AppToken,
+    requested_model: str,
+    route_kind: str,
+    queue_name: str | None,
+    protocol_in: str,
+    protocol_out: str,
+    status_code: int,
+    attempts: int,
+    rotated: bool,
+    tool_calling: bool,
+    final_route: str | None,
+    error: str | dict[str, object] | list[object] | None,
+) -> None:
+    alert_message = format_proxy_failure_alert(
+        app_token_name=app_token.name,
+        requested_model=requested_model,
+        final_route=final_route,
+        route_kind=route_kind,
+        queue_name=queue_name,
+        protocol_in=protocol_in,
+        protocol_out=protocol_out,
+        status_code=status_code,
+        attempts=attempts,
+        tool_calling=tool_calling,
+        rotated=rotated,
+        error=error,
+    )
+    await _best_effort_send_alert(alert_message)
 
 
 async def mark_provider_key_success(session: AsyncSession, provider_key: ProviderKey) -> None:
@@ -624,7 +689,37 @@ async def proxy_chat_completion(
     protocol_out: str = "openai",
 ) -> tuple[int, dict[str, object] | list[object] | str]:
     settings = get_settings()
-    routes = await resolve_model_routes(session, payload.model)
+    route_kind = "queue" if is_queue_route(payload.model) else "provider"
+    queue_name = parse_queue_name(payload.model) if route_kind == "queue" else None
+    try:
+        routes = await resolve_model_routes(session, payload.model)
+    except HTTPException as exc:
+        if exc.status_code in {status.HTTP_409_CONFLICT, status.HTTP_502_BAD_GATEWAY}:
+            error_text = exc.detail if isinstance(exc.detail, (dict, list)) else str(exc.detail)
+            if route_kind == "queue" and queue_name:
+                await _best_effort_send_alert(
+                    format_queue_exhausted_alert(
+                        app_token_name=app_token.name,
+                        queue_name=queue_name,
+                        requested_model=payload.model,
+                        protocol_in=protocol_in,
+                        protocol_out=protocol_out,
+                        error=error_text,
+                    )
+                )
+            else:
+                provider = payload.model.split("/", 1)[0] if "/" in payload.model else "unknown"
+                await _best_effort_send_alert(
+                    format_provider_pool_exhausted_alert(
+                        app_token_name=app_token.name,
+                        provider=provider,
+                        requested_model=payload.model,
+                        protocol_in=protocol_in,
+                        protocol_out=protocol_out,
+                        error=error_text,
+                    )
+                )
+        raise
     last_status_code = status.HTTP_502_BAD_GATEWAY
     last_body: dict[str, object] | list[object] | str = {"detail": "Proxy request failed"}
 
@@ -664,6 +759,22 @@ async def proxy_chat_completion(
         if attempt_index + 1 < len(routes):
             continue
 
+    if last_status_code >= 400:
+        await _send_resolution_alert(
+            app_token=app_token,
+            requested_model=payload.model,
+            route_kind=route_kind,
+            queue_name=queue_name,
+            protocol_in=protocol_in,
+            protocol_out=protocol_out,
+            status_code=last_status_code,
+            attempts=len(routes),
+            rotated=len(routes) > 1,
+            tool_calling=is_tool_calling_payload(payload.model_dump(exclude_none=True, exclude={"model"})),
+            final_route=routes[-1].route if routes else None,
+            error=_extract_error_text(last_body),
+        )
+
     return last_status_code, last_body
 
 
@@ -676,8 +787,40 @@ async def proxy_chat_completion_stream(
     protocol_out: str = "openai",
 ) -> StreamingResponse:
     settings = get_settings()
-    routes = await resolve_model_routes(session, payload.model)
+    route_kind = "queue" if is_queue_route(payload.model) else "provider"
+    queue_name = parse_queue_name(payload.model) if route_kind == "queue" else None
+    try:
+        routes = await resolve_model_routes(session, payload.model)
+    except HTTPException as exc:
+        if exc.status_code in {status.HTTP_409_CONFLICT, status.HTTP_502_BAD_GATEWAY}:
+            error_text = exc.detail if isinstance(exc.detail, (dict, list)) else str(exc.detail)
+            if route_kind == "queue" and queue_name:
+                await _best_effort_send_alert(
+                    format_queue_exhausted_alert(
+                        app_token_name=app_token.name,
+                        queue_name=queue_name,
+                        requested_model=payload.model,
+                        protocol_in=protocol_in,
+                        protocol_out=protocol_out,
+                        error=error_text,
+                    )
+                )
+            else:
+                provider = payload.model.split("/", 1)[0] if "/" in payload.model else "unknown"
+                await _best_effort_send_alert(
+                    format_provider_pool_exhausted_alert(
+                        app_token_name=app_token.name,
+                        provider=provider,
+                        requested_model=payload.model,
+                        protocol_in=protocol_in,
+                        protocol_out=protocol_out,
+                        error=error_text,
+                    )
+                )
+        raise
 
+    last_error: str | dict[str, object] | list[object] | None = None
+    last_status_code = status.HTTP_502_BAD_GATEWAY
     for attempt_index, route in enumerate(routes):
         route_payload = payload.model_copy(update={"model": route.route})
         try:
@@ -691,12 +834,30 @@ async def proxy_chat_completion_stream(
                 protocol_in=protocol_in,
                 protocol_out=protocol_out,
             )
-        except HTTPException:
+        except HTTPException as exc:
+            last_status_code = exc.status_code
+            last_error = exc.detail if isinstance(exc.detail, (dict, list)) else str(exc.detail)
             if attempt_index + 1 < len(routes):
                 continue
-            raise
+            break
 
-    raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="Proxy request failed")
+    if last_status_code >= 400:
+        await _send_resolution_alert(
+            app_token=app_token,
+            requested_model=payload.model,
+            route_kind=route_kind,
+            queue_name=queue_name,
+            protocol_in=protocol_in,
+            protocol_out=protocol_out,
+            status_code=last_status_code,
+            attempts=len(routes),
+            rotated=len(routes) > 1,
+            tool_calling=is_tool_calling_payload(payload.model_dump(exclude_none=True, exclude={"model"})),
+            final_route=routes[-1].route if routes else None,
+            error=last_error,
+        )
+
+    raise HTTPException(status_code=last_status_code, detail=last_error or "Proxy request failed")
 
 
 async def _proxy_chat_completion_stream_for_route(
