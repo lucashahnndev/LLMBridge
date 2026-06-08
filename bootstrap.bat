@@ -8,6 +8,19 @@ set "OK=[+]"
 set "STEP=[>]"
 set "WARN=[!]"
 set "ERR=[x]"
+set "INSTALL_ROOT=%ProgramData%\LLMKeyRotator"
+
+for %%I in ("%ROOT%") do set "ROOT_FULL=%%~fI"
+for %%I in ("%INSTALL_ROOT%") do set "INSTALL_ROOT_FULL=%%~fI"
+
+if /I "%ROOT_FULL%"=="%INSTALL_ROOT_FULL%" (
+    echo %ERR% Este bootstrap nao deve rodar de dentro de %INSTALL_ROOT%.
+    echo %WARN% Use um clone local, por exemplo: %USERPROFILE%\apps\LLMKeyRotator
+    echo %WARN% Depois execute bootstrap.bat nesse clone para copiar a instalacao para ProgramData.
+    pause
+    popd
+    exit /b 1
+)
 
 echo =======================================================
 echo   LLMKeyRotator ^| one-shot installer ^| Windows
@@ -90,7 +103,6 @@ if not exist "backend" mkdir backend
 if not exist "logs" mkdir logs
 if not exist "bin" mkdir bin
 
-set "INSTALL_ROOT=%ProgramData%\LLMKeyRotator"
 if not exist "%INSTALL_ROOT%" mkdir "%INSTALL_ROOT%" >nul 2>&1
 
 echo %STEP% 5/7 preparando backend\.env e banco SQLite
