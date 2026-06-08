@@ -33,9 +33,10 @@ pyvenv.cfg
 .nuxt/
 .svelte-kit/
 .turbo/
+.playwright-mcp/
 
 # Obsidian vault metadata
-.obsidian/**
+.obsidian/
 !.obsidian/graph.json
 !.obsidian/graph-tech.json
 
@@ -48,4 +49,10 @@ Thumbs.db
 # Local deployment artifacts
 bin/
 logs/
+frontend/dev_server.log
 *.db
+
+# Workspace notes and generated planning artifacts
+agent-start-here.md
+project.*.md
+extract_styles.js

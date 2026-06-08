@@ -1,0 +1,55 @@
+# Proxy Stat
+
+Last update date: 2026-06-08
+
+## Current state
+
+- a public OpenAI-style chat completions route now exists at `/v1/chat/completions`;
+- the request model is validated and the `model` field is parsed as `provider/model-name`;
+- the proxy now also resolves `queue/{queue-name}` aliases to ordered provider/model candidates before executing a route;
+- the proxy contract now includes an Anthropic-compatible `/v1/messages` adapter that reuses the same internal routing core;
+- the proxy telemetry contract now records protocol-in/protocol-out, route kind, resolved route, queue name, and tool-calling state;
+- app-token authentication is required for proxy requests;
+- provider-key selection and retry-on-`429` behavior are implemented at the scaffold level;
+- usage logging is recorded for proxy requests;
+- streaming chat-completions requests are proxied as `text/event-stream`;
+- the route format keeps `provider/model-name` as the real provider route while `queue/{queue-name}` acts as an orchestration alias;
+- Anthropic-compatible public routing is now available and maps into the same internal route resolver.
+
+## Pending items
+
+- refine provider-specific driver translation rules as upstream integrations are exercised;
+- expand integration tests as new providers, adapters, or queue behaviors are added;
+- document Claude Code usage now that the Anthropic adapter and telemetry fields are in place;
+- tune retry/backoff defaults against real provider behavior.
+
+## Evidence / validation
+
+- proxy contract extracted from the product brief;
+- provider abstraction and translation rules recorded;
+- FastAPI route scaffold implemented for `/v1/chat/completions`;
+- app-token auth and provider-key rotation scaffold implemented;
+- streaming proxy support implemented for `stream=true`;
+- Anthropic-compatible `/v1/messages` adapter added and covered by backend unit tests;
+- backend syntax validated with `python3 -m py_compile`.
+- backend unit tests cover token helpers, proxy parsing helpers, and the driver registry.
+
+## Commit tracking
+
+- trace_id: `awc-20260607-1624`
+- commit status: not done
+- hash (optional, after the commit):
+- message:
+- summary:
+
+## Open risks or doubts
+
+- provider-specific edge cases may require additional driver notes later;
+- response normalization may need a separate data-contract spec once the payloads exist;
+- streaming responses are enabled as a raw pass-through scaffold, but they still need integration validation.
+- queue aliases are implemented in the backend, but the admin UI still needs a dedicated queue editor before operators can manage them comfortably.
+- the Anthropic adapter is implemented and the protocol-aware telemetry fields are now stored on UsageLog records.
+
+## Related
+
+- [proxy.spec](proxy.spec.md)
