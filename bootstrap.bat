@@ -1,6 +1,6 @@
 @echo off
 setlocal EnableExtensions EnableDelayedExpansion
-title LLMKeyRotator - One-Shot Installer
+title LLMBridge - One-Shot Installer
 
 set "ROOT=%~dp0"
 pushd "%ROOT%" >nul
@@ -8,14 +8,14 @@ set "OK=[+]"
 set "STEP=[>]"
 set "WARN=[!]"
 set "ERR=[x]"
-set "INSTALL_ROOT=%ProgramData%\LLMKeyRotator"
+set "INSTALL_ROOT=%ProgramData%\LLMBridge"
 
 for %%I in ("%ROOT%") do set "ROOT_FULL=%%~fI"
 for %%I in ("%INSTALL_ROOT%") do set "INSTALL_ROOT_FULL=%%~fI"
 
 if /I "%ROOT_FULL%"=="%INSTALL_ROOT_FULL%" (
     echo %ERR% Este bootstrap nao deve rodar de dentro de %INSTALL_ROOT%.
-    echo %WARN% Use um clone local, por exemplo: %USERPROFILE%\apps\LLMKeyRotator
+    echo %WARN% Use um clone local, por exemplo: %USERPROFILE%\apps\LLMBridge
     echo %WARN% Depois execute bootstrap.bat nesse clone para copiar a instalacao para ProgramData.
     pause
     popd
@@ -23,7 +23,7 @@ if /I "%ROOT_FULL%"=="%INSTALL_ROOT_FULL%" (
 )
 
 echo =======================================================
-echo   LLMKeyRotator ^| one-shot installer ^| Windows
+echo   LLMBridge ^| one-shot installer ^| Windows
 echo =======================================================
 echo.
 
@@ -108,10 +108,10 @@ if errorlevel 1 (
 
 echo %OK% Bootstrap local concluido.
 echo %STEP% 6/6 registrando o servico automatico do Windows
-set "SERVICE_INSTALL_LOG=%TEMP%\llmkeyrotator-install-service.log"
+set "SERVICE_INSTALL_LOG=%TEMP%\llmbridge-install-service.log"
 if exist "%SERVICE_INSTALL_LOG%" del /f /q "%SERVICE_INSTALL_LOG%" >nul 2>&1
 powershell -NoProfile -ExecutionPolicy Bypass -Command ^
-    "$repo = (Get-Location).Path; $installRoot = Join-Path $env:ProgramData 'LLMKeyRotator'; $log = '%SERVICE_INSTALL_LOG%'; $script = Join-Path $repo 'scripts\install-service.ps1'; $serviceArgs = @('-NoProfile','-ExecutionPolicy','Bypass','-File',$script,'-SourceRoot',$repo,'-InstallRoot',$installRoot,'-LogPath',$log,'-NoPause'); $p = Start-Process -FilePath powershell -ArgumentList $serviceArgs -WorkingDirectory $installRoot -Verb RunAs -Wait -PassThru; exit $p.ExitCode"
+    "$repo = (Get-Location).Path; $installRoot = Join-Path $env:ProgramData 'LLMBridge'; $log = '%SERVICE_INSTALL_LOG%'; $script = Join-Path $repo 'scripts\install-service.ps1'; $serviceArgs = @('-NoProfile','-ExecutionPolicy','Bypass','-File',$script,'-SourceRoot',$repo,'-InstallRoot',$installRoot,'-LogPath',$log,'-NoPause'); $p = Start-Process -FilePath powershell -ArgumentList $serviceArgs -WorkingDirectory $installRoot -Verb RunAs -Wait -PassThru; exit $p.ExitCode"
 if errorlevel 1 (
     echo %ERR% Falha ao registrar o servico automatico do Windows.
     if exist "%SERVICE_INSTALL_LOG%" (

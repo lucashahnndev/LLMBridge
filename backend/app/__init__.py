@@ -1,1 +1,1 @@
-"""Application package for the LLMKeyRotator backend."""
+"""Application package for the LLMBridge backend."""

@@ -3,7 +3,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-SERVICE_NAME="llmkeyrotator"
+SERVICE_NAME="llmbridge"
 SERVICE_FILE_ROOT="/etc/systemd/system/${SERVICE_NAME}.service"
 SERVICE_FILE_USER="${HOME}/.config/systemd/user/${SERVICE_NAME}.service"
 RUN_SCRIPT="${REPO_ROOT}/scripts/run-service.sh"
@@ -22,7 +22,7 @@ if [[ "${EUID:-$(id -u)}" -eq 0 ]]; then
   stage "Instalando servico systemd (root)"
   cat > "$SERVICE_FILE_ROOT" <<EOF
 [Unit]
-Description=LLMKeyRotator full-stack service
+Description=LLMBridge full-stack service
 After=network-online.target
 Wants=network-online.target
 
@@ -54,7 +54,7 @@ else
   mkdir -p "${HOME}/.config/systemd/user"
   cat > "$SERVICE_FILE_USER" <<EOF
 [Unit]
-Description=LLMKeyRotator full-stack service
+Description=LLMBridge full-stack service
 After=default.target
 
 [Service]

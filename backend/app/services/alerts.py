@@ -65,7 +65,7 @@ def format_proxy_failure_alert(
     error: str | dict[str, object] | list[object] | None,
 ) -> str:
     lines = [
-        "[LLMKeyRotator] Proxy failure",
+        "[LLMBridge] Proxy failure",
         f"Time: {_now_utc()}",
         f"App token: {app_token_name}",
         f"Requested model: {requested_model}",
@@ -98,7 +98,7 @@ def format_queue_exhausted_alert(
 ) -> str:
     return "\n".join(
         [
-            "[LLMKeyRotator] Queue exhausted",
+            "[LLMBridge] Queue exhausted",
             f"Time: {_now_utc()}",
             f"App token: {app_token_name}",
             f"Queue: {queue_name}",
@@ -120,7 +120,7 @@ def format_provider_pool_exhausted_alert(
 ) -> str:
     return "\n".join(
         [
-            "[LLMKeyRotator] Provider pool exhausted",
+            "[LLMBridge] Provider pool exhausted",
             f"Time: {_now_utc()}",
             f"App token: {app_token_name}",
             f"Provider: {provider}",

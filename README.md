@@ -1,4 +1,4 @@
-# LLMKeyRotator
+# LLMBridge
 
 Local LLM gateway, proxy rotator, and control plane for provider keys, app tokens, queues, and telemetry.
 
@@ -6,7 +6,7 @@ Local LLM gateway, proxy rotator, and control plane for provider keys, app token
 
 ## What It Is
 
-LLMKeyRotator sits between your apps and model providers.
+LLMBridge sits between your apps and model providers.
 
 It gives you:
 
@@ -30,7 +30,7 @@ Most teams end up needing the same things:
 - usage tracking by project
 - a clear place to manage queues and rotation policy
 
-LLMKeyRotator turns that into a single gateway.
+LLMBridge turns that into a single gateway.
 
 ## Core Convention
 
@@ -93,16 +93,16 @@ This is the order I recommend for a fresh install:
 Linux:
 
 ```bash
-mkdir -p "$HOME/apps" && git clone https://github.com/lucashahnndev/LLMKeyRotator.git "$HOME/apps/LLMKeyRotator" && cd "$HOME/apps/LLMKeyRotator" && bash bootstrap.sh
+mkdir -p "$HOME/apps" && git clone https://github.com/lucashahnndev/LLMKeyRotator.git "$HOME/apps/LLMBridge" && cd "$HOME/apps/LLMBridge" && bash bootstrap.sh
 ```
 
 Windows PowerShell:
 
 ```powershell
-git clone https://github.com/lucashahnndev/LLMKeyRotator.git; Set-Location LLMKeyRotator; .\bootstrap.bat
+git clone https://github.com/lucashahnndev/LLMKeyRotator.git; Set-Location LLMBridge; .\bootstrap.bat
 ```
 
-The Windows bootstrap keeps your working clone local and stages the runnable service workspace under `C:\ProgramData\LLMKeyRotator`.
+The Windows bootstrap keeps your working clone local and stages the runnable service workspace under `C:\ProgramData\LLMBridge`.
 
 The bootstrap will create or repair `backend/.env` with the minimum required values:
 
@@ -116,7 +116,7 @@ The bootstrap will create or repair `backend/.env` with the minimum required val
 
 If `SECRET_KEY` or `ADMIN_PASSWORD` is missing or blank, the bootstrap generates them automatically.
 After that, it registers the full-stack service automatically on Linux or Windows.
-On Windows, the service installer downloads NSSM automatically into the service workspace under `C:\ProgramData\LLMKeyRotator\bin\`.
+On Windows, the service installer downloads NSSM automatically into the service workspace under `C:\ProgramData\LLMBridge\bin\`.
 
 ### 1. Bootstrap
 
@@ -272,8 +272,8 @@ cd frontend && npm run build
 - backend: `.venv/bin/python -m backend.run`
 - schema migrations: `.venv/bin/python -m backend.migrate`
 - frontend preview: `cd frontend && npm run preview -- --host 127.0.0.1 --port 4173 --strictPort`
-- Windows restart: `Restart-Service -Name "LLMKeyRotator"`
-- Linux restart: `systemctl restart llmkeyrotator`
+- Windows restart: `Restart-Service -Name "LLMBridge"`
+- Linux restart: `systemctl restart llmbridge`
 
 ## Stack
 

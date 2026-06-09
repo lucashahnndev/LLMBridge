@@ -1484,7 +1484,7 @@
 </script>
 
 <svelte:head>
-  <title>LLMKeyRotator Control Plane</title>
+  <title>LLMBridge Control Plane</title>
   <meta
     name="description"
     content="Local LLM gateway dashboard for runtime, keys, tokens, and usage control."
@@ -1497,7 +1497,7 @@
       {#if sidebarCollapsed}
         <div class="brand-icon">KR</div>
       {:else}
-        <div class="eyebrow">LLMKeyRotator</div>
+        <div class="eyebrow">LLMBridge</div>
         <h1>Control plane</h1>
       {/if}
     </div>

@@ -112,7 +112,7 @@ console.log(data.content[0].text);`;
 </script>
 
 <svelte:head>
-  <title>API Reference - LLMKeyRotator</title>
+  <title>API Reference - LLMBridge</title>
 </svelte:head>
 
 <div class="redoc-layout">
@@ -120,7 +120,7 @@ console.log(data.content[0].text);`;
   <aside class="redoc-sidebar">
     <div class="sidebar-header">
       <div class="header-top">
-        <strong>LLMKeyRotator</strong>
+        <strong>LLMBridge</strong>
         <button class="theme-toggle" on:click={toggleTheme} aria-label="Toggle Theme">
           {#if isDarkMode}
             <Sun size={18} />
@@ -165,9 +165,9 @@ console.log(data.content[0].text);`;
     <!-- Section: Quickstart -->
     <div class="api-section" id="quickstart">
       <div class="api-text">
-        <h1>LLMKeyRotator API</h1>
+        <h1>LLMBridge API</h1>
         <p>
-          LLMKeyRotator is an AI API Gateway designed to stabilize upstream provider APIs. 
+          LLMBridge is an AI API Gateway designed to stabilize upstream provider APIs. 
           It acts as a middle layer, receiving requests from your applications and routing them to external providers with built-in failover, load balancing, and rotation logic.
         </p>
 
@@ -438,7 +438,7 @@ console.log(data.content[0].text);`;
     </div>
 
     <div class="api-footer">
-      <p>LLMKeyRotator API Documentation</p>
+      <p>LLMBridge API Documentation</p>
     </div>
   </main>
 </div>
@@ -473,7 +473,8 @@ console.log(data.content[0].text);`;
   }
 
   /* Reset layout constraints to ensure absolute override over app.css */
-  :global(body[data-route="docs"]) {
+  :global(html[data-route="docs"]),
+  :global(html[data-route="docs"] body) {
     margin: 0 !important;
     padding: 0 !important;
     background-color: var(--rd-bg-text) !important;
@@ -605,7 +606,7 @@ console.log(data.content[0].text);`;
     flex-grow: 1;
     position: relative;
     /* Redoc uses a 50/50 split */
-    background: linear-gradient(to right, var(--rd-bg-text) 50%, var(--rd-bg-code) 50%);
+    background: linear-gradient(to right, var(--rd-bg-text) 50%, var(--rd-bg-code) 50%) !important;
     display: flex;
     flex-direction: column;
     min-width: 0;
@@ -613,7 +614,7 @@ console.log(data.content[0].text);`;
 
   @media (max-width: 1000px) {
     .redoc-main {
-      background: var(--rd-bg-text);
+      background: var(--rd-bg-text) !important;
     }
   }
 
@@ -621,6 +622,7 @@ console.log(data.content[0].text);`;
   .api-section {
     display: flex;
     width: 100%;
+    align-items: stretch;
   }
 
   @media (max-width: 1000px) {
@@ -631,7 +633,8 @@ console.log(data.content[0].text);`;
 
   /* Text Half (Left) */
   .api-text {
-    flex: 1;
+    width: 50%;
+    box-sizing: border-box;
     padding: 3.5rem;
     background: var(--rd-bg-text);
     color: var(--rd-text-main);
@@ -640,7 +643,8 @@ console.log(data.content[0].text);`;
 
   /* Code Half (Right) */
   .api-code {
-    flex: 1;
+    width: 50%;
+    box-sizing: border-box;
     padding: 3.5rem;
     background: var(--rd-bg-code);
     display: flex;
@@ -650,6 +654,9 @@ console.log(data.content[0].text);`;
   }
 
   @media (max-width: 1000px) {
+    .api-text, .api-code {
+      width: 100%;
+    }
     .api-text {
       padding: 2.5rem 1.5rem;
       border-bottom: none;

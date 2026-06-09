@@ -24,7 +24,7 @@ fi
 
 banner() {
   printf '%s\n' "${C_CYAN}==============================================${C_RESET}"
-  printf '%s\n' "${C_CYAN}  LLMKeyRotator${C_RESET} ${C_DIM}one-shot installer${C_RESET}"
+  printf '%s\n' "${C_CYAN}  LLMBridge${C_RESET} ${C_DIM}one-shot installer${C_RESET}"
   printf '%s\n' "${C_CYAN}==============================================${C_RESET}"
 }
 

@@ -12,7 +12,7 @@ async def _main() -> None:
 
 def main() -> None:
     asyncio.run(_main())
-    print(f"LLMKeyRotator {APP_VERSION} | schema {SCHEMA_VERSION}")
+    print(f"LLMBridge {APP_VERSION} | schema {SCHEMA_VERSION}")
 
 
 if __name__ == "__main__":

@@ -75,7 +75,7 @@
 </script>
 
 <svelte:head>
-  <title>{overviewTitle} - LLMKeyRotator</title>
+  <title>{overviewTitle} - LLMBridge</title>
   <meta
     name="description"
     content="Dedicated overview page for model usage, activity, and models used."

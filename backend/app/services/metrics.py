@@ -432,7 +432,7 @@ async def build_queue_overview(session: AsyncSession, queue_name: str, window: s
 def format_provider_pool_alert(provider: str, active_count: int, total_count: int) -> str:
     timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%SZ")
     return (
-        f"[LLMKeyRotator] Provider alert at {timestamp}\n"
+        f"[LLMBridge] Provider alert at {timestamp}\n"
         f"Provider: {provider}\n"
         f"Active keys: {active_count}/{total_count}\n"
         "All keys may be in cooldown or unavailable."
@@ -442,7 +442,7 @@ def format_provider_pool_alert(provider: str, active_count: int, total_count: in
 def format_key_status_alert(provider: str, key_name: str, new_status: str, blocked_until: str | None = None) -> str:
     timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%SZ")
     lines = [
-        "[LLMKeyRotator] Provider key status change",
+        "[LLMBridge] Provider key status change",
         f"Time: {timestamp}",
         f"Provider: {provider}",
         f"Key: {key_name}",

@@ -1,1 +1,1 @@
-"""LLMKeyRotator backend package."""
+"""LLMBridge backend package."""

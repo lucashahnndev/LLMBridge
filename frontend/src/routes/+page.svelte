@@ -8,13 +8,13 @@
 </script>
 
 <svelte:head>
-  <title>LLMKeyRotator</title>
+  <title>LLMBridge</title>
   <meta name="description" content="Redirecting to the admin login." />
 </svelte:head>
 
 <main class="redirect-screen">
   <div class="redirect-card">
-    <span class="eyebrow">LLMKeyRotator</span>
+    <span class="eyebrow">LLMBridge</span>
     <h1>Opening the admin console</h1>
     <p>Redirecting to the login screen.</p>
     <a href="/login">Continue to login</a>

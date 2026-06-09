@@ -60,7 +60,7 @@
 </script>
 
 <svelte:head>
-  <title>LLMKeyRotator Login</title>
+  <title>LLMBridge Login</title>
   <meta
     name="description"
     content="Enter the admin console for the local LLM gateway and key rotator."
@@ -83,7 +83,7 @@
       <div style="display: flex; gap: 0.75rem; align-items: center; margin-bottom: 1rem;">
         <ShieldCheck size={32} color="var(--accent)" />
       </div>
-      <span class="eyebrow">LLMKeyRotator</span>
+      <span class="eyebrow">LLMBridge</span>
       <h1>Console access</h1>
       <p>Local operator sign-in.</p>
     </div>

@@ -16,7 +16,7 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
-    app_name: str = "LLMKeyRotator"
+    app_name: str = "LLMBridge"
     host: str = Field(default="127.0.0.1")
     port: int = Field(default=8000)
     secret_key: str = Field(default="")

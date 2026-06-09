@@ -31,7 +31,7 @@ trap {
 }
 
 Write-Host "=======================================================" -ForegroundColor Cyan
-Write-Host "   Configurando Servico Windows - LLMKeyRotator" -ForegroundColor Cyan
+Write-Host "   Configurando Servico Windows - LLMBridge" -ForegroundColor Cyan
 Write-Host "=======================================================" -ForegroundColor Cyan
 Write-Host ""
 
@@ -40,7 +40,7 @@ if (-not $SourceRoot) {
     $SourceRoot = Split-Path -Parent $ScriptPath
 }
 if (-not $InstallRoot) {
-    $InstallRoot = if ($env:ProgramData) { Join-Path $env:ProgramData "LLMKeyRotator" } else { Join-Path $env:LOCALAPPDATA "LLMKeyRotator" }
+    $InstallRoot = if ($env:ProgramData) { Join-Path $env:ProgramData "LLMBridge" } else { Join-Path $env:LOCALAPPDATA "LLMBridge" }
 }
 $InstallScriptsRoot = Join-Path $InstallRoot "scripts"
 $InstallBackendRoot = Join-Path $InstallRoot "backend"
@@ -56,8 +56,8 @@ $NssmZip = Join-Path $NssmSourceFolder "nssm-2.24.zip"
 $NssmRoot = Join-Path $NssmSourceFolder "nssm-2.24"
 $ArchFolder = if ([Environment]::Is64BitOperatingSystem) { "win64" } else { "win32" }
 $NssmExe = Join-Path $NssmRoot "$ArchFolder\nssm.exe"
-$ServiceName = "LLMKeyRotator"
-$DisplayName = "LLMKeyRotator Full Stack Service"
+$ServiceName = "LLMBridge"
+$DisplayName = "LLMBridge Full Stack Service"
 $PowerShellExe = Join-Path $PSHOME "powershell.exe"
 $BootstrapEnvScript = Join-Path $InstallScriptsRoot "bootstrap_env.py"
 $BackendRequirements = Join-Path $InstallRoot "backend\requirements.txt"
@@ -362,7 +362,7 @@ function Install-Dependencies {
             }
 
             if ($frontendBuildIsFresh -and (Test-Path -LiteralPath $frontendNodeModules)) {
-                Write-Ok "Frontend ja esta atualizado; build reutilizado."
+                Write-Ok "Frontend ja esta atualizado; npm install e build reutilizados."
             } else {
                 Write-Stage "Instalando dependencias do frontend"
                 Push-Location $InstallFrontendRoot
@@ -449,7 +449,7 @@ function Install-Or-UpgradeService {
 
     Write-Host ""
     Write-Host "=======================================================" -ForegroundColor Green
-    Write-Ok "LLMKeyRotator configurado como servico automatico do Windows"
+    Write-Ok "LLMBridge configurado como servico automatico do Windows"
     Write-Host "    Instalação: $InstallRoot" -ForegroundColor Gray
     Write-Host "    Backend   : http://${hostValue}:${portValue}" -ForegroundColor Gray
     Write-Host "    Frontend  : http://127.0.0.1:4173" -ForegroundColor Gray
