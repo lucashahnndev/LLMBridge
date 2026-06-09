@@ -9,6 +9,7 @@ Last update date: 2026-06-08
 - the proxy now also resolves `queue/{queue-name}` aliases to ordered provider/model candidates before executing a route;
 - the proxy contract now includes an Anthropic-compatible `/v1/messages` adapter that reuses the same internal routing core;
 - the proxy telemetry contract now records protocol-in/protocol-out, route kind, resolved route, queue name, and tool-calling state;
+- the architecture and docs now describe a richer canonical IR target that preserves tool calls, ordering, and response intent while allowing optional metadata cleanup;
 - app-token authentication is required for proxy requests;
 - provider-key selection and retry-on-`429` behavior are implemented at the scaffold level;
 - usage logging is recorded for proxy requests;
@@ -21,6 +22,7 @@ Last update date: 2026-06-08
 - refine provider-specific driver translation rules as upstream integrations are exercised;
 - expand integration tests as new providers, adapters, or queue behaviors are added;
 - document Claude Code usage now that the Anthropic adapter and telemetry fields are in place;
+- decide whether canonical IR should become an explicit runtime structure instead of a documented target architecture;
 - tune retry/backoff defaults against real provider behavior.
 
 ## Evidence / validation

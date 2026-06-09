@@ -75,6 +75,40 @@ console.log(data.content[0].text);`;
   ]
 }`;
 
+  const canonicalRequestIR = `{
+  "request_id": "req_01J0",
+  "protocol_in": "anthropic",
+  "route": { "kind": "queue", "value": "queue/gemini" },
+  "messages": [
+    { "role": "system", "content": "You are a concise assistant." },
+    { "role": "user", "content": "Use the calculator tool." }
+  ],
+  "tools": [
+    {
+      "name": "calculator",
+      "input_schema": {
+        "type": "object",
+        "properties": { "expression": { "type": "string" } },
+        "required": ["expression"]
+      }
+    }
+  ],
+  "metadata": { "client": "claude-code" },
+  "telemetry": { "app_token_id": "app_123" }
+}`;
+
+  const canonicalResponseIR = `{
+  "request_id": "req_01J0",
+  "protocol_out": "anthropic",
+  "model": "google/gemini-3.1-flash",
+  "finish_reason": "tool_use",
+  "content": [
+    { "type": "text", "text": "I will use the calculator tool." },
+    { "type": "tool_use", "id": "call_1", "name": "calculator", "input": { "expression": "2 + 2" } }
+  ],
+  "usage": { "input_tokens": 120, "output_tokens": 34, "total_tokens": 154 }
+}`;
+
   const openaiCurl = `curl -X POST http://127.0.0.1:8009/v1/chat/completions \\
   -H "Authorization: Bearer my-app-token" \\
   -H "Content-Type: application/json" \\
@@ -86,6 +120,9 @@ console.log(data.content[0].text);`;
   }'`;
 
   onMount(() => {
+    document.documentElement.classList.add('docs-html');
+    document.body.classList.add('docs-page');
+
     // Check local storage or system preference
     const storedTheme = localStorage.getItem('docs-theme');
     if (storedTheme === 'dark') {
@@ -95,6 +132,11 @@ console.log(data.content[0].text);`;
     } else {
       isDarkMode = window.matchMedia('(prefers-color-scheme: dark)').matches;
     }
+
+    return () => {
+      document.documentElement.classList.remove('docs-html');
+      document.body.classList.remove('docs-page');
+    };
   });
 
   function toggleTheme() {
@@ -145,6 +187,8 @@ console.log(data.content[0].text);`;
         <a href="#app-tokens">App Tokens</a>
         <a href="#provider-keys">Provider Keys</a>
         <a href="#queues">Queues & Routing</a>
+        <a href="#canonical-ir">Canonical IR</a>
+        <a href="#telegram-bot">Telegram Bot</a>
       </div>
       <div class="nav-section">
         <strong>API Endpoints</strong>
@@ -167,8 +211,8 @@ console.log(data.content[0].text);`;
       <div class="api-text">
         <h1>LLMBridge API</h1>
         <p>
-          LLMBridge is an AI API Gateway designed to stabilize upstream provider APIs. 
-          It acts as a middle layer, receiving requests from your applications and routing them to external providers with built-in failover, load balancing, and rotation logic.
+          LLMBridge is an AI API Gateway designed to stabilize upstream provider APIs.
+          It accepts the client protocol at the edge, normalizes it into an internal routing model, and adapts only at the provider boundary so tool calls and routing intent stay intact.
         </p>
 
         <h2>Quickstart</h2>
@@ -200,12 +244,64 @@ console.log(data.content[0].text);`;
         <div class="callout callout-info">
           <Info size={16} />
           <div>
+            <strong>Protocol contract</strong>
+            <p>Public Anthropic and OpenAI-like requests are preserved at the edge. Internally, the gateway uses a richer routing model and only converts at the provider boundary.</p>
+          </div>
+        </div>
+        <div class="callout callout-info">
+          <Info size={16} />
+          <div>
             <strong>Restart Required</strong>
             <p>If you modify the Host or Port settings in the Runtime section of the dashboard, you must restart the backend process for the changes to take effect at the socket level.</p>
           </div>
         </div>
       </div>
       <div class="api-code"></div>
+    </div>
+
+    <!-- Section: Canonical IR -->
+    <div class="api-section" id="canonical-ir">
+      <div class="api-text">
+        <h2>Canonical IR</h2>
+        <p>
+          The internal model keeps routing, message order, tool calls, and response intent intact.
+          Optional cleanup can remove provider noise and redundant metadata, but only as a feature flag.
+        </p>
+
+        <h3>Preserve / Compress / Drop</h3>
+        <table class="redoc-table">
+          <thead>
+            <tr>
+              <th>Category</th>
+              <th>Rule</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong>Preserve</strong></td>
+              <td>Messages, roles, tool calls, tool results, system prompts, route targets, streaming intent, response IDs, ordering, and finish reasons.</td>
+            </tr>
+            <tr>
+              <td><strong>Compress</strong></td>
+              <td>Client metadata, provider noise, duplicate headers, and other non-essential envelope fields. Only when the cleanup flag is enabled.</td>
+            </tr>
+            <tr>
+              <td><strong>Drop from agent payload</strong></td>
+              <td>Secrets, transport headers, debug-only fields, and internal telemetry tags.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="api-code">
+        <div class="code-panel">
+          <div class="code-header">Canonical Request IR</div>
+          <pre><code>{canonicalRequestIR}</code></pre>
+        </div>
+        <div class="code-panel">
+          <div class="code-header">Canonical Response IR</div>
+          <pre><code>{canonicalResponseIR}</code></pre>
+        </div>
+      </div>
     </div>
 
     <!-- Section: App Tokens & Auth -->
@@ -240,8 +336,8 @@ console.log(data.content[0].text);`;
       <div class="api-text">
         <h2>Provider Keys</h2>
         <p>
-          Provider keys are your actual billing credentials for upstream AI providers (OpenAI, Anthropic, Google, OpenRouter). 
-          The gateway securely holds these keys and injects them into downstream requests.
+          Provider keys are your actual billing credentials for upstream AI providers (OpenAI, Anthropic, Google, OpenRouter).
+          The gateway securely holds these keys and injects them into downstream requests through provider adapters.
         </p>
         <table class="redoc-table">
           <thead>
@@ -274,7 +370,8 @@ console.log(data.content[0].text);`;
       <div class="api-text">
         <h2>Queues & Routing</h2>
         <p>
-          Queues map an abstract model target (e.g., <code>queue/production</code>) to an ordered list of real models. 
+          Queues map an abstract model target (e.g., <code>queue/production</code>) to an ordered list of real models.
+          The routing layer can keep the order fixed, re-rank candidates, or prefer latency-aware selection.
         </p>
 
         <h3>Routing Patterns</h3>
@@ -308,6 +405,50 @@ console.log(data.content[0].text);`;
       </div>
     </div>
 
+    <!-- Section: Telegram Bot -->
+    <div class="api-section" id="telegram-bot">
+      <div class="api-text">
+        <h2>Telegram Bot</h2>
+        <p>
+          The built-in Telegram bot can report runtime state, list app tokens, providers, and queues, and toggle alert switches from the chat you bind with <code>/link</code>.
+        </p>
+
+        <h3>Commands</h3>
+        <ul class="param-list">
+          <li>
+            <div class="param-name">/status</div>
+            <div class="param-desc">Service version and runtime base URL.</div>
+          </li>
+          <li>
+            <div class="param-name">/apps, /providers, /queues</div>
+            <div class="param-desc">Short operational summaries.</div>
+          </li>
+          <li>
+            <div class="param-name">/app &lt;id|name&gt;, /provider &lt;name&gt;, /queue &lt;name&gt;</div>
+            <div class="param-desc">Focused overview for a specific object.</div>
+          </li>
+          <li>
+            <div class="param-name">/alerts, /alerts proxy on|off, /alerts queue on|off</div>
+            <div class="param-desc">Inspect or toggle Telegram alerts.</div>
+          </li>
+          <li>
+            <div class="param-name">/link</div>
+            <div class="param-desc">Bind the current chat to the bot when no chat ID is configured yet.</div>
+          </li>
+        </ul>
+      </div>
+      <div class="api-code">
+        <div class="code-panel">
+          <div class="code-header">Example Session</div>
+          <pre><code>/link
+/apps
+/provider google
+/queue gemini
+/alerts proxy off</code></pre>
+        </div>
+      </div>
+    </div>
+
     <!-- Section: Anthropic API -->
     <div class="api-section" id="anthropic-api">
       <div class="api-text">
@@ -316,7 +457,7 @@ console.log(data.content[0].text);`;
           <span class="path">/v1/messages</span>
         </div>
         <h2>Create a Message (Anthropic Protocol)</h2>
-        <p>The gateway implements the Anthropic <code>/v1/messages</code> standard. It acts as an adapter, parsing Anthropic payloads and normalizing the responses from OpenAI, Google, or OpenRouter behind the scenes.</p>
+        <p>The gateway implements the Anthropic <code>/v1/messages</code> standard. It acts as an adapter, parsing Anthropic payloads and preserving them through the internal routing model before rebuilding the Anthropic response on the way out.</p>
         
         <h3>Body Parameters</h3>
         <ul class="param-list">
@@ -366,7 +507,7 @@ console.log(data.content[0].text);`;
           <span class="path">/v1/chat/completions</span>
         </div>
         <h2>Create Chat Completion (OpenAI Protocol)</h2>
-        <p>Provides a native OpenAI-compatible API interface. Downstream providers are translated back into the OpenAI schema.</p>
+        <p>Provides a native OpenAI-compatible API interface. The public contract stays OpenAI-compatible while provider-specific behavior is handled through adapters behind the scenes.</p>
         
         <h3>Body Parameters</h3>
         <ul class="param-list">
@@ -447,15 +588,27 @@ console.log(data.content[0].text);`;
   /* Base Variables - Light Mode */
   :root {
     --rd-bg-text: #ffffff;
-    --rd-bg-code: #1e2227; 
+    --rd-bg-code: #f6f8fa; /* Light grey right column */
     --rd-sidebar-bg: #f4f5f7;
     --rd-sidebar-width: 280px;
     
-    --rd-text-main: #333333;
-    --rd-text-muted: #666666;
-    --rd-text-code: #c9d1d9;
-    --rd-border: #e0e0e0;
-    --rd-accent: #0065ff;
+    --rd-text-main: #24292f;
+    --rd-text-muted: #57606a;
+    --rd-text-code: #24292f;
+    --rd-border: #d0d7de;
+    --rd-border-subtle: #e1e4e8;
+    --rd-accent: #0969da;
+
+    /* Code Panel (Right Side) Colors for Light Mode */
+    --rd-panel-bg: #ffffff;
+    --rd-panel-border: #d0d7de;
+    --rd-panel-header-bg: #f6f8fa;
+    --rd-panel-header-text: #57606a;
+    --rd-panel-header-border: #d0d7de;
+    --rd-panel-code-text: #24292f;
+    --rd-panel-btn-color: #57606a;
+    --rd-panel-btn-hover-bg: rgba(0, 0, 0, 0.05);
+    --rd-panel-btn-hover-text: #24292f;
     
     --rd-font-main: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu, Cantarell, "Helvetica Neue", sans-serif;
     --rd-font-code: "Source Code Pro", Consolas, Inconsolata, "Liberation Mono", Courier, monospace;
@@ -469,12 +622,24 @@ console.log(data.content[0].text);`;
     --rd-text-main: #c9d1d9;
     --rd-text-muted: #8b949e;
     --rd-border: #30363d;
+    --rd-border-subtle: rgba(255, 255, 255, 0.05);
     --rd-accent: #58a6ff;
+
+    /* Code Panel (Right Side) Colors for Dark Mode */
+    --rd-panel-bg: #0d1117;
+    --rd-panel-border: rgba(255, 255, 255, 0.1);
+    --rd-panel-header-bg: rgba(255, 255, 255, 0.03);
+    --rd-panel-header-text: #8b949e;
+    --rd-panel-header-border: rgba(255, 255, 255, 0.08);
+    --rd-panel-code-text: #c9d1d9;
+    --rd-panel-btn-color: #8b949e;
+    --rd-panel-btn-hover-bg: rgba(255, 255, 255, 0.1);
+    --rd-panel-btn-hover-text: #ffffff;
   }
 
   /* Reset layout constraints to ensure absolute override over app.css */
-  :global(html[data-route="docs"]),
-  :global(html[data-route="docs"] body) {
+  :global(html.docs-html),
+  :global(body.docs-page) {
     margin: 0 !important;
     padding: 0 !important;
     background-color: var(--rd-bg-text) !important;
@@ -650,7 +815,7 @@ console.log(data.content[0].text);`;
     display: flex;
     flex-direction: column;
     gap: 1.5rem;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.05); /* Subtle dark border */
+    border-bottom: 1px solid var(--rd-border-subtle);
   }
 
   @media (max-width: 1000px) {
@@ -766,7 +931,6 @@ console.log(data.content[0].text);`;
   }
 
   .method.post { background-color: #2da44e; }
-  .method.get { background-color: #0969da; }
 
   .path {
     padding: 0.3rem 0.6rem;
@@ -829,19 +993,19 @@ console.log(data.content[0].text);`;
 
   /* Code Panels (Right Side) */
   .code-panel {
-    background: #0d1117; /* GitHub Dark Dimmed background */
+    background: var(--rd-panel-bg);
     border-radius: 6px;
-    border: 1px solid rgba(255, 255, 255, 0.1);
+    border: 1px solid var(--rd-panel-border);
     position: relative;
-    box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+    box-shadow: 0 4px 12px rgba(0,0,0,0.05);
   }
 
   .code-header {
-    background: rgba(255, 255, 255, 0.03);
+    background: var(--rd-panel-header-bg);
     padding: 0.6rem 1rem;
     font-size: 0.75rem;
-    color: #8b949e;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    color: var(--rd-panel-header-text);
+    border-bottom: 1px solid var(--rd-panel-header-border);
     border-radius: 6px 6px 0 0;
     font-weight: 600;
     text-transform: uppercase;
@@ -857,7 +1021,7 @@ console.log(data.content[0].text);`;
   .code-panel code {
     font-family: var(--rd-font-code);
     font-size: 0.85rem;
-    color: #c9d1d9; /* Light grey code */
+    color: var(--rd-panel-code-text);
     line-height: 1.5;
     background: transparent;
   }
@@ -868,7 +1032,7 @@ console.log(data.content[0].text);`;
     right: 0.5rem;
     background: transparent;
     border: none;
-    color: #8b949e;
+    color: var(--rd-panel-btn-color);
     cursor: pointer;
     padding: 0.3rem;
     border-radius: 4px;
@@ -879,8 +1043,8 @@ console.log(data.content[0].text);`;
   }
 
   .copy-btn:hover {
-    color: #ffffff;
-    background: rgba(255, 255, 255, 0.1);
+    color: var(--rd-panel-btn-hover-text);
+    background: var(--rd-panel-btn-hover-bg);
   }
 
   .response-panel .code-header {

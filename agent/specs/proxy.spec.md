@@ -12,6 +12,9 @@ This spec defines the request-routing and translation contract for the unified L
 - the proxy may also expose an Anthropic-compatible `/v1/messages` adapter that maps Anthropic-style requests into the same internal routing core and maps the response back into Anthropic-style output;
 - the routing core must remain protocol-neutral so the same provider/model and queue resolution rules can serve OpenAI-style and Anthropic-style public adapters;
 - the proxy must not leak provider-specific request details to the client-facing contract;
+- the proxy should preserve tool-calling structure, tool-call IDs, message ordering, finish reason, response intent, and route metadata across protocol conversions;
+- the proxy may carry requests through a richer canonical internal IR that keeps messages, tools, routing target, generation settings, attachments, metadata, and telemetry separated;
+- optional metadata cleanup may compress or drop non-essential provider noise before the payload reaches the model adapter, but this behavior must be explicitly enabled and must never remove routing or tool semantics;
 - when a provider returns `429`, the proxy treats the failure as a rate-limit event and retries with another eligible key when available;
 - retry behavior must stop when the configured attempt or eligibility limit is reached;
 - if no eligible key remains, the proxy returns the upstream failure in a controlled way.
