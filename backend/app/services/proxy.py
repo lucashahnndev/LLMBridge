@@ -19,6 +19,7 @@ from backend.app.database.session import get_session
 from backend.app.drivers import get_provider_driver
 from backend.app.schemas.proxy import ChatCompletionRequest
 from backend.app.services.alerts import (
+    AlertChannel,
     format_provider_pool_exhausted_alert,
     format_proxy_failure_alert,
     format_queue_exhausted_alert,
@@ -254,9 +255,9 @@ async def log_usage(
     await session.commit()
 
 
-async def _best_effort_send_alert(message: str) -> None:
+async def _best_effort_send_alert(session: AsyncSession, message: str, *, channel: AlertChannel | None = None) -> None:
     try:
-        await send_telegram_alert(message)
+        await send_telegram_alert(message, session=session, channel=channel)
     except Exception:
         return
 
@@ -280,6 +281,7 @@ def _extract_error_text(body: dict[str, object] | list[object] | str | None) -> 
 
 
 async def _send_resolution_alert(
+    session: AsyncSession,
     *,
     app_token: AppToken,
     requested_model: str,
@@ -308,7 +310,7 @@ async def _send_resolution_alert(
         rotated=rotated,
         error=error,
     )
-    await _best_effort_send_alert(alert_message)
+    await _best_effort_send_alert(session, alert_message, channel=AlertChannel.PROXY_FAILURE)
 
 
 async def mark_provider_key_success(session: AsyncSession, provider_key: ProviderKey) -> None:
@@ -698,6 +700,7 @@ async def proxy_chat_completion(
             error_text = exc.detail if isinstance(exc.detail, (dict, list)) else str(exc.detail)
             if route_kind == "queue" and queue_name:
                 await _best_effort_send_alert(
+                    session,
                     format_queue_exhausted_alert(
                         app_token_name=app_token.name,
                         queue_name=queue_name,
@@ -705,11 +708,13 @@ async def proxy_chat_completion(
                         protocol_in=protocol_in,
                         protocol_out=protocol_out,
                         error=error_text,
-                    )
+                    ),
+                    channel=AlertChannel.QUEUE_EXHAUSTED,
                 )
             else:
                 provider = payload.model.split("/", 1)[0] if "/" in payload.model else "unknown"
                 await _best_effort_send_alert(
+                    session,
                     format_provider_pool_exhausted_alert(
                         app_token_name=app_token.name,
                         provider=provider,
@@ -717,7 +722,8 @@ async def proxy_chat_completion(
                         protocol_in=protocol_in,
                         protocol_out=protocol_out,
                         error=error_text,
-                    )
+                    ),
+                    channel=AlertChannel.PROVIDER_POOL_EXHAUSTED,
                 )
         raise
     last_status_code = status.HTTP_502_BAD_GATEWAY
@@ -761,6 +767,7 @@ async def proxy_chat_completion(
 
     if last_status_code >= 400:
         await _send_resolution_alert(
+            session,
             app_token=app_token,
             requested_model=payload.model,
             route_kind=route_kind,
@@ -796,6 +803,7 @@ async def proxy_chat_completion_stream(
             error_text = exc.detail if isinstance(exc.detail, (dict, list)) else str(exc.detail)
             if route_kind == "queue" and queue_name:
                 await _best_effort_send_alert(
+                    session,
                     format_queue_exhausted_alert(
                         app_token_name=app_token.name,
                         queue_name=queue_name,
@@ -803,11 +811,13 @@ async def proxy_chat_completion_stream(
                         protocol_in=protocol_in,
                         protocol_out=protocol_out,
                         error=error_text,
-                    )
+                    ),
+                    channel=AlertChannel.QUEUE_EXHAUSTED,
                 )
             else:
                 provider = payload.model.split("/", 1)[0] if "/" in payload.model else "unknown"
                 await _best_effort_send_alert(
+                    session,
                     format_provider_pool_exhausted_alert(
                         app_token_name=app_token.name,
                         provider=provider,
@@ -815,7 +825,8 @@ async def proxy_chat_completion_stream(
                         protocol_in=protocol_in,
                         protocol_out=protocol_out,
                         error=error_text,
-                    )
+                    ),
+                    channel=AlertChannel.PROVIDER_POOL_EXHAUSTED,
                 )
         raise
 
@@ -843,6 +854,7 @@ async def proxy_chat_completion_stream(
 
     if last_status_code >= 400:
         await _send_resolution_alert(
+            session,
             app_token=app_token,
             requested_model=payload.model,
             route_kind=route_kind,

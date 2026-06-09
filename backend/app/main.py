@@ -16,6 +16,8 @@ from backend.app.routes.model_queues import router as model_queues_router
 from backend.app.routes.proxy import router as proxy_router
 from backend.app.routes.provider_keys import router as provider_keys_router
 from backend.app.routes.usage_logs import router as usage_logs_router
+from backend.app.database.session import get_sessionmaker
+from backend.app.services.telegram_bot import create_telegram_bot_worker
 
 
 settings = get_settings()
@@ -23,7 +25,11 @@ settings = get_settings()
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await ensure_database()
+    telegram_bot_worker = create_telegram_bot_worker(get_sessionmaker())
+    await telegram_bot_worker.start()
+    app.state.telegram_bot_worker = telegram_bot_worker
     yield
+    await telegram_bot_worker.stop()
 
 
 app = FastAPI(title=settings.app_name, version=APP_VERSION, lifespan=lifespan)

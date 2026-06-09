@@ -162,6 +162,34 @@ class SchemaVersion(Base):
     )
 
 
+class AlertSettings(Base):
+    __tablename__ = "alert_settings"
+
+    key: Mapped[str] = mapped_column(String(32), primary_key=True, default="global")
+    telegram_enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    telegram_bot_token_encrypted: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    telegram_chat_id: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
+    alert_proxy_failures: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    alert_queue_exhausted: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    alert_provider_pool_exhausted: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    alert_provider_key_status_changes: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.current_timestamp(),
+        nullable=False,
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.current_timestamp(),
+        onupdate=func.current_timestamp(),
+        nullable=False,
+    )
+
+    @property
+    def telegram_bot_token_configured(self) -> bool:
+        return bool(self.telegram_bot_token_encrypted)
+
+
 class ProviderKeyModelCooldown(Base):
     __tablename__ = "provider_key_model_cooldowns"
     __table_args__ = (

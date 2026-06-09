@@ -2,8 +2,8 @@
   import { goto } from '$app/navigation';
   import { onMount } from 'svelte';
   import OverviewDetailPanel from '$lib/components/OverviewDetailPanel.svelte';
-  import { getStoredAdminToken } from '$lib/api';
-  import { loadOverviewDetail, overviewPageTitle, type OverviewDetail, type OverviewRange, type OverviewRouteKind } from '$lib/overview';
+  import { getStoredAdminToken, type OverviewDetail } from '$lib/api';
+  import { loadOverviewDetail, overviewPageTitle, type OverviewRange, type OverviewRouteKind } from '$lib/overview';
   import type { PageData } from './$types';
 
   export let data: PageData;

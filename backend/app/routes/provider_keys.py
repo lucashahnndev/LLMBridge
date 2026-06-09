@@ -18,7 +18,7 @@ from backend.app.schemas.provider_keys import (
 from backend.app.services.auth import require_admin
 from backend.app.services.crypto import decrypt_text, encrypt_text
 from backend.app.services.records import provider_key_response
-from backend.app.services.alerts import send_telegram_alert
+from backend.app.services.alerts import AlertChannel, send_telegram_alert
 from backend.app.services.metrics import format_key_status_alert, format_provider_pool_alert
 from backend.app.services.records import ensure_utc_datetime
 
@@ -109,7 +109,9 @@ async def update_provider_key(
                 blocked_until=ensure_utc_datetime(provider_key.blocked_until).isoformat()
                 if ensure_utc_datetime(provider_key.blocked_until)
                 else None,
-            )
+            ),
+            session=session,
+            channel=AlertChannel.PROVIDER_KEY_STATUS_CHANGE,
         )
 
         total_stmt = select(func.count(ProviderKey.id)).where(ProviderKey.provider == provider_key.provider)
@@ -121,7 +123,9 @@ async def update_provider_key(
         active_count = int((await session.execute(active_stmt)).scalar_one())
         if total_count > 0 and active_count == 0:
             await send_telegram_alert(
-                format_provider_pool_alert(provider=provider_key.provider, active_count=active_count, total_count=total_count)
+                format_provider_pool_alert(provider=provider_key.provider, active_count=active_count, total_count=total_count),
+                session=session,
+                channel=AlertChannel.PROVIDER_POOL_EXHAUSTED,
             )
 
     return provider_key_response(provider_key)

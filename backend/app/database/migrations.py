@@ -7,7 +7,9 @@ from sqlalchemy import inspect, insert, select, text
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 from backend.app.core.version import SCHEMA_BASE_VERSION, SCHEMA_VERSION, compare_semver
-from backend.app.database.models import ModelQueue, ModelQueueCandidate, QueueStrategy, SchemaVersion
+from backend.app.database.models import AlertSettings, ModelQueue, ModelQueueCandidate, QueueStrategy, SchemaVersion
+from backend.app.core.config import get_settings
+from backend.app.services.crypto import encrypt_text
 
 
 SchemaUpgrade = Callable[[object], None]
@@ -98,6 +100,36 @@ def _upgrade_telemetry_and_seed_gemini_queue(sync_conn) -> None:
     _seed_default_gemini_queue(sync_conn)
 
 
+def _seed_default_alert_settings(sync_conn) -> None:
+    existing = sync_conn.execute(
+        select(AlertSettings.__table__.c.key).where(AlertSettings.__table__.c.key == "global")
+    ).scalar_one_or_none()
+    if existing is not None:
+        return
+
+    settings = get_settings()
+    telegram_token = settings.telegram_bot_token.strip() if settings.telegram_bot_token else ""
+    telegram_chat_id = settings.telegram_chat_id.strip() if settings.telegram_chat_id else ""
+
+    sync_conn.execute(
+        insert(AlertSettings.__table__).values(
+            key="global",
+            telegram_enabled=bool(telegram_token and telegram_chat_id),
+            telegram_bot_token_encrypted=encrypt_text(telegram_token) if telegram_token else None,
+            telegram_chat_id=telegram_chat_id or None,
+            alert_proxy_failures=True,
+            alert_queue_exhausted=True,
+            alert_provider_pool_exhausted=True,
+            alert_provider_key_status_changes=True,
+        )
+    )
+
+
+def _upgrade_alert_settings(sync_conn) -> None:
+    _upgrade_telemetry_and_seed_gemini_queue(sync_conn)
+    _seed_default_alert_settings(sync_conn)
+
+
 def _read_schema_version(sync_conn) -> str:
     version = sync_conn.execute(
         select(SchemaVersion.version).where(SchemaVersion.key == "schema")
@@ -120,8 +152,8 @@ def _write_schema_version(sync_conn, version: str) -> None:
 MIGRATION_STEPS: tuple[MigrationStep, ...] = (
     MigrationStep(
         version=SCHEMA_VERSION,
-        description="Add usage log telemetry columns and seed default Gemini queue",
-        upgrade=_upgrade_telemetry_and_seed_gemini_queue,
+        description="Add telemetry columns, seed Gemini queue, and initialize alert settings",
+        upgrade=_upgrade_alert_settings,
     ),
 )
 

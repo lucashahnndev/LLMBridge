@@ -2,6 +2,7 @@
   import { goto } from '$app/navigation';
   import { onDestroy, onMount } from 'svelte';
   import {
+    fetchAlertSettings,
     createAppToken,
     createModelQueue,
     createModelQueueCandidate,
@@ -28,12 +29,14 @@
     setStoredAdminToken,
     updateAppToken,
     rotateAppToken as rotateAppTokenApi,
+    updateAlertSettings,
     updateModelQueue,
     updateModelQueueCandidate,
     updateProviderKey,
     updateRuntimeConfig,
     type AppToken,
     type AppTokenCreateResult,
+    type AlertSettings,
     type GlobalMetrics,
     type MetricsTimeseries,
     type ModelQueue,
@@ -47,7 +50,7 @@
   } from '$lib/api';
   import { overviewRouteHref } from '$lib/overview';
   import { applyThemeMode, getStoredThemeMode, setStoredThemeMode, type ThemeMode } from '$lib/theme';
-  import { LayoutDashboard, Key, Coins, BarChart2, Settings, ChevronDown, PanelLeftClose, PanelLeftOpen, BookOpenText } from 'lucide-svelte';
+  import { LayoutDashboard, Key, Coins, BarChart2, Settings, ChevronDown, PanelLeftClose, PanelLeftOpen, BookOpenText, SquareTerminal } from 'lucide-svelte';
   import { Line, Doughnut, Bar } from 'svelte-chartjs';
   import { Chart, Title, Tooltip, LineElement, PointElement, CategoryScale, LinearScale, Filler, ArcElement, BarElement, Legend, type ChartOptions } from 'chart.js';
 
@@ -107,9 +110,11 @@
   let modelQueues: ModelQueue[] = [];
   let usageLogs: UsageLog[] = [];
   let runtimeConfig: RuntimeConfig | null = null;
+  let alertSettings: AlertSettings | null = null;
   let backendHealth: { status: string; service: string } | null = null;
   let metricsError = '';
   let runtimeError = '';
+  let alertError = '';
   let runtimeNotice = '';
   let restartPending = false;
   let lastRefreshedAt: string | null = null;
@@ -129,6 +134,13 @@
 
   let runtimeHost = '127.0.0.1';
   let runtimePort = 8009;
+  let alertTelegramEnabled = false;
+  let alertTelegramBotToken = '';
+  let alertTelegramChatId = '';
+  let alertProxyFailures = true;
+  let alertQueueExhausted = true;
+  let alertProviderPoolExhausted = true;
+  let alertProviderKeyStatusChanges = true;
 
   let providerName = '';
   let providerType = 'openai';
@@ -395,6 +407,32 @@
     plugins: { legend: { display: true, position: 'bottom', labels: { color: 'rgba(255,255,255,0.7)', boxWidth: 12 } } }
   };
 
+  const appBarChartOptions: any = {
+    responsive: true,
+    maintainAspectRatio: false,
+    indexAxis: 'y',
+    plugins: {
+      legend: { display: true, position: 'bottom', labels: { color: 'rgba(255,255,255,0.72)', boxWidth: 12 } },
+      tooltip: { mode: 'index', intersect: false }
+    },
+    scales: {
+      x: {
+        beginAtZero: true,
+        grid: { color: 'rgba(255,255,255,0.05)' },
+        ticks: { color: 'rgba(255,255,255,0.55)' }
+      },
+      y: {
+        grid: { display: false },
+        ticks: {
+          color: 'rgba(255,255,255,0.68)',
+          autoSkip: false,
+          font: { size: 11 }
+        }
+      }
+    },
+    elements: { bar: { borderRadius: 6 } }
+  };
+
   $: appRequestsData = {
     labels: projectMetrics.map((p) => p.app_name),
     datasets: [{
@@ -513,7 +551,7 @@
     metricsError = '';
     runtimeError = '';
     try {
-      const [global, timeseries, projects, providers, apps, queues, usage, runtime] = await Promise.all([
+      const [global, timeseries, projects, providers, apps, queues, usage, runtime, alerts] = await Promise.all([
         fetchGlobalMetrics(jwt),
         fetchMetricsTimeseries(jwt, overviewRange),
         fetchProjectMetrics(jwt),
@@ -530,7 +568,8 @@
           toolCalling: usageToolCallingFilter === '' ? null : usageToolCallingFilter === 'true',
           offset: (usagePage - 1) * usageLimit
         }),
-        fetchRuntimeConfig(jwt)
+        fetchRuntimeConfig(jwt),
+        fetchAlertSettings(jwt)
       ]);
       globalMetrics = global;
       overviewTimeseries = timeseries;
@@ -546,6 +585,14 @@
       runtimeConfig = runtime;
       runtimeHost = runtime.host;
       runtimePort = runtime.port;
+      alertSettings = alerts;
+      alertTelegramEnabled = alerts.telegram_enabled;
+      alertTelegramBotToken = '';
+      alertTelegramChatId = alerts.telegram_chat_id ?? '';
+      alertProxyFailures = alerts.alert_proxy_failures;
+      alertQueueExhausted = alerts.alert_queue_exhausted;
+      alertProviderPoolExhausted = alerts.alert_provider_pool_exhausted;
+      alertProviderKeyStatusChanges = alerts.alert_provider_key_status_changes;
       lastRefreshedAt = new Date().toISOString();
       token = jwt;
       setStoredAdminToken(jwt);
@@ -615,6 +662,53 @@
     } catch (error) {
       runtimeError = error instanceof Error ? error.message : 'Failed to save runtime config';
       pushNotice('error', 'Runtime update failed', runtimeError);
+    }
+  }
+
+  async function handleAlertSettingsSave() {
+    if (!token) {
+      alertError = 'Login as admin before changing alert settings.';
+      return;
+    }
+
+    actionBusy = true;
+    alertError = '';
+    try {
+      const payload: {
+        telegram_enabled: boolean;
+        telegram_bot_token?: string | null;
+        telegram_chat_id: string | null;
+        alert_proxy_failures: boolean;
+        alert_queue_exhausted: boolean;
+        alert_provider_pool_exhausted: boolean;
+        alert_provider_key_status_changes: boolean;
+      } = {
+        telegram_enabled: alertTelegramEnabled,
+        telegram_chat_id: alertTelegramChatId || null,
+        alert_proxy_failures: alertProxyFailures,
+        alert_queue_exhausted: alertQueueExhausted,
+        alert_provider_pool_exhausted: alertProviderPoolExhausted,
+        alert_provider_key_status_changes: alertProviderKeyStatusChanges
+      };
+      if (alertTelegramBotToken.trim()) {
+        payload.telegram_bot_token = alertTelegramBotToken.trim();
+      }
+
+      const updated = await updateAlertSettings(token, payload);
+      alertSettings = updated;
+      alertTelegramEnabled = updated.telegram_enabled;
+      alertTelegramBotToken = '';
+      alertTelegramChatId = updated.telegram_chat_id ?? '';
+      alertProxyFailures = updated.alert_proxy_failures;
+      alertQueueExhausted = updated.alert_queue_exhausted;
+      alertProviderPoolExhausted = updated.alert_provider_pool_exhausted;
+      alertProviderKeyStatusChanges = updated.alert_provider_key_status_changes;
+      pushNotice('success', 'Alert settings saved', 'Telegram notifications updated.');
+    } catch (error) {
+      alertError = error instanceof Error ? error.message : 'Failed to save alert settings';
+      pushNotice('error', 'Alert settings update failed', alertError);
+    } finally {
+      actionBusy = false;
     }
   }
 
@@ -1495,7 +1589,7 @@
   <aside class="sidebar">
     <div class="brand">
       {#if sidebarCollapsed}
-        <div class="brand-icon">KR</div>
+        <div class="brand-icon">LB</div>
       {:else}
         <div class="eyebrow">LLMBridge</div>
         <h1>Control plane</h1>
@@ -1516,6 +1610,16 @@
           {/if}
         </button>
       {/each}
+      <button
+        type="button"
+        on:click={() => goto('/app/playground')}
+        title={sidebarCollapsed ? 'Playground' : ''}
+      >
+        <span class="nav-icon"><SquareTerminal size={15} strokeWidth={1.6} /></span>
+        {#if !sidebarCollapsed}
+          <span class="nav-label">Playground</span>
+        {/if}
+      </button>
     </nav>
 
     <div class="sidebar-footer">
@@ -1708,16 +1812,17 @@
             </div>
           </div>
 
-          <div class="dashboard-row cols-3">
-            <div class="dashboard-card chart-card">
+          <div class="dashboard-row cols-3 app-chart-row">
+            <div class="dashboard-card chart-card app-chart-card app-chart-card-donut">
               <div class="card-header">
                 <div class="card-header-row">
                   <h3>App Requests</h3>
+                  <span class="chart-legend accent">{projectMetrics.length} apps</span>
                 </div>
               </div>
               <div class="card-body">
                 {#if projectMetrics.length}
-                  <div style="height: 180px; position: relative;">
+                  <div class="chart-stage chart-stage-donut chart-stage-donut-large">
                     <Doughnut data={appRequestsData} options={biChartOptions} />
                   </div>
                 {:else}
@@ -1726,16 +1831,17 @@
               </div>
             </div>
 
-            <div class="dashboard-card chart-card">
+            <div class="dashboard-card chart-card app-chart-card app-chart-card-bar">
               <div class="card-header">
                 <div class="card-header-row">
                   <h3>App Tokens</h3>
+                  <span class="chart-legend accent">{formatMetric(overviewTokensTotal)} total</span>
                 </div>
               </div>
               <div class="card-body">
                 {#if projectMetrics.length}
-                  <div style="height: 180px; position: relative;">
-                    <Bar data={appTokensData} options={biChartOptions} />
+                  <div class="chart-stage chart-stage-bar chart-stage-bar-large">
+                    <Bar data={appTokensData} options={appBarChartOptions} />
                   </div>
                 {:else}
                   <div class="chart-empty compact">No data</div>
@@ -1743,16 +1849,17 @@
               </div>
             </div>
 
-            <div class="dashboard-card chart-card">
+            <div class="dashboard-card chart-card app-chart-card app-chart-card-bar">
               <div class="card-header">
                 <div class="card-header-row">
                   <h3>App Latency</h3>
+                  <span class="chart-legend accent">{overviewLatencyAverage ? `${overviewLatencyAverage.toFixed(1)} ms` : '0 ms'}</span>
                 </div>
               </div>
               <div class="card-body">
                 {#if projectMetrics.length}
-                  <div style="height: 180px; position: relative;">
-                    <Bar data={appLatencyData} options={biChartOptions} />
+                  <div class="chart-stage chart-stage-bar chart-stage-bar-large">
+                    <Bar data={appLatencyData} options={appBarChartOptions} />
                   </div>
                 {:else}
                   <div class="chart-empty compact">No data</div>
@@ -2777,39 +2884,109 @@
 
       {#if activeSection === 'runtime'}
         <section class="section-block">
-        <div class="runtime-strip">
-          <div class="chip">{runtimeConfig?.restart_required ? 'Restart needed' : 'Live'}</div>
-          <div class="muted">{runtimeConfig ? runtimeConfig.api_base_url : 'Not loaded'}</div>
-        </div>
+          <div class="runtime-strip">
+            <div class="chip">{runtimeConfig?.restart_required ? 'Restart needed' : 'Live'}</div>
+            <div class="muted">{runtimeConfig ? runtimeConfig.api_base_url : 'Not loaded'}</div>
+          </div>
 
-        <p class="runtime-note">
-          Use provider/model aliases like <code>google/gemini-3.1-flash</code>, <code>openai/gpt-4o-mini</code>,
-          or use generic tokens to let the rotator pick any valid key based on rate limits.
-        </p>
+          <div class="split-panels">
+            <div class="panel-surface">
+              <div class="panel-head">
+                <h3>Runtime</h3>
+                <p>Backend host and port.</p>
+              </div>
 
-        <div class="form-grid runtime-grid" style="max-width: 600px;">
-          <label>
-            Host
-            <input bind:value={runtimeHost} type="text" placeholder="127.0.0.1" />
-          </label>
-          <label>
-            Port
-            <input bind:value={runtimePort} type="number" min="1" max="65535" />
-          </label>
-        </div>
-        <button type="button" class="primary" on:click={handleRuntimeSave} disabled={loading} style="max-width: max-content; margin-top: 1rem;">
-          Save runtime settings
-        </button>
+              <p class="runtime-note">
+                Use provider/model aliases like <code>google/gemini-3.1-flash</code>, <code>openai/gpt-4o-mini</code>,
+                or use generic tokens to let the rotator pick any valid key based on rate limits.
+              </p>
 
-        <!-- Inline notifications removed, toast system handles this -->
-        {#if runtimeConfig}
-          <p class="muted">
-            Current API base: <code>{runtimeConfig.api_base_url}</code>
-          </p>
-        {/if}
-        {#if restartPending}
-          <p class="muted">Restart pending. The UI will reconnect after the backend service comes back up.</p>
-        {/if}
+              <div class="form-grid runtime-grid" style="max-width: 600px;">
+                <label>
+                  Host
+                  <input bind:value={runtimeHost} type="text" placeholder="127.0.0.1" />
+                </label>
+                <label>
+                  Port
+                  <input bind:value={runtimePort} type="number" min="1" max="65535" />
+                </label>
+              </div>
+              <button type="button" class="primary" on:click={handleRuntimeSave} disabled={loading} style="max-width: max-content; margin-top: 1rem;">
+                Save runtime settings
+              </button>
+
+              {#if runtimeConfig}
+                <p class="muted">
+                  Current API base: <code>{runtimeConfig.api_base_url}</code>
+                </p>
+              {/if}
+              {#if restartPending}
+                <p class="muted">Restart pending. The UI will reconnect after the backend service comes back up.</p>
+              {/if}
+            </div>
+
+            <div class="panel-surface">
+              <div class="panel-head">
+                <h3>Alerts</h3>
+                <p>Telegram and alert routing.</p>
+              </div>
+
+              <div class="runtime-strip compact">
+                <div class="chip">{alertSettings?.telegram_enabled ? 'Telegram on' : 'Telegram off'}</div>
+                <div class="muted">{alertSettings?.telegram_chat_id ? `Chat ${alertSettings.telegram_chat_id}` : 'No chat configured'}</div>
+              </div>
+
+              <p class="runtime-note">
+                Configure Telegram here and choose which operational events should trigger alerts.
+              </p>
+
+              <div class="form-grid runtime-grid" style="max-width: 720px;">
+                <label class="checkbox-row wide">
+                  <span>Telegram enabled</span>
+                  <input bind:checked={alertTelegramEnabled} type="checkbox" />
+                </label>
+                <label class="wide">
+                  Telegram bot token
+                  <input bind:value={alertTelegramBotToken} type="password" placeholder={alertSettings?.telegram_bot_token_configured ? 'Leave blank to keep current token' : 'Enter Telegram bot token'} />
+                </label>
+                <label class="wide">
+                  Telegram chat ID
+                  <input bind:value={alertTelegramChatId} type="text" placeholder="123456789" />
+                </label>
+              </div>
+
+              <div class="form-grid alerts-grid" style="max-width: 720px; margin-top: 1rem;">
+                <label class="checkbox-row">
+                  <span>Proxy failures</span>
+                  <input bind:checked={alertProxyFailures} type="checkbox" />
+                </label>
+                <label class="checkbox-row">
+                  <span>Queue exhausted</span>
+                  <input bind:checked={alertQueueExhausted} type="checkbox" />
+                </label>
+                <label class="checkbox-row">
+                  <span>Provider pool exhausted</span>
+                  <input bind:checked={alertProviderPoolExhausted} type="checkbox" />
+                </label>
+                <label class="checkbox-row">
+                  <span>Provider key status changes</span>
+                  <input bind:checked={alertProviderKeyStatusChanges} type="checkbox" />
+                </label>
+              </div>
+
+              <button type="button" class="primary" on:click={handleAlertSettingsSave} disabled={loading || actionBusy} style="max-width: max-content; margin-top: 1rem;">
+                Save alert settings
+              </button>
+              {#if alertError}
+                <p class="muted">{alertError}</p>
+              {/if}
+              {#if alertSettings}
+                <p class="muted">
+                  Last updated: {formatDate(alertSettings.updated_at)}
+                </p>
+              {/if}
+            </div>
+          </div>
         </section>
       {/if}
 

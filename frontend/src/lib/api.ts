@@ -108,7 +108,7 @@ export type OverviewTelemetry = {
 };
 
 export type OverviewDetail = {
-  context_type: 'app_token' | 'provider' | 'queue';
+  context_type: 'app_token' | 'provider' | 'provider_key' | 'queue';
   context_id: number | null;
   context_label: string;
   window: string;
@@ -185,6 +185,19 @@ export type RuntimeConfig = {
   port: number;
   api_base_url: string;
   restart_required: boolean;
+};
+
+export type AlertSettings = {
+  key: string;
+  telegram_enabled: boolean;
+  telegram_bot_token_configured: boolean;
+  telegram_chat_id: string | null;
+  alert_proxy_failures: boolean;
+  alert_queue_exhausted: boolean;
+  alert_provider_pool_exhausted: boolean;
+  alert_provider_key_status_changes: boolean;
+  created_at: string;
+  updated_at: string;
 };
 
 export function apiBaseUrl() {
@@ -788,6 +801,47 @@ export async function updateRuntimeConfig(
   if (!response.ok) {
     const detail = await response.text();
     throw new Error(detail || 'Failed to update runtime config');
+  }
+
+  return response.json();
+}
+
+export async function fetchAlertSettings(token: string): Promise<AlertSettings> {
+  const response = await fetch(`${apiBaseUrl()}/admin/alerts`, {
+    headers: { Authorization: `Bearer ${token}` }
+  });
+
+  if (!response.ok) {
+    throw new Error('Failed to load alert settings');
+  }
+
+  return response.json();
+}
+
+export async function updateAlertSettings(
+  token: string,
+  payload: {
+    telegram_enabled?: boolean;
+    telegram_bot_token?: string | null;
+    telegram_chat_id?: string | null;
+    alert_proxy_failures?: boolean;
+    alert_queue_exhausted?: boolean;
+    alert_provider_pool_exhausted?: boolean;
+    alert_provider_key_status_changes?: boolean;
+  }
+): Promise<AlertSettings> {
+  const response = await fetch(`${apiBaseUrl()}/admin/alerts`, {
+    method: 'PATCH',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify(payload)
+  });
+
+  if (!response.ok) {
+    const detail = await response.text();
+    throw new Error(detail || 'Failed to update alert settings');
   }
 
   return response.json();
