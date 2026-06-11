@@ -42,6 +42,11 @@ def _ensure_usage_log_telemetry_columns(sync_conn) -> None:
         sync_conn.execute(text(f"ALTER TABLE usage_logs ADD COLUMN {column_name} {column_def}"))
 
 
+def _ensure_tables(sync_conn, *tables) -> None:
+    for table in tables:
+        table.create(sync_conn, checkfirst=True)
+
+
 DEFAULT_GEMINI_QUEUE_NAME = "gemini"
 DEFAULT_GEMINI_QUEUE_DESCRIPTION = "Default Gemini fallback queue"
 DEFAULT_GEMINI_QUEUE_MODELS = (
@@ -96,6 +101,7 @@ def _seed_default_gemini_queue(sync_conn) -> None:
 
 
 def _upgrade_telemetry_and_seed_gemini_queue(sync_conn) -> None:
+    _ensure_tables(sync_conn, ModelQueue.__table__, ModelQueueCandidate.__table__)
     _ensure_usage_log_telemetry_columns(sync_conn)
     _seed_default_gemini_queue(sync_conn)
 
@@ -126,6 +132,7 @@ def _seed_default_alert_settings(sync_conn) -> None:
 
 
 def _upgrade_alert_settings(sync_conn) -> None:
+    _ensure_tables(sync_conn, AlertSettings.__table__)
     _upgrade_telemetry_and_seed_gemini_queue(sync_conn)
     _seed_default_alert_settings(sync_conn)
 

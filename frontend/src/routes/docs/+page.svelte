@@ -47,6 +47,22 @@
   ]
 }`;
 
+  const claudeTerminalSession = `export ANTHROPIC_BASE_URL="http://127.0.0.1:8009"
+export ANTHROPIC_AUTH_TOKEN="app-token-example"
+export ANTHROPIC_MODEL="queue/gemini"
+claude`;
+
+  const claudeBashrcSetup = `cat <<'EOF' >> ~/.bashrc
+export ANTHROPIC_BASE_URL="http://127.0.0.1:8009"
+export ANTHROPIC_AUTH_TOKEN="app-token-example"
+export ANTHROPIC_MODEL="queue/gemini"
+EOF
+source ~/.bashrc`;
+
+  const claudeWindowsCmdSetup = `setx ANTHROPIC_BASE_URL "http://127.0.0.1:8009"
+setx ANTHROPIC_AUTH_TOKEN "app-token-example"
+setx ANTHROPIC_MODEL "queue/gemini"`;
+
   const jsExample = `const response = await fetch('http://127.0.0.1:8009/v1/messages', {
   method: 'POST',
   headers: {
@@ -94,6 +110,13 @@ console.log(data.content[0].text);`;
     }
   ],
   "metadata": { "client": "claude-code" },
+  "optimization": {
+    "enabled": false,
+    "mode": "off",
+    "compress_metadata": true,
+    "drop_transport_noise": true,
+    "preserve_tool_semantics": true
+  },
   "telemetry": { "app_token_id": "app_123" }
 }`;
 
@@ -264,7 +287,7 @@ console.log(data.content[0].text);`;
       <div class="api-text">
         <h2>Canonical IR</h2>
         <p>
-          The internal model keeps routing, message order, tool calls, and response intent intact.
+          The internal model keeps routing, message order, tool calls, response intent, and cleanup policy intact.
           Optional cleanup can remove provider noise and redundant metadata, but only as a feature flag.
         </p>
 
@@ -288,6 +311,10 @@ console.log(data.content[0].text);`;
             <tr>
               <td><strong>Drop from agent payload</strong></td>
               <td>Secrets, transport headers, debug-only fields, and internal telemetry tags.</td>
+            </tr>
+            <tr>
+              <td><strong>Policy</strong></td>
+              <td>Cleanup is opt-in and can be set to off, conservative, or aggressive per route or request.</td>
             </tr>
           </tbody>
         </table>
@@ -401,6 +428,23 @@ console.log(data.content[0].text);`;
             {#if copiedId === 'claude'}<CheckCircle2 size={14}/>{:else}<Copy size={14}/>{/if}
           </button>
           <pre><code>{claudeCodeSettings}</code></pre>
+        </div>
+
+        <h3>Terminal Setup</h3>
+        <p>
+          Set the env vars in the current shell for a quick test, or persist them in your shell profile so Claude Code always opens on this gateway.
+        </p>
+        <div class="code-panel">
+          <div class="code-header">Linux / macOS session</div>
+          <pre><code>{claudeTerminalSession}</code></pre>
+        </div>
+        <div class="code-panel">
+          <div class="code-header">Linux / macOS default</div>
+          <pre><code>{claudeBashrcSetup}</code></pre>
+        </div>
+        <div class="code-panel">
+          <div class="code-header">Windows CMD default</div>
+          <pre><code>{claudeWindowsCmdSetup}</code></pre>
         </div>
       </div>
     </div>

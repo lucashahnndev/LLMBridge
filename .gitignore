@@ -49,6 +49,7 @@ Thumbs.db
 # Local deployment artifacts
 bin/
 logs/
+traces/
 frontend/dev_server.log
 *.db
 

@@ -22,6 +22,9 @@ class ProxyRankingTest(unittest.TestCase):
     def test_soft_failure_increases_model_penalty_without_blocking_key(self) -> None:
         asyncio.run(self._run_soft_failure_test())
 
+    def test_soft_failure_with_cooldown_excludes_problem_model_temporarily(self) -> None:
+        asyncio.run(self._run_cooldown_exclusion_test())
+
     async def _run_ranking_test(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             db_path = Path(temp_dir) / "ranking.sqlite"
@@ -104,6 +107,50 @@ class ProxyRankingTest(unittest.TestCase):
 
             self.assertEqual(len(eligible), 1)
             self.assertEqual(eligible[0].id, provider_key.id)
+
+    async def _run_cooldown_exclusion_test(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            db_path = Path(temp_dir) / "cooldown-exclusion.sqlite"
+            engine = create_async_engine(f"sqlite+aiosqlite:///{db_path}")
+            session_factory = async_sessionmaker(bind=engine, expire_on_commit=False)
+
+            async with engine.begin() as conn:
+                await conn.run_sync(Base.metadata.create_all)
+
+            async with session_factory() as session:
+                healthy_key = ProviderKey(
+                    name="Healthy",
+                    description=None,
+                    provider="google",
+                    encrypted_token="cipher-healthy",
+                    status=KeyStatus.ACTIVE,
+                    blocked_until=None,
+                    failure_count=0,
+                )
+                blocked_key = ProviderKey(
+                    name="Blocked",
+                    description=None,
+                    provider="google",
+                    encrypted_token="cipher-blocked",
+                    status=KeyStatus.ACTIVE,
+                    blocked_until=None,
+                    failure_count=0,
+                )
+                session.add_all([healthy_key, blocked_key])
+                await session.flush()
+
+                await mark_provider_key_model_soft_failure(
+                    session,
+                    blocked_key,
+                    "gemini-3-flash-preview",
+                    cooldown_seconds=3600,
+                )
+
+                eligible = await get_eligible_provider_keys(session, "google", "gemini-3-flash-preview")
+
+            await engine.dispose()
+
+            self.assertEqual([key.id for key in eligible], [healthy_key.id])
 
 
 if __name__ == "__main__":

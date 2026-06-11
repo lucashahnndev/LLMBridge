@@ -7,6 +7,12 @@ from fastapi.responses import JSONResponse, StreamingResponse
 
 from backend.app.schemas.anthropic import AnthropicMessage, AnthropicMessagesRequest
 from backend.app.schemas.proxy import ChatCompletionRequest, ChatMessage
+from backend.app.services.canonical import (
+    anthropic_request_to_canonical,
+    canonical_request_to_chat_completion,
+    canonical_response_to_anthropic,
+    chat_completion_body_to_canonical_response,
+)
 
 
 def _content_blocks_to_text(content: Any) -> str | None:
@@ -171,39 +177,13 @@ def anthropic_message_to_chat_messages(message: AnthropicMessage) -> list[ChatMe
 
 
 def anthropic_request_to_chat_completion(payload: AnthropicMessagesRequest) -> ChatCompletionRequest:
-    messages: list[ChatMessage] = []
-    if payload.system is not None:
-        system_text = _content_blocks_to_text(payload.system)
-        if system_text:
-            messages.append(ChatMessage(role="system", content=system_text))
-
-    for message in payload.messages:
-        messages.extend(anthropic_message_to_chat_messages(message))
-
-    extra: dict[str, Any] = {}
-    if payload.tools:
-        normalized_tools = anthropic_tools_to_openai(payload.tools)
-        if normalized_tools:
-            extra["tools"] = normalized_tools
-    tool_choice = _tool_choice_to_openai(payload.tool_choice)
-    if tool_choice is not None:
-        extra["tool_choice"] = tool_choice
-    if payload.stop_sequences:
-        extra["stop"] = payload.stop_sequences
+    canonical_request = anthropic_request_to_canonical(payload)
+    canonical_request.generation.tool_choice = _tool_choice_to_openai(payload.tool_choice)
+    canonical_request.generation.stop_sequences = list(payload.stop_sequences or [])
     if payload.top_k is not None:
-        extra["top_k"] = payload.top_k
-    if payload.metadata is not None:
-        extra["metadata"] = payload.metadata
-
-    return ChatCompletionRequest(
-        model=payload.model,
-        messages=messages,
-        stream=payload.stream,
-        temperature=payload.temperature,
-        max_tokens=payload.max_tokens,
-        top_p=payload.top_p,
-        **extra,
-    )
+        canonical_request.generation.top_k = payload.top_k
+    canonical_request.metadata = dict(payload.metadata or {})
+    return canonical_request_to_chat_completion(canonical_request, model_override=payload.model)
 
 
 def _map_stop_reason(finish_reason: Any) -> str:
@@ -240,67 +220,15 @@ def _parse_tool_arguments(arguments: Any) -> dict[str, Any]:
 
 
 def chat_completion_body_to_anthropic(response_body: dict[str, object], model_name: str) -> dict[str, object]:
-    if "choices" not in response_body:
-        return response_body
-
-    choices = response_body.get("choices")
-    first_choice: dict[str, object] = {}
-    if isinstance(choices, list) and choices and isinstance(choices[0], dict):
-        first_choice = choices[0]
-
-    message = first_choice.get("message") if isinstance(first_choice, dict) else None
-    content_blocks: list[dict[str, object]] = []
-    if isinstance(message, dict):
-        content = message.get("content")
-        if isinstance(content, str) and content.strip():
-            content_blocks.append({"type": "text", "text": content})
-        elif isinstance(content, list):
-            for block in content:
-                if isinstance(block, dict) and block.get("type") == "text":
-                    text = block.get("text")
-                    if isinstance(text, str) and text:
-                        content_blocks.append({"type": "text", "text": text})
-
-        tool_calls = message.get("tool_calls")
-        if isinstance(tool_calls, list):
-            for index, tool_call in enumerate(tool_calls):
-                if not isinstance(tool_call, dict):
-                    continue
-                function = tool_call.get("function")
-                if not isinstance(function, dict):
-                    continue
-                function_name = function.get("name")
-                if not isinstance(function_name, str) or not function_name.strip():
-                    continue
-                content_blocks.append(
-                    {
-                        "type": "tool_use",
-                        "id": tool_call.get("id") or f"tool_{index}",
-                        "name": function_name.strip(),
-                        "input": _parse_tool_arguments(function.get("arguments")),
-                    }
-                )
-
-    usage = response_body.get("usage")
-    prompt_tokens = 0
-    completion_tokens = 0
-    if isinstance(usage, dict):
-        prompt_tokens = int(usage.get("prompt_tokens") or 0)
-        completion_tokens = int(usage.get("completion_tokens") or 0)
-
-    return {
-        "id": response_body.get("id") or f"msg_{model_name}",
-        "type": "message",
-        "role": "assistant",
-        "content": content_blocks,
-        "model": response_body.get("model") or model_name,
-        "stop_reason": _map_stop_reason(first_choice.get("finish_reason")),
-        "stop_sequence": None,
-        "usage": {
-            "input_tokens": prompt_tokens,
-            "output_tokens": completion_tokens,
-        },
-    }
+    canonical_response = chat_completion_body_to_canonical_response(
+        response_body,
+        model_name=model_name,
+        protocol_out="anthropic",
+    )
+    anthropic_response = canonical_response_to_anthropic(canonical_response)
+    if isinstance(anthropic_response, dict):
+        return anthropic_response
+    return response_body
 
 
 def anthropic_error_response(message: str, error_type: str = "invalid_request_error") -> dict[str, object]:

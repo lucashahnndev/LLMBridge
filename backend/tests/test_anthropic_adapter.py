@@ -3,6 +3,7 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import httpx
@@ -24,6 +25,9 @@ class AnthropicAdapterTest(unittest.TestCase):
 
     def test_anthropic_route_handles_split_sse_chunks_without_losing_text(self) -> None:
         asyncio.run(self._run_split_stream())
+
+    def test_anthropic_route_separates_text_and_tool_use_blocks_in_one_chunk(self) -> None:
+        asyncio.run(self._run_mixed_stream())
 
     async def _create_session(self):
         temp_dir = tempfile.TemporaryDirectory()
@@ -52,6 +56,9 @@ class AnthropicAdapterTest(unittest.TestCase):
         session.add_all([app_token, provider_key])
         await session.commit()
         return temp_dir, engine, session, app_token
+
+    def _make_request(self):
+        return SimpleNamespace(app=SimpleNamespace(state=SimpleNamespace(http_client=None)))
 
     async def _run_non_stream(self) -> None:
         temp_dir, engine, session, app_token = await self._create_session()
@@ -122,8 +129,10 @@ class AnthropicAdapterTest(unittest.TestCase):
                 system="You are a helpful assistant.",
             )
 
+            request = self._make_request()
+
             with patch("backend.app.routes.messages.proxy_chat_completion", side_effect=fake_proxy_chat_completion):
-                response = await anthropic_messages_route(payload, session, app_token)
+                response = await anthropic_messages_route(payload, session, request, app_token)
 
             self.assertEqual(response.status_code, 200)
             body = json.loads(response.body.decode("utf-8"))
@@ -218,8 +227,10 @@ class AnthropicAdapterTest(unittest.TestCase):
                 ],
             )
 
+            request = self._make_request()
+
             with patch("backend.app.routes.messages.proxy_chat_completion_stream", side_effect=fake_proxy_chat_completion_stream):
-                response = await anthropic_messages_route(payload, session, app_token)
+                response = await anthropic_messages_route(payload, session, request, app_token)
 
             self.assertEqual(response.media_type, "text/event-stream")
             chunks: list[str] = []
@@ -307,8 +318,10 @@ class AnthropicAdapterTest(unittest.TestCase):
                 ],
             )
 
+            request = self._make_request()
+
             with patch("backend.app.routes.messages.proxy_chat_completion_stream", side_effect=fake_proxy_chat_completion_stream):
-                response = await anthropic_messages_route(payload, session, app_token)
+                response = await anthropic_messages_route(payload, session, request, app_token)
 
             chunks: list[str] = []
             async for chunk in response.body_iterator:
@@ -323,6 +336,89 @@ class AnthropicAdapterTest(unittest.TestCase):
             self.assertIn("event: message_stop", payload_text)
             self.assertIn("Hello ", payload_text)
             self.assertIn("world", payload_text)
+        finally:
+            await session.close()
+            await engine.dispose()
+            temp_dir.cleanup()
+
+    async def _run_mixed_stream(self) -> None:
+        temp_dir, engine, session, app_token = await self._create_session()
+        try:
+            async def upstream_stream():
+                yield (
+                    "data: "
+                    + json.dumps(
+                        {
+                            "id": "chatcmpl-stream-3",
+                            "object": "chat.completion.chunk",
+                            "created": 1_719_000_020,
+                            "model": "gemini-3-flash-preview",
+                            "choices": [
+                                {
+                                    "index": 0,
+                                    "delta": {
+                                        "role": "assistant",
+                                        "content": "Thinking before the tool call.",
+                                        "tool_calls": [
+                                            {
+                                                "id": "call_3",
+                                                "type": "function",
+                                                "function": {
+                                                    "name": "demo",
+                                                    "arguments": "{\"answer\":\"pong\"}",
+                                                },
+                                            }
+                                        ],
+                                    },
+                                    "finish_reason": "tool_calls",
+                                }
+                            ],
+                        }
+                    )
+                    + "\n\n"
+                )
+                yield "data: [DONE]\n\n"
+
+            class FakeStreamResponse:
+                def __init__(self) -> None:
+                    self.body_iterator = upstream_stream()
+
+            async def fake_proxy_chat_completion_stream(*args, **kwargs):
+                _ = args, kwargs
+                self.assertEqual(kwargs["protocol_in"], "anthropic")
+                self.assertEqual(kwargs["protocol_out"], "anthropic")
+                return FakeStreamResponse()
+
+            payload = AnthropicMessagesRequest(
+                model="google/gemini-3.1-flash",
+                max_tokens=256,
+                stream=True,
+                messages=[
+                    {
+                        "role": "user",
+                        "content": "Call the demo tool and keep text separate from the tool block.",
+                    }
+                ],
+            )
+
+            request = self._make_request()
+
+            with patch("backend.app.routes.messages.proxy_chat_completion_stream", side_effect=fake_proxy_chat_completion_stream):
+                response = await anthropic_messages_route(payload, session, request, app_token)
+
+            chunks: list[str] = []
+            async for chunk in response.body_iterator:
+                if isinstance(chunk, bytes):
+                    chunks.append(chunk.decode("utf-8"))
+                else:
+                    chunks.append(str(chunk))
+
+            payload_text = "".join(chunks)
+            self.assertIn("event: message_start", payload_text)
+            self.assertGreaterEqual(payload_text.count("event: content_block_start"), 2)
+            self.assertIn("Thinking before the tool call.", payload_text)
+            self.assertIn('"type": "tool_use"', payload_text)
+            self.assertIn("event: message_stop", payload_text)
         finally:
             await session.close()
             await engine.dispose()

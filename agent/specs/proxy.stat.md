@@ -1,6 +1,6 @@
 # Proxy Stat
 
-Last update date: 2026-06-08
+Last update date: 2026-06-09
 
 ## Current state
 
@@ -9,7 +9,13 @@ Last update date: 2026-06-08
 - the proxy now also resolves `queue/{queue-name}` aliases to ordered provider/model candidates before executing a route;
 - the proxy contract now includes an Anthropic-compatible `/v1/messages` adapter that reuses the same internal routing core;
 - the proxy telemetry contract now records protocol-in/protocol-out, route kind, resolved route, queue name, and tool-calling state;
-- the architecture and docs now describe a richer canonical IR target that preserves tool calls, ordering, and response intent while allowing optional metadata cleanup;
+- the architecture and docs now describe a richer canonical IR that preserves tool calls, ordering, and response intent while allowing optional metadata cleanup;
+- the Google adapter now sends non-stream requests through Gemini native `generateContent` from the canonical IR, avoiding an internal OpenAI-like hop for Google targets;
+- Google streaming requests now use the same native canonical-to-Gemini payload path and return a normalized SSE stream from the proxy edge;
+- the Google adapter now compacts Gemini tool schemas into native `functionDeclarations`, filtering unsupported JSON Schema keys while preserving tool semantics;
+- the Google adapter now strips provider-transport noise such as `thinking`, `context_management`, `output_config`, and `metadata` before sending requests upstream, while keeping the message/tool payload intact;
+- the Google adapter now renders foreign historical tool calls/results as text context instead of native Gemini `functionCall`/`functionResponse`, because Gemini rejects replayed function history without valid provider-issued `thoughtSignature` data;
+- an optional per-request trace artifact can now record raw client input, canonical IR, provider payloads, provider responses, and final normalized output in redacted JSON files;
 - app-token authentication is required for proxy requests;
 - provider-key selection and retry-on-`429` behavior are implemented at the scaffold level;
 - usage logging is recorded for proxy requests;
@@ -19,10 +25,12 @@ Last update date: 2026-06-08
 
 ## Pending items
 
+- replace the current Google SSE bridge with true Gemini `streamGenerateContent` once native stream payloads and chunk semantics are fully validated;
 - refine provider-specific driver translation rules as upstream integrations are exercised;
 - expand integration tests as new providers, adapters, or queue behaviors are added;
 - document Claude Code usage now that the Anthropic adapter and telemetry fields are in place;
-- decide whether canonical IR should become an explicit runtime structure instead of a documented target architecture;
+- decide whether canonical IR cleanup policies should become configurable per route or per app token;
+- decide whether trace capture should eventually support per-route retention windows or sampling knobs;
 - tune retry/backoff defaults against real provider behavior.
 
 ## Evidence / validation
@@ -35,6 +43,9 @@ Last update date: 2026-06-08
 - Anthropic-compatible `/v1/messages` adapter added and covered by backend unit tests;
 - backend syntax validated with `python3 -m py_compile`.
 - backend unit tests cover token helpers, proxy parsing helpers, and the driver registry.
+- focused tests now cover canonical IR, Google native tool-calling payload generation, proxy Google tool-calling normalization, and Gemini replay payload helpers.
+- replay validation against a real Gemini trace returned HTTP 200 after foreign tool history was compacted to text context while callable tools stayed available as Gemini `functionDeclarations`.
+- trace capture still needs end-to-end validation on streaming Anthropic responses.
 
 ## Commit tracking
 

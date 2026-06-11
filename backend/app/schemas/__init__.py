@@ -9,6 +9,20 @@ from backend.app.schemas.app_tokens import (
 )
 from backend.app.schemas.auth import AdminLoginRequest, AdminLoginResponse, AdminLogoutResponse, AdminProfileResponse
 from backend.app.schemas.common import EnvironmentTypeSchema, HealthResponse, KeyStatusSchema
+from backend.app.schemas.canonical import (
+    CanonicalCleanupPolicy,
+    CanonicalContentBlock,
+    CanonicalGeneration,
+    CanonicalMessage,
+    CanonicalRequest,
+    CanonicalResponse,
+    CanonicalRoute,
+    CanonicalTelemetry,
+    CanonicalToolCall,
+    CanonicalToolDefinition,
+    CanonicalToolFunction,
+    CanonicalUsage,
+)
 from backend.app.schemas.metrics import GlobalMetricsResponse, ProjectMetricsResponse
 from backend.app.schemas.proxy import ChatCompletionRequest, ChatMessage
 from backend.app.schemas.runtime import RuntimeConfigResponse, RuntimeConfigUpdate
@@ -33,6 +47,18 @@ __all__ = [
     "AdminLogoutResponse",
     "AdminProfileResponse",
     "EnvironmentTypeSchema",
+    "CanonicalCleanupPolicy",
+    "CanonicalContentBlock",
+    "CanonicalGeneration",
+    "CanonicalMessage",
+    "CanonicalRequest",
+    "CanonicalResponse",
+    "CanonicalRoute",
+    "CanonicalTelemetry",
+    "CanonicalToolCall",
+    "CanonicalToolDefinition",
+    "CanonicalToolFunction",
+    "CanonicalUsage",
     "GlobalMetricsResponse",
     "HealthResponse",
     "KeyStatusSchema",

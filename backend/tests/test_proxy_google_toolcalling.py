@@ -119,6 +119,7 @@ class ProxyGoogleToolCallingIntegrationTest(unittest.TestCase):
                     return httpx.Response(200, json=upstream_body, request=request)
 
                 original_async_client = httpx.AsyncClient
+                client = original_async_client(transport=httpx.MockTransport(handler), timeout=90.0)
 
                 def client_factory(*args, **kwargs):
                     timeout = kwargs.get("timeout")
@@ -126,12 +127,16 @@ class ProxyGoogleToolCallingIntegrationTest(unittest.TestCase):
 
                 payload = ChatCompletionRequest(
                     model="google/gemini-3.1-flash",
+                    user="claude-code",
                     messages=[
                         {
                             "role": "user",
                             "content": "Call the demo tool and return the structured result.",
                         }
                     ],
+                    thinking={"budget_tokens": 128},
+                    context_management={"strategy": "adaptive"},
+                    output_config={"mime_type": "application/json"},
                     tools=[
                         {
                             "type": "function",
@@ -154,7 +159,7 @@ class ProxyGoogleToolCallingIntegrationTest(unittest.TestCase):
                 )
 
                 with patch("backend.app.services.proxy.httpx.AsyncClient", side_effect=client_factory):
-                    status_code, body = await proxy_chat_completion(session, app_token, payload)
+                    status_code, body = await proxy_chat_completion(session, app_token, payload, client=client)
 
                 self.assertEqual(status_code, 200)
                 self.assertEqual(body, upstream_body)
@@ -162,12 +167,14 @@ class ProxyGoogleToolCallingIntegrationTest(unittest.TestCase):
                 sent_body = captured["body"]
                 self.assertIsInstance(sent_body, dict)
                 self.assertEqual(sent_body["model"], "gemini-3-flash-preview")
+                self.assertIn("contents", sent_body)
                 self.assertNotIn("response_format", sent_body)
                 self.assertNotIn("parallel_tool_calls", sent_body)
-                self.assertEqual(sent_body["tool_choice"], "auto")
+                self.assertNotIn("tool_choice", sent_body)
                 self.assertIn("tools", sent_body)
-                self.assertEqual(sent_body["tools"][0]["function"]["name"], "demo")
-                self.assertTrue(str(captured["url"]).endswith("/chat/completions"))
+                self.assertEqual(sent_body["tools"][0]["functionDeclarations"][0]["name"], "demo")
+                self.assertEqual(sent_body["toolConfig"]["functionCallingConfig"]["mode"], "ANY")
+                self.assertTrue(str(captured["url"]).endswith("/models/gemini-3-flash-preview:generateContent"))
 
                 result = await session.execute(select(UsageLog).order_by(UsageLog.id.desc()))
                 usage_log = result.scalar_one()
@@ -181,6 +188,8 @@ class ProxyGoogleToolCallingIntegrationTest(unittest.TestCase):
                 self.assertTrue(usage_log.tool_calling)
                 self.assertEqual(usage_log.status_code, 200)
                 self.assertFalse(usage_log.was_rotated)
+
+                await client.aclose()
 
             await engine.dispose()
 
@@ -244,6 +253,7 @@ class ProxyGoogleToolCallingIntegrationTest(unittest.TestCase):
                     return httpx.Response(200, json=upstream_native_body, request=request)
 
                 original_async_client = httpx.AsyncClient
+                client = original_async_client(transport=httpx.MockTransport(handler), timeout=90.0)
 
                 def client_factory(*args, **kwargs):
                     timeout = kwargs.get("timeout")
@@ -251,6 +261,7 @@ class ProxyGoogleToolCallingIntegrationTest(unittest.TestCase):
 
                 payload = ChatCompletionRequest(
                     model="google/gemini-3.1-flash",
+                    user="claude-code",
                     messages=[
                         {
                             "role": "user",
@@ -279,7 +290,7 @@ class ProxyGoogleToolCallingIntegrationTest(unittest.TestCase):
                 )
 
                 with patch("backend.app.services.proxy.httpx.AsyncClient", side_effect=client_factory):
-                    status_code, body = await proxy_chat_completion(session, app_token, payload)
+                    status_code, body = await proxy_chat_completion(session, app_token, payload, client=client)
 
                 self.assertEqual(status_code, 200)
                 self.assertIsInstance(body, dict)
@@ -287,7 +298,7 @@ class ProxyGoogleToolCallingIntegrationTest(unittest.TestCase):
                 self.assertEqual(body["model"], "gemini-3-flash-preview")
                 self.assertIn("choices", body)
                 self.assertEqual(body["choices"][0]["message"]["role"], "assistant")
-                self.assertIsNone(body["choices"][0]["message"]["content"])
+                self.assertEqual(body["choices"][0]["message"]["content"], "Let me call the tool.")
                 self.assertEqual(body["choices"][0]["message"]["tool_calls"][0]["function"]["name"], "demo")
                 self.assertEqual(body["choices"][0]["finish_reason"], "tool_calls")
                 self.assertEqual(body["usage"]["prompt_tokens"], 12)
@@ -297,9 +308,15 @@ class ProxyGoogleToolCallingIntegrationTest(unittest.TestCase):
                 sent_body = captured["body"]
                 self.assertIsInstance(sent_body, dict)
                 self.assertEqual(sent_body["model"], "gemini-3-flash-preview")
-                self.assertEqual(sent_body["tool_choice"], "auto")
+                self.assertIn("contents", sent_body)
+                self.assertNotIn("user", sent_body)
+                self.assertNotIn("tool_choice", sent_body)
+                self.assertEqual(sent_body["toolConfig"]["functionCallingConfig"]["mode"], "ANY")
                 self.assertNotIn("response_format", sent_body)
                 self.assertNotIn("parallel_tool_calls", sent_body)
+                self.assertNotIn("thinking", sent_body)
+                self.assertNotIn("context_management", sent_body)
+                self.assertNotIn("output_config", sent_body)
 
                 result = await session.execute(select(UsageLog).order_by(UsageLog.id.desc()))
                 usage_log = result.scalar_one()
@@ -307,6 +324,8 @@ class ProxyGoogleToolCallingIntegrationTest(unittest.TestCase):
                 self.assertEqual(usage_log.resolved_model, "google/gemini-3-flash-preview")
                 self.assertEqual(usage_log.status_code, 200)
                 self.assertFalse(usage_log.was_rotated)
+
+                await client.aclose()
 
             await engine.dispose()
 
@@ -345,7 +364,7 @@ class ProxyGoogleToolCallingIntegrationTest(unittest.TestCase):
                     "created_at": "2026-06-08T00:00:00Z",
                     "message": {
                         "role": "assistant",
-                        "content": None,
+                        "content": "Let me call the tool.",
                         "tool_calls": [
                             {
                                 "id": "call_ollama_1",
@@ -366,6 +385,7 @@ class ProxyGoogleToolCallingIntegrationTest(unittest.TestCase):
                     return httpx.Response(200, json=upstream_ollama_body, request=request)
 
                 original_async_client = httpx.AsyncClient
+                client = original_async_client(transport=httpx.MockTransport(handler), timeout=90.0)
 
                 def client_factory(*args, **kwargs):
                     timeout = kwargs.get("timeout")
@@ -401,14 +421,14 @@ class ProxyGoogleToolCallingIntegrationTest(unittest.TestCase):
                 )
 
                 with patch("backend.app.services.proxy.httpx.AsyncClient", side_effect=client_factory):
-                    status_code, body = await proxy_chat_completion(session, app_token, payload)
+                    status_code, body = await proxy_chat_completion(session, app_token, payload, client=client)
 
                 self.assertEqual(status_code, 200)
                 self.assertIsInstance(body, dict)
                 self.assertEqual(body["object"], "chat.completion")
                 self.assertEqual(body["model"], "gemini-3-flash-preview")
                 self.assertEqual(body["choices"][0]["message"]["role"], "assistant")
-                self.assertIsNone(body["choices"][0]["message"]["content"])
+                self.assertEqual(body["choices"][0]["message"]["content"], "Let me call the tool.")
                 self.assertEqual(body["choices"][0]["message"]["tool_calls"][0]["function"]["name"], "demo")
                 self.assertEqual(body["choices"][0]["finish_reason"], "tool_calls")
                 self.assertEqual(body["usage"]["prompt_tokens"], 12)
@@ -418,7 +438,10 @@ class ProxyGoogleToolCallingIntegrationTest(unittest.TestCase):
                 sent_body = captured["body"]
                 self.assertIsInstance(sent_body, dict)
                 self.assertEqual(sent_body["model"], "gemini-3-flash-preview")
-                self.assertEqual(sent_body["tool_choice"], "auto")
+                self.assertIn("contents", sent_body)
+                self.assertNotIn("tool_choice", sent_body)
+                self.assertEqual(sent_body["toolConfig"]["functionCallingConfig"]["mode"], "ANY")
+                self.assertEqual(sent_body["tools"][0]["functionDeclarations"][0]["name"], "demo")
                 self.assertNotIn("response_format", sent_body)
                 self.assertNotIn("parallel_tool_calls", sent_body)
 
@@ -428,6 +451,8 @@ class ProxyGoogleToolCallingIntegrationTest(unittest.TestCase):
                 self.assertEqual(usage_log.resolved_model, "google/gemini-3-flash-preview")
                 self.assertEqual(usage_log.status_code, 200)
                 self.assertFalse(usage_log.was_rotated)
+
+                await client.aclose()
 
             await engine.dispose()
 
@@ -461,22 +486,39 @@ class ProxyGoogleToolCallingIntegrationTest(unittest.TestCase):
                 await session.commit()
 
                 captured: dict[str, object] = {}
-                upstream_stream_body = (
-                    'data: {"id":"stream-1","object":"chat.completion.chunk","choices":[{"index":0,"delta":{"role":"assistant","tool_calls":[{"id":"call_1","type":"function","function":{"name":"demo","arguments":"{\\"answer\\":\\"pong\\"}"}}]},"finish_reason":null}]}\n\n'
-                    'data: {"id":"stream-1","object":"chat.completion.chunk","choices":[{"index":0,"delta":{},"finish_reason":"tool_calls"}]}\n\n'
-                    'data: [DONE]\n\n'
-                ).encode("utf-8")
+                upstream_body = {
+                    "id": "chatcmpl-tool-1",
+                    "object": "chat.completion",
+                    "created": 1_719_000_000,
+                    "model": "gemini-3-flash-preview",
+                    "choices": [
+                        {
+                            "index": 0,
+                            "message": {
+                                "role": "assistant",
+                                "content": None,
+                                "tool_calls": [
+                                    {
+                                        "id": "call_1",
+                                        "type": "function",
+                                        "function": {
+                                            "name": "demo",
+                                            "arguments": "{\"answer\":\"pong\"}",
+                                        },
+                                    }
+                                ],
+                            },
+                            "finish_reason": "tool_calls",
+                        }
+                    ],
+                }
 
                 def handler(request: httpx.Request) -> httpx.Response:
                     captured["body"] = json.loads(request.content.decode("utf-8"))
-                    return httpx.Response(
-                        200,
-                        content=upstream_stream_body,
-                        headers={"content-type": "text/event-stream"},
-                        request=request,
-                    )
+                    return httpx.Response(200, json=upstream_body, request=request)
 
                 original_async_client = httpx.AsyncClient
+                client = original_async_client(transport=httpx.MockTransport(handler), timeout=90.0)
 
                 def client_factory(*args, **kwargs):
                     timeout = kwargs.get("timeout")
@@ -513,7 +555,7 @@ class ProxyGoogleToolCallingIntegrationTest(unittest.TestCase):
                 )
 
                 with patch("backend.app.services.proxy.httpx.AsyncClient", side_effect=client_factory):
-                    response = await proxy_chat_completion_stream(session, app_token, payload)
+                    response = await proxy_chat_completion_stream(session, app_token, payload, client=client)
 
                 self.assertEqual(response.media_type, "text/event-stream")
                 chunks: list[bytes] = []
@@ -524,22 +566,20 @@ class ProxyGoogleToolCallingIntegrationTest(unittest.TestCase):
                         chunks.append(chunk)
                 joined = b"".join(chunks).decode("utf-8")
                 payloads = _extract_sse_payloads(joined)
-                self.assertGreaterEqual(len(payloads), 2)
+                self.assertGreaterEqual(len(payloads), 1)
                 first_event = json.loads(payloads[0])
                 self.assertEqual(first_event["object"], "chat.completion.chunk")
                 self.assertEqual(first_event["choices"][0]["delta"]["role"], "assistant")
-                self.assertIsNone(first_event["choices"][0]["delta"]["content"])
                 self.assertEqual(first_event["choices"][0]["delta"]["tool_calls"][0]["function"]["name"], "demo")
                 self.assertEqual(first_event["choices"][0]["finish_reason"], "tool_calls")
-                second_event = json.loads(payloads[1])
-                self.assertEqual(second_event["object"], "chat.completion.chunk")
-                self.assertEqual(second_event["choices"][0]["finish_reason"], "tool_calls")
                 self.assertEqual(payloads[-1], "[DONE]")
 
                 sent_body = captured["body"]
                 self.assertIsInstance(sent_body, dict)
                 self.assertEqual(sent_body["model"], "gemini-3-flash-preview")
-                self.assertEqual(sent_body["tool_choice"], "auto")
+                self.assertIn("contents", sent_body)
+                self.assertNotIn("tool_choice", sent_body)
+                self.assertEqual(sent_body["toolConfig"]["functionCallingConfig"]["mode"], "ANY")
                 self.assertNotIn("response_format", sent_body)
                 self.assertNotIn("parallel_tool_calls", sent_body)
 
@@ -549,6 +589,8 @@ class ProxyGoogleToolCallingIntegrationTest(unittest.TestCase):
                 self.assertEqual(usage_log.resolved_model, "google/gemini-3-flash-preview")
                 self.assertEqual(usage_log.status_code, 200)
                 self.assertFalse(usage_log.was_rotated)
+
+                await client.aclose()
 
             await engine.dispose()
 
@@ -582,21 +624,32 @@ class ProxyGoogleToolCallingIntegrationTest(unittest.TestCase):
                 await session.commit()
 
                 captured: dict[str, object] = {}
-                upstream_stream_body = (
-                    'data: {"candidates":[{"content":{"role":"model","parts":[{"text":"Thinking..."},{"functionCall":{"name":"demo","args":{"answer":"pong"}}}]},"finishReason":"FUNCTION_CALL"}],"usageMetadata":{"promptTokenCount":12,"candidatesTokenCount":8,"totalTokenCount":20}}\n\n'
-                    'data: [DONE]\n\n'
-                ).encode("utf-8")
+                upstream_body = {
+                    "candidates": [
+                        {
+                            "content": {
+                                "role": "model",
+                                "parts": [
+                                    {"text": "Thinking..."},
+                                    {"functionCall": {"name": "demo", "args": {"answer": "pong"}}},
+                                ],
+                            },
+                            "finishReason": "FUNCTION_CALL",
+                        }
+                    ],
+                    "usageMetadata": {
+                        "promptTokenCount": 12,
+                        "candidatesTokenCount": 8,
+                        "totalTokenCount": 20,
+                    },
+                }
 
                 def handler(request: httpx.Request) -> httpx.Response:
                     captured["body"] = json.loads(request.content.decode("utf-8"))
-                    return httpx.Response(
-                        200,
-                        content=upstream_stream_body,
-                        headers={"content-type": "text/event-stream"},
-                        request=request,
-                    )
+                    return httpx.Response(200, json=upstream_body, request=request)
 
                 original_async_client = httpx.AsyncClient
+                client = original_async_client(transport=httpx.MockTransport(handler), timeout=90.0)
 
                 def client_factory(*args, **kwargs):
                     timeout = kwargs.get("timeout")
@@ -633,7 +686,7 @@ class ProxyGoogleToolCallingIntegrationTest(unittest.TestCase):
                 )
 
                 with patch("backend.app.services.proxy.httpx.AsyncClient", side_effect=client_factory):
-                    response = await proxy_chat_completion_stream(session, app_token, payload)
+                    response = await proxy_chat_completion_stream(session, app_token, payload, client=client)
 
                 self.assertEqual(response.media_type, "text/event-stream")
                 chunks: list[bytes] = []
@@ -649,7 +702,6 @@ class ProxyGoogleToolCallingIntegrationTest(unittest.TestCase):
                 self.assertEqual(first_event["object"], "chat.completion.chunk")
                 self.assertEqual(first_event["model"], "gemini-3-flash-preview")
                 self.assertEqual(first_event["choices"][0]["delta"]["role"], "assistant")
-                self.assertIsNone(first_event["choices"][0]["delta"]["content"])
                 self.assertEqual(first_event["choices"][0]["delta"]["tool_calls"][0]["function"]["name"], "demo")
                 self.assertEqual(first_event["choices"][0]["finish_reason"], "tool_calls")
                 self.assertIn("[DONE]", payloads[-1])
@@ -657,7 +709,9 @@ class ProxyGoogleToolCallingIntegrationTest(unittest.TestCase):
                 sent_body = captured["body"]
                 self.assertIsInstance(sent_body, dict)
                 self.assertEqual(sent_body["model"], "gemini-3-flash-preview")
-                self.assertEqual(sent_body["tool_choice"], "auto")
+                self.assertIn("contents", sent_body)
+                self.assertNotIn("tool_choice", sent_body)
+                self.assertEqual(sent_body["toolConfig"]["functionCallingConfig"]["mode"], "ANY")
                 self.assertNotIn("response_format", sent_body)
                 self.assertNotIn("parallel_tool_calls", sent_body)
 
@@ -667,6 +721,8 @@ class ProxyGoogleToolCallingIntegrationTest(unittest.TestCase):
                 self.assertEqual(usage_log.resolved_model, "google/gemini-3-flash-preview")
                 self.assertEqual(usage_log.status_code, 200)
                 self.assertFalse(usage_log.was_rotated)
+
+                await client.aclose()
 
             await engine.dispose()
 
@@ -700,21 +756,33 @@ class ProxyGoogleToolCallingIntegrationTest(unittest.TestCase):
                 await session.commit()
 
                 captured: dict[str, object] = {}
-                upstream_stream_body = (
-                    'data: {"model":"gemma3","created_at":"2026-06-08T00:00:00Z","message":{"role":"assistant","content":null,"tool_calls":[{"id":"call_ollama_1","function":{"name":"demo","arguments":{"answer":"pong"}}}]},"done_reason":"tool_calls","prompt_eval_count":12,"eval_count":8}\n\n'
-                    'data: [DONE]\n\n'
-                ).encode("utf-8")
+                upstream_body = {
+                    "model": "gemma3",
+                    "created_at": "2026-06-08T00:00:00Z",
+                    "message": {
+                        "role": "assistant",
+                        "content": None,
+                        "tool_calls": [
+                            {
+                                "id": "call_ollama_1",
+                                "function": {
+                                    "name": "demo",
+                                    "arguments": {"answer": "pong"},
+                                },
+                            }
+                        ],
+                    },
+                    "done_reason": "tool_calls",
+                    "prompt_eval_count": 12,
+                    "eval_count": 8,
+                }
 
                 def handler(request: httpx.Request) -> httpx.Response:
                     captured["body"] = json.loads(request.content.decode("utf-8"))
-                    return httpx.Response(
-                        200,
-                        content=upstream_stream_body,
-                        headers={"content-type": "text/event-stream"},
-                        request=request,
-                    )
+                    return httpx.Response(200, json=upstream_body, request=request)
 
                 original_async_client = httpx.AsyncClient
+                client = original_async_client(transport=httpx.MockTransport(handler), timeout=90.0)
 
                 def client_factory(*args, **kwargs):
                     timeout = kwargs.get("timeout")
@@ -751,7 +819,7 @@ class ProxyGoogleToolCallingIntegrationTest(unittest.TestCase):
                 )
 
                 with patch("backend.app.services.proxy.httpx.AsyncClient", side_effect=client_factory):
-                    response = await proxy_chat_completion_stream(session, app_token, payload)
+                    response = await proxy_chat_completion_stream(session, app_token, payload, client=client)
 
                 self.assertEqual(response.media_type, "text/event-stream")
                 chunks: list[bytes] = []
@@ -773,7 +841,9 @@ class ProxyGoogleToolCallingIntegrationTest(unittest.TestCase):
                 sent_body = captured["body"]
                 self.assertIsInstance(sent_body, dict)
                 self.assertEqual(sent_body["model"], "gemini-3-flash-preview")
-                self.assertEqual(sent_body["tool_choice"], "auto")
+                self.assertIn("contents", sent_body)
+                self.assertNotIn("tool_choice", sent_body)
+                self.assertEqual(sent_body["toolConfig"]["functionCallingConfig"]["mode"], "ANY")
                 self.assertNotIn("response_format", sent_body)
                 self.assertNotIn("parallel_tool_calls", sent_body)
 
@@ -783,6 +853,8 @@ class ProxyGoogleToolCallingIntegrationTest(unittest.TestCase):
                 self.assertEqual(usage_log.resolved_model, "google/gemini-3-flash-preview")
                 self.assertEqual(usage_log.status_code, 200)
                 self.assertFalse(usage_log.was_rotated)
+
+                await client.aclose()
 
             await engine.dispose()
 

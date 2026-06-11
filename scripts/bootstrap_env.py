@@ -11,6 +11,13 @@ ENV_ORDER = [
     "DATABASE_URL",
     "TELEGRAM_BOT_TOKEN",
     "TELEGRAM_CHAT_ID",
+    "LOG_FILE_ENABLED",
+    "LOG_LEVEL",
+    "LOG_FILE_PATH",
+    "LOGGING_CONTROL_KEY",
+    "TRACE_PROXY_ENABLED",
+    "TRACE_PROXY_DIR",
+    "TRACE_PROXY_REDACT",
     "HOST",
     "PORT",
 ]
@@ -79,6 +86,20 @@ def main() -> int:
         values["TELEGRAM_BOT_TOKEN"] = ""
     if "TELEGRAM_CHAT_ID" not in values:
         values["TELEGRAM_CHAT_ID"] = ""
+    if "LOG_FILE_ENABLED" not in values:
+        values["LOG_FILE_ENABLED"] = "false"
+    if not values.get("LOG_LEVEL", "").strip():
+        values["LOG_LEVEL"] = "INFO"
+    if not values.get("LOG_FILE_PATH", "").strip():
+        values["LOG_FILE_PATH"] = "logs/backend.log"
+    if "LOGGING_CONTROL_KEY" not in values:
+        values["LOGGING_CONTROL_KEY"] = ""
+    if "TRACE_PROXY_ENABLED" not in values:
+        values["TRACE_PROXY_ENABLED"] = "false"
+    if not values.get("TRACE_PROXY_DIR", "").strip():
+        values["TRACE_PROXY_DIR"] = "traces"
+    if "TRACE_PROXY_REDACT" not in values:
+        values["TRACE_PROXY_REDACT"] = "true"
     if not values.get("HOST", "").strip():
         values["HOST"] = "127.0.0.1"
     if not values.get("PORT", "").strip():

@@ -131,7 +131,7 @@ class ProviderDriver(ABC):
 
         normalized_message: dict[str, object] = {
             "role": message.get("role") or "assistant",
-            "content": None if tool_calls else content,
+            "content": content,
         }
         if tool_calls:
             normalized_message["tool_calls"] = tool_calls
@@ -241,7 +241,6 @@ class ProviderDriver(ABC):
                             )
                     if tool_calls:
                         normalized_delta["tool_calls"] = tool_calls
-                        normalized_delta["content"] = None
                         normalized_choice["delta"] = normalized_delta
                         if normalized_choice.get("finish_reason") in (None, "function_call"):
                             normalized_choice["finish_reason"] = "tool_calls"
@@ -305,7 +304,7 @@ class ProviderDriver(ABC):
         }
         if tool_calls:
             delta["tool_calls"] = tool_calls
-        elif content is not None:
+        if content is not None:
             delta["content"] = content
 
         created = event_body.get("created")

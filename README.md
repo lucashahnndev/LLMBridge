@@ -55,6 +55,7 @@ LLMBridge keeps the client protocol intact at the edge and uses internal adapter
 - public OpenAI-like requests stay OpenAI-shaped;
 - Google and other upstream providers are handled by adapters;
 - tool calls, ordering, and response intent are preserved;
+- the backend converts requests through a richer canonical internal IR before reaching provider adapters;
 - optional metadata cleanup can be enabled without changing the public contract.
 
 ## Why It Exists
@@ -94,12 +95,29 @@ The bootstrap will create or repair `backend/.env` with the minimum required val
 - `DATABASE_URL`
 - `TELEGRAM_BOT_TOKEN`
 - `TELEGRAM_CHAT_ID`
+- `LOG_FILE_ENABLED`
+- `LOG_LEVEL`
+- `LOG_FILE_PATH`
+- `LOGGING_CONTROL_KEY`
+- `TRACE_PROXY_ENABLED`
+- `TRACE_PROXY_DIR`
+- `TRACE_PROXY_REDACT`
 - `HOST`
 - `PORT`
 
 If `SECRET_KEY` or `ADMIN_PASSWORD` is missing or blank, the bootstrap generates them automatically.
 After that, it registers the full-stack service automatically on Linux or Windows.
 On Windows, the service installer downloads NSSM automatically into the service workspace under `C:\ProgramData\LLMBridge\bin\`.
+
+Logging is controlled through the same `.env` file:
+
+- `LOG_FILE_ENABLED=true` turns on rotating file logs under `logs/`;
+- `LOG_LEVEL` sets the backend verbosity (`INFO`, `DEBUG`, `WARNING`, `ERROR`);
+- `LOG_FILE_PATH` stores the rotating file log path;
+- `LOGGING_CONTROL_KEY` unlocks extra request payload logging when sent as `X-Logging-Key`.
+- `TRACE_PROXY_ENABLED=true` writes one redacted JSON trace per request under `traces/`;
+- `TRACE_PROXY_DIR` changes the trace output directory;
+- `TRACE_PROXY_REDACT=true` keeps auth-like values out of the trace file.
 
 ### 1. Bootstrap
 
@@ -151,6 +169,36 @@ That means:
 - the model can be a queue alias or a direct provider route;
 - the queue can rotate, fallback, and re-rank behind the scenes;
 - the public Anthropic surface stays Anthropic-like.
+
+### Terminal setup
+
+For a one-off terminal session on Linux or macOS:
+
+```bash
+export ANTHROPIC_BASE_URL="http://127.0.0.1:8009"
+export ANTHROPIC_AUTH_TOKEN="app-token-example"
+export ANTHROPIC_MODEL="queue/gemini"
+claude
+```
+
+To make it the default on Linux or macOS, add the exports to your shell profile:
+
+```bash
+cat <<'EOF' >> ~/.bashrc
+export ANTHROPIC_BASE_URL="http://127.0.0.1:8009"
+export ANTHROPIC_AUTH_TOKEN="app-token-example"
+export ANTHROPIC_MODEL="queue/gemini"
+EOF
+source ~/.bashrc
+```
+
+For Windows CMD, persist the values with `setx`, then reopen the terminal:
+
+```cmd
+setx ANTHROPIC_BASE_URL "http://127.0.0.1:8009"
+setx ANTHROPIC_AUTH_TOKEN "app-token-example"
+setx ANTHROPIC_MODEL "queue/gemini"
+```
 
 If you want the technical contract, read:
 

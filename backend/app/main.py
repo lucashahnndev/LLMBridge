@@ -1,10 +1,22 @@
 from contextlib import asynccontextmanager
+import logging
+import time
+import uuid
 
+import httpx
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi import Request
 
 from backend.app.core.version import APP_VERSION
 from backend.app.core.config import get_settings
+from backend.app.core.logging import (
+    clear_request_context,
+    request_body_ctx,
+    set_request_context,
+    setup_logging,
+    summarize_debug_payload,
+)
 from backend.app.database.bootstrap import ensure_database
 from backend.app.routes.auth import router as auth_router
 from backend.app.routes.app_tokens import router as app_tokens_router
@@ -21,18 +33,66 @@ from backend.app.services.telegram_bot import create_telegram_bot_worker
 
 
 settings = get_settings()
+setup_logging(settings)
+logger = logging.getLogger(__name__)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await ensure_database()
+    timeout = httpx.Timeout(settings.proxy_timeout_seconds)
+    limits = httpx.Limits(max_connections=100, max_keepalive_connections=20)
+    http_client = httpx.AsyncClient(timeout=timeout, limits=limits)
     telegram_bot_worker = create_telegram_bot_worker(get_sessionmaker())
     await telegram_bot_worker.start()
+    app.state.http_client = http_client
     app.state.telegram_bot_worker = telegram_bot_worker
     yield
+    await http_client.aclose()
     await telegram_bot_worker.stop()
 
 
 app = FastAPI(title=settings.app_name, version=APP_VERSION, lifespan=lifespan)
+
+
+@app.middleware("http")
+async def request_logging_middleware(request: Request, call_next):
+    request_id = request.headers.get("x-request-id") or uuid.uuid4().hex[:12]
+    client = request.client.host if request.client and request.client.host else "-"
+    set_request_context(
+        request_id=request_id,
+        method=request.method,
+        path=request.url.path,
+        client=client,
+    )
+    start = time.perf_counter()
+    logger.info("request start")
+
+    debug_key = settings.logging_control_key.strip()
+    debug_enabled = bool(debug_key) and request.headers.get("x-logging-key") == debug_key
+    trace_enabled = bool(settings.trace_proxy_enabled)
+    if (debug_enabled or trace_enabled) and request.method in {"POST", "PUT", "PATCH"}:
+        body = await request.body()
+        if body:
+            decoded_body = body.decode("utf-8", errors="replace")
+            request_body_ctx.set(decoded_body)
+            if debug_enabled:
+                logger.debug("request body %s", summarize_debug_payload(body))
+        else:
+            request_body_ctx.set(None)
+        request._body = body  # type: ignore[attr-defined]
+
+    try:
+        response = await call_next(request)
+    except Exception:
+        logger.exception("request failed")
+        clear_request_context()
+        raise
+
+    duration_ms = (time.perf_counter() - start) * 1000.0
+    response.headers["X-Request-Id"] = request_id
+    logger.info("request end status=%s duration_ms=%.2f", response.status_code, duration_ms)
+    clear_request_context()
+    return response
 
 app.add_middleware(
     CORSMiddleware,

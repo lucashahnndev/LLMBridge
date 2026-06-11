@@ -13,8 +13,14 @@ This spec defines the request-routing and translation contract for the unified L
 - the routing core must remain protocol-neutral so the same provider/model and queue resolution rules can serve OpenAI-style and Anthropic-style public adapters;
 - the proxy must not leak provider-specific request details to the client-facing contract;
 - the proxy should preserve tool-calling structure, tool-call IDs, message ordering, finish reason, response intent, and route metadata across protocol conversions;
-- the proxy may carry requests through a richer canonical internal IR that keeps messages, tools, routing target, generation settings, attachments, metadata, and telemetry separated;
-- optional metadata cleanup may compress or drop non-essential provider noise before the payload reaches the model adapter, but this behavior must be explicitly enabled and must never remove routing or tool semantics;
+- the proxy uses a richer canonical internal IR that keeps messages, tools, routing target, generation settings, attachments, metadata, telemetry, and optimization policy separated;
+- optional metadata cleanup may compress or drop non-essential provider noise before the payload reaches the model adapter, but this behavior must be explicitly enabled, must be policy-driven, and must never remove routing or tool semantics;
+- the Google adapter must build Gemini native `generateContent` requests from the canonical IR instead of routing through an internal OpenAI-like payload, while still accepting OpenAI-like and Anthropic-compatible public requests at the edge;
+- when a public streaming request targets Google, the proxy may use a non-stream native Gemini request and return a normalized SSE stream at the edge until native `streamGenerateContent` is fully validated;
+- the Google adapter should strip provider-transport noise such as `thinking`, `context_management`, `output_config`, `metadata`, and similar envelope-only fields before the request reaches Gemini, while preserving the conversation body and tool semantics;
+- the Google adapter must compact tool schemas into Gemini-compatible `functionDeclarations`, preserving usable properties and required fields while dropping unsupported JSON Schema keywords that cause upstream `400` failures;
+- the Google adapter must not replay historical tool calls from Anthropic/OpenAI/Ollama clients as Gemini native `functionCall`/`functionResponse` parts unless those parts originated from Gemini and include valid Gemini `thoughtSignature` data; foreign historical tool calls/results must be rendered as compact text context while future callable tools remain declared through `functionDeclarations`;
+- optional per-request trace capture may persist the raw client payload, canonical IR, provider payload, provider response, and final normalized result as a redacted JSON artifact for debugging and comparison;
 - when a provider returns `429`, the proxy treats the failure as a rate-limit event and retries with another eligible key when available;
 - retry behavior must stop when the configured attempt or eligibility limit is reached;
 - if no eligible key remains, the proxy returns the upstream failure in a controlled way.

@@ -4,10 +4,11 @@ import codecs
 import json
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import JSONResponse, StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from backend.app.core.config import get_settings
 from backend.app.database.models import AppToken
 from backend.app.database.session import get_session
 from backend.app.schemas.anthropic import AnthropicMessagesRequest
@@ -18,6 +19,7 @@ from backend.app.services.anthropic import (
     chat_completion_body_to_anthropic,
 )
 from backend.app.services.proxy import proxy_chat_completion, proxy_chat_completion_stream, require_app_token
+from backend.app.services.trace import ProxyTraceRecorder
 
 
 router = APIRouter(prefix="/messages", tags=["anthropic"])
@@ -56,6 +58,7 @@ def _anthropic_stream_events(message_id: str, model_name: str, openai_stream: St
     async def generator() -> object:
         sent_block_starts: set[int] = set()
         content_block_index = 0
+        current_block_kind: str | None = None
         stop_reason = "end_turn"
         usage: dict[str, int] = {"input_tokens": 0, "output_tokens": 0}
         message_started = False
@@ -63,7 +66,7 @@ def _anthropic_stream_events(message_id: str, model_name: str, openai_stream: St
         buffer = ""
 
         async def handle_payload(payload: str):
-            nonlocal message_started, content_block_index, stop_reason, usage
+            nonlocal message_started, content_block_index, current_block_kind, stop_reason, usage
             if payload == "[DONE]":
                 return
             try:
@@ -102,19 +105,21 @@ def _anthropic_stream_events(message_id: str, model_name: str, openai_stream: St
                 text = delta.get("content")
                 tool_calls = delta.get("tool_calls")
                 if isinstance(text, str) and text:
-                    if content_block_index not in sent_block_starts:
-                        sent_block_starts.add(content_block_index)
-                        yield anthropic_sse_event(
-                            "content_block_start",
-                            {
-                                "type": "content_block_start",
-                                "index": content_block_index,
-                                "content_block": {
-                                    "type": "text",
-                                    "text": "",
+                    if current_block_kind != "text":
+                        if content_block_index not in sent_block_starts:
+                            sent_block_starts.add(content_block_index)
+                            yield anthropic_sse_event(
+                                "content_block_start",
+                                {
+                                    "type": "content_block_start",
+                                    "index": content_block_index,
+                                    "content_block": {
+                                        "type": "text",
+                                        "text": "",
+                                    },
                                 },
-                            },
-                        )
+                            )
+                        current_block_kind = "text"
                     yield anthropic_sse_event(
                         "content_block_delta",
                         {
@@ -126,7 +131,10 @@ def _anthropic_stream_events(message_id: str, model_name: str, openai_stream: St
                             },
                         },
                     )
+
                 if isinstance(tool_calls, list) and tool_calls:
+                    if current_block_kind == "text":
+                        content_block_index += 1
                     for tool_call in tool_calls:
                         if not isinstance(tool_call, dict):
                             continue
@@ -162,7 +170,8 @@ def _anthropic_stream_events(message_id: str, model_name: str, openai_stream: St
                                 },
                             },
                         )
-                    content_block_index += 1
+                        current_block_kind = "tool_use"
+                        content_block_index += 1
 
             finish_reason = choice.get("finish_reason")
             if isinstance(finish_reason, str) and finish_reason:
@@ -241,30 +250,37 @@ def _anthropic_stream_events(message_id: str, model_name: str, openai_stream: St
 async def messages(
     payload: AnthropicMessagesRequest,
     session: SessionDep,
+    request: Request,
     app_token: Annotated[AppToken, Depends(require_app_token)],
 ):
     if not payload.model.strip():
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="model is required")
 
+    settings = get_settings()
+    trace = ProxyTraceRecorder.from_settings(settings)
     chat_payload = anthropic_request_to_chat_completion(payload)
+    client = request.app.state.http_client
 
     if payload.stream:
         openai_stream = await proxy_chat_completion_stream(
             session=session,
             app_token=app_token,
             payload=chat_payload,
+            client=client,
             protocol_in="anthropic",
             protocol_out="anthropic",
+            trace=trace,
         )
         generator = _anthropic_stream_events(message_id=f"msg_{payload.model.replace('/', '_')}", model_name=payload.model, openai_stream=openai_stream)
         return StreamingResponse(generator(), media_type="text/event-stream")
-
     status_code, body = await proxy_chat_completion(
         session=session,
         app_token=app_token,
         payload=chat_payload,
+        client=client,
         protocol_in="anthropic",
         protocol_out="anthropic",
+        trace=trace,
     )
     if status_code >= 400:
         message = "Proxy request failed"
@@ -280,6 +296,9 @@ async def messages(
                         message = error_message
         elif isinstance(body, str) and body.strip():
             message = body
+        if trace.enabled:
+            trace.record_final_response(status_code=status_code, body=body)
+            trace.write()
         return JSONResponse(
             status_code=status_code,
             content=anthropic_error_response(message),
@@ -291,7 +310,11 @@ async def messages(
             content=anthropic_error_response("Proxy returned an unsupported response shape"),
         )
 
+    anthropic_body = chat_completion_body_to_anthropic(body, payload.model)
+    if trace.enabled:
+        trace.record_final_response(status_code=status_code, body=anthropic_body)
+        trace.write()
     return JSONResponse(
         status_code=status_code,
-        content=chat_completion_body_to_anthropic(body, payload.model),
+        content=anthropic_body,
     )
