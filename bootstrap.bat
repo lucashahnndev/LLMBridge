@@ -23,13 +23,14 @@ if /I "%ROOT_FULL%"=="%INSTALL_ROOT_FULL%" (
 )
 
 echo =======================================================
-echo   LLMBridge ^| one-shot installer ^| Windows
+echo   LLMBridge ^| Windows Bootstrap
+echo   local, repeatable, friendly
 echo =======================================================
 echo.
 
 python --version >nul 2>&1
 if errorlevel 1 (
-    echo %ERR% Python nao foi encontrado no PATH.
+    echo %ERR% Python nao encontrado no PATH.
     echo %WARN% Instale Python 3.10+ e marque "Add Python to PATH".
     pause
     popd
@@ -38,15 +39,15 @@ if errorlevel 1 (
 
 node --version >nul 2>&1
 if errorlevel 1 (
-    echo %ERR% Node.js nao foi encontrado no PATH.
-    echo %WARN% Instale Node.js 20+ para preparar o frontend SvelteKit.
+    echo %ERR% Node.js nao encontrado no PATH.
+    echo %WARN% Instale Node.js 20+ para preparar o frontend.
     pause
     popd
     exit /b 1
 )
 
 if not exist ".venv" (
-    echo %STEP% 1/7 criando ambiente virtual .venv
+    echo %STEP% 1/6 criando ambiente virtual .venv
     python -m venv .venv
     if errorlevel 1 (
         echo %ERR% Falha ao criar o ambiente virtual.
@@ -58,20 +59,20 @@ if not exist ".venv" (
     echo %OK% Ambiente virtual .venv ja existe.
 )
 
-echo %STEP% 2/7 atualizando pip
+echo %STEP% 2/6 atualizando pip
 ".venv\Scripts\python.exe" -m pip install --upgrade pip
 
 if exist "backend\requirements.txt" (
-    echo %STEP% 3/7 instalando dependencias do backend
+    echo %STEP% 3/6 instalando bibliotecas
     ".venv\Scripts\python.exe" -m pip install -r backend\requirements.txt
     if errorlevel 1 (
-        echo %ERR% Falha ao instalar as dependencias.
+        echo %ERR% Falha ao instalar as bibliotecas.
         pause
         popd
         exit /b 1
     )
 ) else (
-    echo %WARN% backend\requirements.txt nao encontrado. Backend ignorado.
+    echo %WARN% backend\requirements.txt nao encontrado; backend pulado.
 )
 
 if not exist "backend" mkdir backend
