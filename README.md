@@ -83,7 +83,11 @@ mkdir -p "$HOME/apps" && git clone https://github.com/lucashahnndev/LLMKeyRotato
 Windows PowerShell:
 
 ```powershell
-git clone https://github.com/lucashahnndev/LLMKeyRotator.git; Set-Location LLMBridge; .\bootstrap.bat
+mkdir "$HOME\apps" -Force
+Set-Location "$HOME\apps"
+git clone https://github.com/lucashahnndev/LLMKeyRotator.git LLMBridge
+Set-Location .\LLMBridge
+.\bootstrap.bat
 ```
 
 The Windows bootstrap keeps your working clone local and stages the runnable service workspace under `C:\ProgramData\LLMBridge`.
