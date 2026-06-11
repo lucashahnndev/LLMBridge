@@ -1243,6 +1243,47 @@ async def _proxy_chat_completion_stream_for_route(
                 raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=failure_message) from exc
 
             body = coerce_response_body(response)
+            failure_message = extract_failure_message(body, "Upstream provider error")
+            retry_after_seconds = parse_retry_after_seconds(response.headers)
+            failure_cooldown_seconds = classify_model_failure_cooldown_seconds(
+                status_code=response.status_code,
+                failure_message=failure_message,
+                retry_after_seconds=retry_after_seconds,
+                settings=settings,
+            )
+            if response.status_code != status.HTTP_200_OK:
+                if response.status_code == status.HTTP_429_TOO_MANY_REQUESTS:
+                    retry_after_seconds = retry_after_seconds or settings.key_cooldown_seconds
+                    await mark_provider_key_model_failure(session, provider_key, resolved_model_name, retry_after_seconds)
+                elif response.status_code in {status.HTTP_401_UNAUTHORIZED, status.HTTP_403_FORBIDDEN}:
+                    await mark_provider_key_auth_failed(session, provider_key, response.status_code, failure_message)
+                else:
+                    await mark_provider_key_model_soft_failure(
+                        session,
+                        provider_key,
+                        resolved_model_name,
+                        cooldown_seconds=failure_cooldown_seconds,
+                    )
+
+            await log_usage(
+                session,
+                app_token_id=app_token.id,
+                provider_key_id=provider_key.id,
+                protocol_in=protocol_in,
+                protocol_out=protocol_out,
+                route_kind=route_kind,
+                queue_name=queue_name,
+                model_requested=requested_model,
+                provider_used=provider,
+                resolved_model=resolved_route_model,
+                latency_ms=(time.perf_counter() - start_time) * 1000.0,
+                status_code=response.status_code,
+                was_rotated=attempt_index > 0,
+                tool_calling=request_tool_calling or is_tool_calling_response(body),
+                response_json=body,
+                error_message=failure_message[:500] if failure_message else None,
+            )
+
             if trace is not None and trace.enabled:
                 trace.record_provider_response(
                     status_code=response.status_code,
@@ -1251,46 +1292,7 @@ async def _proxy_chat_completion_stream_for_route(
                     attempt_index=attempt_index,
                 )
 
-                failure_message = extract_failure_message(body, "Upstream provider error")
-                retry_after_seconds = parse_retry_after_seconds(response.headers)
-                failure_cooldown_seconds = classify_model_failure_cooldown_seconds(
-                    status_code=response.status_code,
-                    failure_message=failure_message,
-                    retry_after_seconds=retry_after_seconds,
-                    settings=settings,
-                )
-                if response.status_code != status.HTTP_200_OK:
-                    if response.status_code == status.HTTP_429_TOO_MANY_REQUESTS:
-                        retry_after_seconds = retry_after_seconds or settings.key_cooldown_seconds
-                        await mark_provider_key_model_failure(session, provider_key, resolved_model_name, retry_after_seconds)
-                    elif response.status_code in {status.HTTP_401_UNAUTHORIZED, status.HTTP_403_FORBIDDEN}:
-                        await mark_provider_key_auth_failed(session, provider_key, response.status_code, failure_message)
-                    else:
-                        await mark_provider_key_model_soft_failure(
-                            session,
-                            provider_key,
-                            resolved_model_name,
-                            cooldown_seconds=failure_cooldown_seconds,
-                        )
-
-                await log_usage(
-                    session,
-                    app_token_id=app_token.id,
-                    provider_key_id=provider_key.id,
-                    protocol_in=protocol_in,
-                    protocol_out=protocol_out,
-                    route_kind=route_kind,
-                    queue_name=queue_name,
-                    model_requested=requested_model,
-                    provider_used=provider,
-                    resolved_model=resolved_route_model,
-                    latency_ms=(time.perf_counter() - start_time) * 1000.0,
-                    status_code=response.status_code,
-                    was_rotated=attempt_index > 0,
-                    tool_calling=request_tool_calling or is_tool_calling_response(body),
-                    response_json=body,
-                    error_message=failure_message[:500] if failure_message else None,
-                )
+            if response.status_code != status.HTTP_200_OK:
                 if attempt_index + 1 < len(provider_keys):
                     continue
                 raise HTTPException(status_code=response.status_code, detail=failure_message)

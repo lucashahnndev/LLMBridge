@@ -3,6 +3,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR" && pwd)"
+FRONTEND_BUILD_STAMP="$REPO_ROOT/frontend/.llmbridge-build.sha256"
 
 cd "$REPO_ROOT"
 
@@ -66,10 +67,46 @@ else
 fi
 
 if [[ -f "frontend/package.json" ]]; then
-  step "4/7 instalando dependencias do frontend"
-  (cd frontend && npm install)
-  step "4.1/7 gerando build do frontend"
-  (cd frontend && npm run build)
+  frontend_fingerprint="$(python3 - <<'PY'
+from pathlib import Path
+import hashlib
+
+root = Path("frontend")
+if not root.exists():
+    print("")
+    raise SystemExit(0)
+
+digest = hashlib.sha256()
+for path in sorted(
+    p for p in root.rglob("*")
+    if p.is_file() and ".svelte-kit" not in p.parts and "node_modules" not in p.parts
+):
+    digest.update(str(path.relative_to(root)).encode("utf-8"))
+    digest.update(b"\0")
+    digest.update(path.read_bytes())
+    digest.update(b"\0")
+print(digest.hexdigest())
+PY
+)"
+  frontend_build_fresh=false
+  if [[ -n "$frontend_fingerprint" && -f "$FRONTEND_BUILD_STAMP" ]]; then
+    stored_fingerprint="$(head -n 1 "$FRONTEND_BUILD_STAMP" | tr -d '\r\n')"
+    if [[ "$stored_fingerprint" == "$frontend_fingerprint" && -d "frontend/.svelte-kit" && -d "frontend/node_modules" ]]; then
+      frontend_build_fresh=true
+    fi
+  fi
+
+  if [[ "$frontend_build_fresh" == true ]]; then
+    ok "Frontend ja esta atualizado; npm install e build reutilizados."
+  else
+    step "4/7 instalando dependencias do frontend"
+    (cd frontend && npm install)
+    step "4.1/7 gerando build do frontend"
+    (cd frontend && npm run build)
+    if [[ -n "$frontend_fingerprint" ]]; then
+      printf '%s\n' "$frontend_fingerprint" > "$FRONTEND_BUILD_STAMP"
+    fi
+  fi
 else
   warn "frontend/package.json nao encontrado. Frontend ignorado."
 fi

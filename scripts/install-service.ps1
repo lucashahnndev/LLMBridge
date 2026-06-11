@@ -49,6 +49,7 @@ $InstallPython = Join-Path $InstallRoot ".venv\Scripts\python.exe"
 $InstallRunScript = Join-Path $InstallScriptsRoot "run-service.ps1"
 $InstallEnvPath = Join-Path $InstallBackendRoot ".env"
 $InstallDbPath = Join-Path $InstallBackendRoot "database.db"
+$SourcePython = Join-Path $SourceRoot ".venv\Scripts\python.exe"
 $InstallLogsFolder = Join-Path $InstallRoot "logs"
 $FrontendBuildStamp = Join-Path $InstallFrontendRoot ".llmkeyrotator-build.sha256"
 $NssmSourceFolder = Join-Path $InstallRoot "bin"
@@ -150,6 +151,30 @@ function Test-SameDirectory {
     )
 
     return (Normalize-PathForComparison $Left) -eq (Normalize-PathForComparison $Right)
+}
+
+function Test-SameFile {
+    param(
+        [Parameter(Mandatory = $true)][string]$Left,
+        [Parameter(Mandatory = $true)][string]$Right
+    )
+
+    return (Normalize-PathForComparison $Left) -eq (Normalize-PathForComparison $Right)
+}
+
+function Copy-FileIfNeeded {
+    param(
+        [Parameter(Mandatory = $true)][string]$Source,
+        [Parameter(Mandatory = $true)][string]$Destination
+    )
+
+    if (Test-SameFile -Left $Source -Right $Destination) {
+        return
+    }
+
+    $destinationParent = Split-Path -Parent $Destination
+    Ensure-Directory -Path $destinationParent
+    Copy-Item -LiteralPath $Source -Destination $Destination -Force
 }
 
 function Read-EnvValue {
@@ -270,9 +295,7 @@ function Sync-SourceTree {
         }
 
         $destination = Join-Path $InstallRoot $relative
-        $destinationParent = Split-Path -Parent $destination
-        Ensure-Directory -Path $destinationParent
-        Copy-Item -LiteralPath $file.FullName -Destination $destination -Force
+        Copy-FileIfNeeded -Source $file.FullName -Destination $destination
     }
 }
 
@@ -292,7 +315,7 @@ function Restore-DataFiles {
 
     Push-Location $InstallRoot
     try {
-        & python $BootstrapEnvScript
+        & $SourcePython $BootstrapEnvScript
     } finally {
         Pop-Location
     }
@@ -308,7 +331,7 @@ function Restore-DataFiles {
     if (-not (Test-Path -LiteralPath $InstallDbPath)) {
         Push-Location $InstallRoot
         try {
-            & python -c "import sqlite3, pathlib; db = pathlib.Path('backend/database.db'); db.parent.mkdir(parents=True, exist_ok=True); sqlite3.connect(db).close()"
+            & $SourcePython -c "import sqlite3, pathlib; db = pathlib.Path('backend/database.db'); db.parent.mkdir(parents=True, exist_ok=True); sqlite3.connect(db).close()"
         } finally {
             Pop-Location
         }
