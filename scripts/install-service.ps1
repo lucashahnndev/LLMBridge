@@ -1,6 +1,8 @@
 param(
     [string]$SourceRoot = "",
     [string]$InstallRoot = "",
+    [string]$NssmPath = "",
+    [string]$NssmRoot = "",
     [switch]$Uninstall,
     [switch]$RemoveFiles,
     [string]$LogPath = "",
@@ -52,11 +54,6 @@ $InstallDbPath = Join-Path $InstallBackendRoot "database.db"
 $SourcePython = Join-Path $SourceRoot ".venv\Scripts\python.exe"
 $InstallLogsFolder = Join-Path $InstallRoot "logs"
 $FrontendBuildStamp = Join-Path $InstallFrontendRoot ".llmkeyrotator-build.sha256"
-$NssmSourceFolder = Join-Path $InstallRoot "bin"
-$NssmZip = Join-Path $NssmSourceFolder "nssm-2.24.zip"
-$NssmRoot = Join-Path $NssmSourceFolder "nssm-2.24"
-$ArchFolder = if ([Environment]::Is64BitOperatingSystem) { "win64" } else { "win32" }
-$NssmExe = Join-Path $NssmRoot "$ArchFolder\nssm.exe"
 $ServiceName = "LLMBridge"
 $DisplayName = "LLMBridge Full Stack Service"
 $PowerShellExe = Join-Path $PSHOME "powershell.exe"
@@ -65,6 +62,21 @@ $BackendRequirements = Join-Path $InstallRoot "backend\requirements.txt"
 $FrontendPackageJson = Join-Path $InstallFrontendRoot "package.json"
 $SourceEnvPath = Join-Path $SourceRoot "backend\.env"
 $SourceDbPath = Join-Path $SourceRoot "backend\database.db"
+
+function Test-IsAdministrator {
+    $currentIdentity = [System.Security.Principal.WindowsIdentity]::GetCurrent()
+    $principal = New-Object System.Security.Principal.WindowsPrincipal($currentIdentity)
+    return $principal.IsInRole([System.Security.Principal.WindowsBuiltInRole]::Administrator)
+}
+
+if (-not (Test-IsAdministrator)) {
+    Write-Host "[x] Execute este instalador em uma janela do PowerShell aberta como Administrador." -ForegroundColor Red
+    Write-Host "[!] Se estiver usando o bootstrap, reabra o terminal elevado e rode novamente." -ForegroundColor DarkYellow
+    if (-not $NoPause) {
+        Read-Host "Pressione Enter para sair..."
+    }
+    exit 1
+}
 
 function Write-Stage {
     param([string]$Message)
@@ -92,7 +104,11 @@ function Invoke-Nssm {
         [string[]]$Arguments
     )
 
-    $process = Start-Process -FilePath $NssmExe -ArgumentList $Arguments -Wait -PassThru -NoNewWindow
+    if (-not $script:NssmExePath) {
+        $script:NssmExePath = Ensure-Nssm
+    }
+
+    $process = Start-Process -FilePath $script:NssmExePath -ArgumentList $Arguments -Wait -PassThru -NoNewWindow
     if ($process.ExitCode -ne 0) {
         throw "NSSM returned exit code $($process.ExitCode) while running: $($Arguments -join ' ')"
     }
@@ -177,6 +193,175 @@ function Copy-FileIfNeeded {
     Copy-Item -LiteralPath $Source -Destination $Destination -Force
 }
 
+function Get-NssmCandidates {
+    $candidates = New-Object System.Collections.Generic.List[string]
+
+    foreach ($path in @($NssmPath, $NssmRoot)) {
+        if ($path -and $path.Trim()) {
+            $candidates.Add($path.Trim())
+        }
+    }
+
+    foreach ($root in @(
+        (Join-Path $InstallRoot "bin"),
+        (Join-Path $SourceRoot "bin")
+    )) {
+        if ($root -and (Test-Path -LiteralPath $root)) {
+            $candidates.Add($root)
+        }
+    }
+
+    return $candidates
+}
+
+function Copy-NssmAssets {
+    $sourceBin = Join-Path $SourceRoot "bin"
+    if (-not (Test-Path -LiteralPath $sourceBin)) {
+        return
+    }
+
+    $sourceEntries = Get-ChildItem -LiteralPath $sourceBin -Force -ErrorAction SilentlyContinue
+    if (-not $sourceEntries) {
+        return
+    }
+
+    $destinationBin = Join-Path $InstallRoot "bin"
+    if (Test-SameDirectory -Left $sourceBin -Right $destinationBin) {
+        return
+    }
+
+    Ensure-Directory -Path $destinationBin
+
+    Write-Stage "Preparando NSSM local em $destinationBin"
+    Copy-Item -Path (Join-Path $sourceBin "*") -Destination $destinationBin -Recurse -Force
+}
+
+function Get-NssmArchiveCandidates {
+    param(
+        [string[]]$SearchRoots = @()
+    )
+
+    $archives = New-Object System.Collections.Generic.HashSet[string] ([System.StringComparer]::OrdinalIgnoreCase)
+
+    foreach ($path in @($NssmPath, $NssmRoot)) {
+        if (-not $path -or -not (Test-Path -LiteralPath $path)) {
+            continue
+        }
+
+        $item = Get-Item -LiteralPath $path
+        if (-not $item.PSIsContainer -and $item.Extension -ieq ".zip") {
+            [void]$archives.Add($item.FullName)
+            continue
+        }
+
+        if ($item.PSIsContainer) {
+            Get-ChildItem -LiteralPath $item.FullName -Recurse -File -Filter "*.zip" -ErrorAction SilentlyContinue | ForEach-Object {
+                if ($_.Name -match '^nssm.*\.zip$' -or $_.FullName -match '[\\/](?:nssm|nssm-[^\\/]+)[\\/].*\.zip$') {
+                    [void]$archives.Add($_.FullName)
+                }
+            }
+        }
+    }
+
+    foreach ($root in $SearchRoots) {
+        if (-not $root -or -not (Test-Path -LiteralPath $root)) {
+            continue
+        }
+
+        Get-ChildItem -LiteralPath $root -Recurse -File -Filter "*.zip" -ErrorAction SilentlyContinue | ForEach-Object {
+            if ($_.Name -match '^nssm.*\.zip$' -or $_.FullName -match '[\\/](?:nssm|nssm-[^\\/]+)[\\/].*\.zip$') {
+                [void]$archives.Add($_.FullName)
+            }
+        }
+    }
+
+    return $archives
+}
+
+function Expand-NssmArchives {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string[]]$SearchRoots,
+        [Parameter(Mandatory = $true)]
+        [string]$DestinationRoot
+    )
+
+    $archives = Get-NssmArchiveCandidates -SearchRoots $SearchRoots
+    foreach ($archivePath in ($archives | Sort-Object)) {
+        $archiveItem = Get-Item -LiteralPath $archivePath
+        Write-Stage "Extraindo NSSM local de $($archiveItem.Name)"
+        Expand-Archive -LiteralPath $archivePath -DestinationPath $DestinationRoot -Force
+    }
+}
+
+function Resolve-NssmExe {
+    $archFolder = if ([Environment]::Is64BitOperatingSystem) { "win64" } else { "win32" }
+
+    foreach ($candidate in Get-NssmCandidates) {
+        if (-not (Test-Path -LiteralPath $candidate)) {
+            continue
+        }
+
+        if ((Split-Path -Leaf $candidate).ToLowerInvariant() -eq "nssm.exe") {
+            return (Get-Item -LiteralPath $candidate).FullName
+        }
+
+        $matches = Get-ChildItem -LiteralPath $candidate -Recurse -File -Filter "nssm.exe" -ErrorAction SilentlyContinue | Where-Object {
+            $_.FullName -match "[\\/](?:$archFolder)[\\/](?:nssm\.exe)$"
+        } | Select-Object -ExpandProperty FullName
+
+        if ($matches) {
+            return $matches | Select-Object -First 1
+        }
+    }
+
+    foreach ($candidate in Get-NssmCandidates) {
+        if (-not (Test-Path -LiteralPath $candidate)) {
+            continue
+        }
+
+        $matches = Get-ChildItem -LiteralPath $candidate -Recurse -File -Filter "nssm.exe" -ErrorAction SilentlyContinue | Select-Object -ExpandProperty FullName
+        if ($matches) {
+            return $matches | Select-Object -First 1
+        }
+    }
+
+    return $null
+}
+
+function Ensure-Nssm {
+    Copy-NssmAssets
+    Expand-NssmArchives -SearchRoots @(
+        (Join-Path $SourceRoot "bin"),
+        (Join-Path $InstallRoot "bin")
+    ) -DestinationRoot (Join-Path $InstallRoot "bin")
+
+    $resolved = Resolve-NssmExe
+    if (-not $resolved) {
+        throw "NSSM local nao encontrado. Coloque o executavel em bin/ ou informe -NssmPath/-NssmRoot."
+    }
+
+    return $resolved
+}
+
+function Wait-ForServiceRemoval {
+    param(
+        [Parameter(Mandatory = $true)]
+        [int]$TimeoutSeconds
+    )
+
+    $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
+    while ((Get-Date) -lt $deadline) {
+        if ($null -eq (Get-ServiceState)) {
+            return $true
+        }
+
+        Start-Sleep -Seconds 1
+    }
+
+    return $false
+}
+
 function Read-EnvValue {
     param(
         [Parameter(Mandatory = $true)][string]$Path,
@@ -214,7 +399,7 @@ function Get-ServiceState {
 function Stop-And-RemoveService {
     $state = Get-ServiceState
     if ($null -eq $state) {
-        return
+        return $true
     }
 
     Write-Warn "Servico '$ServiceName' ja existe. Reconfigurando."
@@ -226,7 +411,24 @@ function Stop-And-RemoveService {
         Write-Warn "O servico nao respondeu ao stop; removendo mesmo assim."
     }
 
-    Invoke-Nssm -Arguments @("remove", $ServiceName, "confirm")
+    try {
+        Invoke-Nssm -Arguments @("remove", $ServiceName, "confirm")
+    } catch {
+        if ($_.Exception.Message -match 'marked for deletion') {
+            Write-Warn "O Windows ainda esta liberando o servico '$ServiceName'."
+        } else {
+            throw
+        }
+    }
+
+    if (Wait-ForServiceRemoval -TimeoutSeconds 30) {
+        return $true
+    }
+
+    Write-Warn "O SCM ainda nao liberou o servico '$ServiceName'."
+    Write-Warn "Feche qualquer console/gerenciador de servicos aberto e tente novamente."
+    Write-Warn "Se o estado persistir, reinicie o Windows antes de reinstalar."
+    return $false
 }
 
 function Remove-InstallFiles {
@@ -417,30 +619,46 @@ function Install-Dependencies {
 }
 
 function Ensure-Nssm {
-    Ensure-Directory -Path $NssmSourceFolder
+    Copy-NssmAssets
 
-    if (Test-Path -LiteralPath $NssmExe) {
-        return
+    $resolved = Resolve-NssmExe
+    if (-not $resolved) {
+        throw "NSSM local nao encontrado. Coloque o executavel em bin/ ou informe -NssmPath/-NssmRoot."
     }
 
-    Write-Stage "Baixando NSSM"
-    $NssmUrl = "https://nssm.cc/release/nssm-2.24.zip"
-    [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
-    Invoke-WebRequest -Uri $NssmUrl -OutFile $NssmZip
-    Expand-Archive -Path $NssmZip -DestinationPath $NssmSourceFolder -Force
-    Remove-Item $NssmZip -Force
-    Write-Ok "NSSM pronto em $NssmExe"
+    return $resolved
 }
 
 function Install-Or-UpgradeService {
-    Ensure-Nssm
+    $script:NssmExePath = Ensure-Nssm
 
     $serviceLogs = Join-Path $InstallLogsFolder "service.log"
     Ensure-Directory -Path $InstallLogsFolder
 
-    Stop-And-RemoveService
+    if (-not (Stop-And-RemoveService)) {
+        throw "Servico '$ServiceName' ainda esta marcado para exclusao. Reinicie o Windows e execute o bootstrap novamente."
+    }
 
-    Invoke-Nssm -Arguments @("install", $ServiceName, $PowerShellExe)
+    $installDeadline = (Get-Date).AddSeconds(30)
+    while ($true) {
+        try {
+            Invoke-Nssm -Arguments @("install", $ServiceName, $PowerShellExe)
+            break
+        } catch {
+            $errorText = $_.Exception.Message
+            if (($errorText -match 'marked for deletion') -or ($errorText -match 'exit code 1072')) {
+                if ((Get-Date) -lt $installDeadline) {
+                    Write-Warn "O Windows ainda esta liberando o servico '$ServiceName'. Tentando novamente..."
+                    Start-Sleep -Seconds 2
+                    continue
+                }
+
+                throw "Servico '$ServiceName' ainda esta marcado para exclusao. Reinicie o Windows e execute o bootstrap novamente."
+            }
+
+            throw
+        }
+    }
 
     $AppParameters = @(
         "-NoProfile",
@@ -487,8 +705,11 @@ function Uninstall-Service {
         Write-Warn "Servico '$ServiceName' nao encontrado."
     } else {
         Write-Stage "Removendo servico '$ServiceName'"
-        Stop-And-RemoveService
-        Write-Ok "Servico '$ServiceName' removido."
+        if (Stop-And-RemoveService) {
+            Write-Ok "Servico '$ServiceName' removido."
+        } else {
+            Write-Warn "Servico '$ServiceName' ainda pode estar marcado para exclusao ate o proximo reboot."
+        }
     }
 
     if ($RemoveFiles) {

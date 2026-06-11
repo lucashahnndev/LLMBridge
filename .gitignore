@@ -47,7 +47,12 @@ pyvenv.cfg
 Thumbs.db
 
 # Local deployment artifacts
-bin/
+bin/*
+!bin/.gitkeep
+!bin/README.md
+!bin/*.zip
+!bin/nssm/
+!bin/nssm/**/*
 logs/
 traces/
 frontend/dev_server.log

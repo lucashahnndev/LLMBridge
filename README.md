@@ -90,7 +90,13 @@ Set-Location .\LLMBridge
 .\bootstrap.bat
 ```
 
+Open PowerShell as Administrator before running the Windows bootstrap.
+
 The Windows bootstrap keeps your working clone local and stages the runnable service workspace under `C:\ProgramData\LLMBridge`.
+It now uses the NSSM copy bundled with the project under `bin/` or the service workspace `bin/` folder, so the bootstrap no longer downloads NSSM from the internet.
+If an old `LLMBridge` service is still marked for deletion, the installer will tell you to close any open service manager and reboot before trying again.
+For offline installs, place NSSM at `bin/nssm/win64/nssm.exe` on 64-bit Windows or `bin/nssm/win32/nssm.exe` on 32-bit Windows before running the bootstrap.
+If you keep a compressed package instead, the installer also accepts a local ZIP under `bin/` or `bin/nssm/`, or a ZIP path passed through `-NssmPath` / `-NssmRoot`.
 
 The bootstrap will create or repair `backend/.env` with the minimum required values:
 
@@ -111,7 +117,8 @@ The bootstrap will create or repair `backend/.env` with the minimum required val
 
 If `SECRET_KEY` or `ADMIN_PASSWORD` is missing or blank, the bootstrap generates them automatically.
 After that, it registers the full-stack service automatically on Linux or Windows.
-On Windows, the service installer downloads NSSM automatically into the service workspace under `C:\ProgramData\LLMBridge\bin\`.
+On Windows, the service installer expects NSSM to be available locally in `bin/` and copies it into the service workspace under `C:\ProgramData\LLMBridge\bin\`.
+If Windows keeps the old service entry around after removal, a reboot may be required before reinstalling.
 
 Logging is controlled through the same `.env` file:
 
