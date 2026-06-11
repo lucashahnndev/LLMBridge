@@ -23,15 +23,21 @@ if /I "%ROOT_FULL%"=="%INSTALL_ROOT_FULL%" (
 )
 
 echo =======================================================
-echo   LLMBridge ^| Windows Bootstrap
-echo   local, repeatable, friendly
+echo   __        __   _     ____   ____  ____  _____
+echo   \ \      / /__| |__ | __ ) / ___|| __ )| ____|
+echo    \ \ /\ / / _ \ '_ \|  _ \\___ \|  _ \|  _|
+echo     \ V  V /  __/ |_) | |_) |___) | |_) | |___
+echo      \_/\_/ \___|_.__/|____/|____/|____/|_____|
+echo
+echo            LLMBridge Windows Bootstrap
+echo             local, clean, fast
 echo =======================================================
 echo.
 
 python --version >nul 2>&1
 if errorlevel 1 (
     echo %ERR% Python nao encontrado no PATH.
-    echo %WARN% Instale Python 3.10+ e marque "Add Python to PATH".
+    echo %WARN% Instale Python 3.10+ com "Add Python to PATH".
     pause
     popd
     exit /b 1
@@ -72,7 +78,7 @@ if exist "backend\requirements.txt" (
         exit /b 1
     )
 ) else (
-    echo %WARN% backend\requirements.txt nao encontrado; backend pulado.
+    echo %WARN% backend\requirements.txt ausente; backend pulado.
 )
 
 if not exist "backend" mkdir backend
@@ -114,7 +120,7 @@ if exist "%SERVICE_INSTALL_LOG%" del /f /q "%SERVICE_INSTALL_LOG%" >nul 2>&1
 powershell -NoProfile -ExecutionPolicy Bypass -Command ^
     "$repo = (Get-Location).Path; $installRoot = Join-Path $env:ProgramData 'LLMBridge'; $log = '%SERVICE_INSTALL_LOG%'; $script = Join-Path $repo 'scripts\install-service.ps1'; $serviceArgs = @('-NoProfile','-ExecutionPolicy','Bypass','-File',$script,'-SourceRoot',$repo,'-InstallRoot',$installRoot,'-LogPath',$log,'-NoPause'); $p = Start-Process -FilePath powershell -ArgumentList $serviceArgs -WorkingDirectory $installRoot -Verb RunAs -Wait -PassThru; exit $p.ExitCode"
 if errorlevel 1 (
-    echo %ERR% Falha ao registrar o servico automatico do Windows.
+    echo %ERR% Falha ao registrar o servico.
     if exist "%SERVICE_INSTALL_LOG%" (
         echo.
         echo ===== service installer log =====
@@ -128,12 +134,6 @@ if errorlevel 1 (
 
 echo.
 echo %OK% Instalacao concluida.
-if exist "%SERVICE_INSTALL_LOG%" (
-    echo.
-    echo ===== service installer log =====
-    type "%SERVICE_INSTALL_LOG%"
-    echo ===== end log =====
-    del /f /q "%SERVICE_INSTALL_LOG%" >nul 2>&1
-)
+if exist "%SERVICE_INSTALL_LOG%" del /f /q "%SERVICE_INSTALL_LOG%" >nul 2>&1
 pause
 popd

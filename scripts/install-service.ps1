@@ -70,8 +70,8 @@ function Test-IsAdministrator {
 }
 
 if (-not (Test-IsAdministrator)) {
-    Write-Host "  [x] Abra o PowerShell como Administrador e rode novamente." -ForegroundColor Red
-    Write-Host "  [!] Se vier do bootstrap, reabra o terminal elevado." -ForegroundColor DarkYellow
+    Write-Host "  x Abra o PowerShell como Administrador." -ForegroundColor Red
+    Write-Host "  ! Reabra o terminal e tente de novo." -ForegroundColor DarkYellow
     if (-not $NoPause) {
         Read-Host "Pressione Enter para sair..."
     }
@@ -79,31 +79,41 @@ if (-not (Test-IsAdministrator)) {
 }
 
 function Show-Banner {
-    Write-Host "  .----------------------------------------." -ForegroundColor Cyan
-    Write-Host "  |      LLMBridge Windows Installer       |" -ForegroundColor Cyan
-    Write-Host "  |    local, friendly and repeatable      |" -ForegroundColor Cyan
-    Write-Host "  '----------------------------------------'" -ForegroundColor Cyan
+    Write-Host "      _      _     ____    ____  ____  ____  _____  ____  _____ " -ForegroundColor Cyan
+    Write-Host "     | |    | |   |  _ \  | __ )| __ )|  _ \| ____|/ ___|| ____|" -ForegroundColor Cyan
+    Write-Host "     | |    | |   | | | | |  _ \|  _ \| |_) |  _|  \___ \|  _|  " -ForegroundColor Cyan
+    Write-Host "     | |___ | |___| |_| | | |_) | |_) |  _ <| |___  ___) | |___ " -ForegroundColor Cyan
+    Write-Host "     |_____|_____|____/  |____/|____/|_| \_\_____| |____/|_____|" -ForegroundColor Cyan
+    Write-Host ""
+    Write-Host "                         __" -ForegroundColor Yellow
+    Write-Host "                        /o \_____" -ForegroundColor Yellow
+    Write-Host "                        \__/-=' ='" -ForegroundColor Yellow
+    Write-Host "                        o/   __/" -ForegroundColor Yellow
+    Write-Host "                        /___/" -ForegroundColor Yellow
+    Write-Host ""
+    Write-Host "        LLMBridge Windows Installer" -ForegroundColor Magenta
+    Write-Host "        local, clean, fast" -ForegroundColor DarkCyan
     Write-Host ""
 }
 
 function Write-Stage {
     param([string]$Message)
-    Write-Host "  [>] $Message" -ForegroundColor Yellow
+    Write-Host "  > $Message" -ForegroundColor Yellow
 }
 
 function Write-Ok {
     param([string]$Message)
-    Write-Host "  [+] $Message" -ForegroundColor Green
+    Write-Host "  + $Message" -ForegroundColor Green
 }
 
 function Write-Warn {
     param([string]$Message)
-    Write-Host "  [!] $Message" -ForegroundColor DarkYellow
+    Write-Host "  ! $Message" -ForegroundColor DarkYellow
 }
 
 function Write-Fail {
     param([string]$Message)
-    Write-Host "  [x] $Message" -ForegroundColor Red
+    Write-Host "  x $Message" -ForegroundColor Red
 }
 
 Show-Banner
@@ -242,7 +252,7 @@ function Copy-NssmAssets {
 
     Ensure-Directory -Path $destinationBin
 
-    Write-Stage "Preparando NSSM local"
+    Write-Stage "Preparando NSSM"
     Copy-Item -Path (Join-Path $sourceBin "*") -Destination $destinationBin -Recurse -Force
 }
 
@@ -299,7 +309,7 @@ function Expand-NssmArchives {
     $archives = Get-NssmArchiveCandidates -SearchRoots $SearchRoots
     foreach ($archivePath in ($archives | Sort-Object)) {
         $archiveItem = Get-Item -LiteralPath $archivePath
-        Write-Stage "Extraindo NSSM local"
+        Write-Stage "Descompactando NSSM"
         Expand-Archive -LiteralPath $archivePath -DestinationPath $DestinationRoot -Force
     }
 }
@@ -412,20 +422,20 @@ function Stop-And-RemoveService {
         return $true
     }
 
-    Write-Warn "Servico existente encontrado; atualizando."
+        Write-Warn "Servico antigo encontrado."
     try {
         if ($state -ne "Stopped") {
             Invoke-Nssm -Arguments @("stop", $ServiceName)
         }
     } catch {
-        Write-Warn "Stop ignorado; seguindo com a limpeza."
+        Write-Warn "Stop ignorado; limpando mesmo assim."
     }
 
     try {
         Invoke-Nssm -Arguments @("remove", $ServiceName, "confirm")
     } catch {
         if ($_.Exception.Message -match 'marked for deletion') {
-            Write-Warn "O Windows ainda esta liberando o servico."
+            Write-Warn "O Windows ainda segura o servico."
         } else {
             throw
         }
@@ -435,8 +445,7 @@ function Stop-And-RemoveService {
         return $true
     }
 
-    Write-Warn "O Windows ainda segura o servico."
-    Write-Warn "Feche o gerenciador de servicos e tente de novo."
+    Write-Warn "O Windows ainda segura o servico. Feche o gerenciador e tente de novo."
     Write-Warn "Se persistir, reinicie o Windows."
     return $false
 }
@@ -446,7 +455,7 @@ function Remove-InstallFiles {
         return
     }
 
-    Write-Warn "Limpando arquivos antigos em $InstallRoot"
+    Write-Warn "Limpando arquivos antigos."
     Remove-Item -LiteralPath $InstallRoot -Recurse -Force
 }
 
@@ -456,7 +465,7 @@ function Sync-SourceTree {
     }
 
     if (Test-SameDirectory -Left $SourceRoot -Right $InstallRoot) {
-        Write-Warn "SourceRoot e InstallRoot sao iguais; sincronizacao pulada."
+        Write-Warn "SourceRoot e InstallRoot sao iguais; pulando copia."
         return
     }
 
@@ -581,7 +590,7 @@ function Install-Dependencies {
             throw "Falha ao atualizar pip no ambiente do servico."
         }
 
-        Write-Stage "Instalando bibliotecas"
+        Write-Stage "Instalando backend"
         & $InstallPython -m pip install -r $BackendRequirements --disable-pip-version-check --quiet
         if ($LASTEXITCODE -ne 0) {
             throw "Falha ao instalar as dependencias do backend."
@@ -597,9 +606,9 @@ function Install-Dependencies {
             }
 
             if ($frontendBuildIsFresh -and (Test-Path -LiteralPath $frontendNodeModules)) {
-                Write-Ok "Frontend ja atualizado; reutilizando build."
+                Write-Ok "Frontend pronto."
             } else {
-                Write-Stage "Baixando frontend"
+                Write-Stage "Preparando frontend"
                 Push-Location $InstallFrontendRoot
                 try {
                     & npm install --no-audit --no-fund --loglevel=error
@@ -607,7 +616,7 @@ function Install-Dependencies {
                         throw "Falha ao instalar as dependencias do frontend."
                     }
 
-                    Write-Stage "Montando frontend"
+                    Write-Stage "Gerando build"
                     & npm run build --silent
                     if ($LASTEXITCODE -ne 0) {
                         throw "Falha ao gerar o build do frontend."
@@ -699,12 +708,11 @@ function Install-Or-UpgradeService {
     if (-not $portValue) { $portValue = "8000" }
 
     Write-Host ""
-    Write-Host "  .----------------------------------------." -ForegroundColor Green
-    Write-Host "  |            Instalação pronta           |" -ForegroundColor Green
-    Write-Host "  |  Backend : http://${hostValue}:${portValue}" -ForegroundColor Green
-    Write-Host "  |  Frontend: http://127.0.0.1:4173" -ForegroundColor Green
-    Write-Host "  |  Logs    : $serviceLogs" -ForegroundColor Green
-    Write-Host "  '----------------------------------------'" -ForegroundColor Green
+    Write-Host "  +----------------------------------------+" -ForegroundColor Green
+    Write-Host "  |                 Pronto!                |" -ForegroundColor Green
+    Write-Host "  | Backend  http://${hostValue}:${portValue}" -ForegroundColor Green
+    Write-Host "  | Frontend http://127.0.0.1:4173" -ForegroundColor Green
+    Write-Host "  +----------------------------------------+" -ForegroundColor Green
     Write-Host ""
 }
 
@@ -717,7 +725,7 @@ function Uninstall-Service {
         if (Stop-And-RemoveService) {
             Write-Ok "Servico removido."
         } else {
-            Write-Warn "Servico ainda pode pedir reboot para sumir."
+            Write-Warn "Servico pode pedir reboot."
         }
     }
 
@@ -725,7 +733,7 @@ function Uninstall-Service {
         Remove-InstallFiles
         Write-Ok "Arquivos removidos."
     } else {
-        Write-Warn "Arquivos mantidos em $InstallRoot"
+        Write-Warn "Arquivos mantidos."
     }
 }
 
@@ -748,7 +756,7 @@ if ($Uninstall) {
 }
 
 if (-not (Test-Path -LiteralPath (Join-Path $SourceRoot ".venv\Scripts\python.exe"))) {
-    Write-Fail "Nao encontrei o .venv em $SourceRoot."
+    Write-Fail "Nao encontrei o .venv."
     Write-Warn "Execute o bootstrap primeiro."
     if ($transcriptStarted) {
         try {
@@ -776,17 +784,17 @@ try {
         Copy-Item -LiteralPath $InstallDbPath -Destination $existingDbBackup -Force
     }
 
-    Write-Stage "1/5 sincronizando workspace"
+    Write-Stage "1/5 workspace"
     Sync-SourceTree
 
-    Write-Stage "2/5 restaurando dados"
+    Write-Stage "2/5 dados"
     Restore-DataFiles -ExistingEnvBackup $existingEnvBackup -ExistingDbBackup $existingDbBackup
 
-    Write-Stage "3/5 preparando ambiente"
+    Write-Stage "3/5 ambiente"
     Ensure-InstallPython
     Install-Dependencies
 
-    Write-Stage "4/5 aplicando migracoes"
+    Write-Stage "4/5 migracoes"
     Push-Location $InstallRoot
     try {
         & $InstallPython -m backend.migrate
@@ -797,14 +805,14 @@ try {
         Pop-Location
     }
 
-    Write-Stage "5/5 instalando servico"
+    Write-Stage "5/5 servico"
     Install-Or-UpgradeService
 
     Write-Host ""
-    Write-Host "  .----------------------------------------." -ForegroundColor Green
-    Write-Host "  |              Concluido                 |" -ForegroundColor Green
-    Write-Host "  |  O servico foi configurado com sucesso  |" -ForegroundColor Green
-    Write-Host "  '----------------------------------------'" -ForegroundColor Green
+    Write-Host "  +----------------------------------------+" -ForegroundColor Green
+    Write-Host "  |                 Feito!                 |" -ForegroundColor Green
+    Write-Host "  |     Servico configurado com sucesso    |" -ForegroundColor Green
+    Write-Host "  +----------------------------------------+" -ForegroundColor Green
     Write-Host ""
 } finally {
     foreach ($tempFile in @($existingEnvBackup, $existingDbBackup)) {
