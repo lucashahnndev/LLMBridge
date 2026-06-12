@@ -28,10 +28,6 @@ banner() {
 ${C_YELLOW}==============================================================${C_RESET}
 ${C_YELLOW}                         LLMBridge${C_RESET}
 ${C_DIM}                   local one-shot installer${C_RESET}
-${C_YELLOW}                          ___${C_RESET}
-${C_YELLOW}                      ___/ o \\___${C_RESET}
-${C_YELLOW}                     /  _   _   _ \\${C_RESET}
-${C_YELLOW}                     \\_/ \\_/ \\_/ \\_/${C_RESET}
 ${C_YELLOW}==============================================================${C_RESET}
 EOF
 }

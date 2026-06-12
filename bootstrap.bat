@@ -26,10 +26,6 @@ echo =======================================================
 color 0E
 echo                          LLMBridge
 echo                    local one-shot installer
-echo                           ___
-echo                       ___/ o \___
-echo                      /  _   _   _ \
-echo                      \_/ \_/ \_/ \_/
 color 07
 echo =======================================================
 echo.
