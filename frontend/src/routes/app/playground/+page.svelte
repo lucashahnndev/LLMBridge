@@ -627,37 +627,12 @@ console.log(data);`;
         <span class="eyebrow">LLMBridge</span>
         <h1>Playground</h1>
       </div>
-
-      <span class="status-pill {healthError ? 'status-bad' : 'status-good'}">
-        {healthStatus || healthError || 'loading'}
-      </span>
-
-      <span class="status-pill subtle">{runtimeHost}:{runtimePort}</span>
     </div>
 
     <div class="topbar-right">
-      <button type="button" class="ghost" on:click={loadExample}>Load example</button>
-      <button type="button" class="ghost" on:click={loadCatalog} disabled={loadingCatalog}>
-        <span class:spinning={loadingCatalog}><RefreshCw size={14} strokeWidth={1.8} /></span>
-        <span>Refresh catalog</span>
-      </button>
+      <button type="button" class="topbar-btn" on:click={loadExample}>Load example</button>
     </div>
   </header>
-
-  <section class="summary-strip">
-    <div>
-      <span>Catalog</span>
-      <strong>{formatMetric(catalogStats.appTokens)} app tokens · {formatMetric(catalogStats.providerKeys)} providers · {formatMetric(catalogStats.queues)} queues</strong>
-    </div>
-    <div>
-      <span>Target</span>
-      <strong>{activeProfile}</strong>
-    </div>
-    <div>
-      <span>Route</span>
-      <strong>{requestUrl}</strong>
-    </div>
-  </section>
 
   {#if catalogError}
     <section class="inline-alert error">
@@ -669,405 +644,300 @@ console.log(data);`;
     </section>
   {/if}
 
-  <section class="playground-layout">
-    <aside class="panel rail-panel">
-      <div class="panel-head dense">
-        <div>
-          <span class="panel-kicker">Targets</span>
-          <h2>Routing</h2>
+  <div class="playground-workspace">
+    <!-- Left Side: Composer and Settings -->
+    <aside class="composer-sidebar">
+      <!-- Target Mode & Protocol selection -->
+      <div class="sidebar-section">
+        <div class="section-title">Routing & Protocol</div>
+        <div class="input-grid">
+          <label>
+            <span>Protocol</span>
+            <select bind:value={protocol}>
+              <option value="anthropic">Anthropic</option>
+              <option value="openai">OpenAI</option>
+            </select>
+          </label>
+          
+          <label>
+            <span>Target Mode</span>
+            <select bind:value={targetMode}>
+              <option value="queue">Queue</option>
+              <option value="provider-model">Provider / Model</option>
+              <option value="custom">Custom</option>
+            </select>
+          </label>
         </div>
-        <span class="panel-subtle">{formatMetric(catalogStats.recentModels)} seen</span>
+
+        {#if targetMode === 'queue'}
+          <label class="field-margin">
+            <span>Queue Name</span>
+            <input bind:value={queueName} list="queue-options" placeholder="gemini" spellcheck="false" />
+            <datalist id="queue-options">
+              {#each queueSuggestions as suggestion}
+                <option value={suggestion.replace(/^queue\//, '')}></option>
+              {/each}
+            </datalist>
+          </label>
+        {:else if targetMode === 'provider-model'}
+          <div class="input-grid field-margin">
+            <label>
+              <span>Provider</span>
+              <input bind:value={provider} list="provider-options" placeholder="google" spellcheck="false" />
+              <datalist id="provider-options">
+                {#each providerSuggestions as suggestion}
+                  <option value={suggestion}></option>
+                {/each}
+              </datalist>
+            </label>
+
+            <label>
+              <span>Model</span>
+              <input bind:value={model} list="model-options" placeholder="gemini-3.1-flash" spellcheck="false" />
+              <datalist id="model-options">
+                {#each modelSuggestions as suggestion}
+                  <option value={suggestion}></option>
+                {/each}
+              </datalist>
+            </label>
+          </div>
+        {:else}
+          <label class="field-margin">
+            <span>Custom Target</span>
+            <input bind:value={customModel} placeholder="queue/gemini" spellcheck="false" />
+          </label>
+        {/if}
+
+        <!-- Suggestion Chips inside Sidebar -->
+        <div class="preset-strip field-margin">
+          <div class="preset-strip-head">
+            <span>Suggestions</span>
+          </div>
+          <div class="preset-chips">
+            {#if targetMode === 'queue' || targetMode === 'custom'}
+              {#each queueSuggestions.slice(0, 4) as suggestion}
+                <button type="button" class="preset-chip" on:click={() => selectTargetPreset(suggestion)}>
+                  {suggestion.replace(/^queue\//, '')}
+                </button>
+              {/each}
+            {/if}
+            {#if targetMode === 'provider-model' || targetMode === 'custom'}
+              {#each providerSuggestions.slice(0, 2) as providerSuggestion}
+                {#each modelSuggestions.slice(0, 2) as modelSuggestion}
+                  <button
+                    type="button"
+                    class="preset-chip"
+                    on:click={() => selectTargetPreset(`${providerSuggestion}/${modelSuggestion}`)}
+                  >
+                    {providerSuggestion}/{modelSuggestion}
+                  </button>
+                {/each}
+              {/each}
+            {/if}
+          </div>
+        </div>
       </div>
 
-      <div class="panel-body rail-body">
-        <div class="mode-switch">
-          <button type="button" class:active={targetMode === 'queue'} on:click={() => (targetMode = 'queue')}>
-            Queue
-          </button>
-          <button type="button" class:active={targetMode === 'provider-model'} on:click={() => (targetMode = 'provider-model')}>
-            Provider
-          </button>
-          <button type="button" class:active={targetMode === 'custom'} on:click={() => (targetMode = 'custom')}>
-            Custom
-          </button>
-        </div>
+      <!-- App Token -->
+      <div class="sidebar-section">
+        <label>
+          <span>App Token</span>
+          <input bind:value={appTokenValue} type="password" placeholder="lk-key-..." autocomplete="off" spellcheck="false" />
+        </label>
+      </div>
 
-        <div class="hero-card mini-card">
-          <span>Resolved model</span>
-          <strong>{resolvedModel || '—'}</strong>
-          <p>{activeProfile}</p>
-        </div>
+      <!-- Parameters Collapsible -->
+      <details class="sidebar-section-details" bind:open={showGenerationSettings}>
+        <summary class="details-header">
+          <span>Parameters & System</span>
+          <span class="icon-indicator">{showGenerationSettings ? 'Collapse' : 'Expand'}</span>
+        </summary>
+        <div class="details-body">
+          <label class="field-margin">
+            <span>System Prompt</span>
+            <textarea bind:value={systemPrompt} rows="3" placeholder="System instructions..." spellcheck="false"></textarea>
+          </label>
+          
+          <div class="input-grid field-margin">
+            <label>
+              <span>Temperature</span>
+              <input type="number" step="0.1" min="0" max="2" bind:value={temperature} />
+            </label>
+            <label>
+              <span>Max Tokens</span>
+              <input type="number" step="1" min="1" bind:value={maxTokens} />
+            </label>
+            <label>
+              <span>Top P</span>
+              <input type="number" step="0.1" min="0" max="1" bind:value={topP} />
+            </label>
+          </div>
 
-        <div class="mini-stack">
-          <div class="mini-stack-head">
-            <span>Queues</span>
-            <strong>{formatMetric(queueSuggestions.length)}</strong>
-          </div>
-          <div class="mini-list">
-            {#each queueSuggestions.slice(0, 5) as suggestion}
-              <button type="button" class="mini-item" on:click={() => selectTargetPreset(suggestion)}>
-                <span>queue</span>
-                <strong>{suggestion}</strong>
-              </button>
-            {/each}
-          </div>
+          <label class="toggle-row field-margin">
+            <input type="checkbox" bind:checked={toolCallingEnabled} />
+            <span>Enable tool calling sample</span>
+          </label>
         </div>
+      </details>
 
-        <div class="mini-stack">
-          <div class="mini-stack-head">
-            <span>Models</span>
-            <strong>{formatMetric(modelSuggestions.length)}</strong>
+      <!-- Composer Input Area -->
+      <div class="composer-prompt-area">
+        <label>
+          <span>User Message</span>
+          <textarea bind:value={userPrompt} rows="6" placeholder="Type a message to prompt the gateway..." spellcheck="false"></textarea>
+        </label>
+        
+        <div class="composer-actions">
+          <div class="resolved-badge">
+            <span class="badge-label">Resolved Target:</span>
+            <strong class="badge-value">{resolvedModel || '—'}</strong>
           </div>
-          <div class="mini-list">
-            {#each modelSuggestions.slice(0, 5) as suggestion}
-              <button type="button" class="mini-item" on:click={() => selectTargetPreset(suggestion)}>
-                <span>model</span>
-                <strong>{suggestion}</strong>
-              </button>
-            {/each}
-          </div>
+
+          <button type="button" class="primary-run-btn" on:click={runRequest} disabled={requestRunning || !resolvedModel || !appTokenValue.trim()}>
+            {#if requestRunning}
+              <span class="spinning-icon"><RefreshCw size={14} strokeWidth={1.8} /></span>
+              <span>Running...</span>
+            {:else}
+              <Sparkles size={14} strokeWidth={1.8} />
+              <span>Run Request</span>
+            {/if}
+          </button>
         </div>
       </div>
     </aside>
 
-    <section class="playground-center">
-      <article class="panel hero-panel">
-        <div class="panel-head dense">
-          <div>
-            <span class="panel-kicker">Playground</span>
-            <h2>Chat</h2>
-          </div>
-          <div class="response-meta">
-            <span class="meta-pill {healthError ? 'bad' : 'good'}">{healthStatus || healthError || 'loading'}</span>
-            <span class="meta-pill subtle">{runtimeHost}:{runtimePort}</span>
-          </div>
+    <!-- Right Side: Outputs & Inspector tabbed view -->
+    <section class="inspector-output-pane">
+      <div class="pane-tabs-header">
+        <div class="tabs-buttons">
+          <button class:active={activeOutputTab === 'reply'} on:click={() => activeOutputTab = 'reply'}>
+            Chat Reply
+          </button>
+          <button class:active={activeOutputTab === 'code'} on:click={() => activeOutputTab = 'code'}>
+            Code Snippets
+          </button>
+          <button class:active={activeOutputTab === 'raw'} on:click={() => activeOutputTab = 'raw'}>
+            Raw Details
+          </button>
         </div>
 
-        <div class="panel-body hero-grid">
-          <div class="hero-copy">
-            <p>Compose a message, inspect the assistant reply, and open route details only when you need them.</p>
-            <div class="route-line">
-              <span>Route</span>
-              <strong>{requestUrl}</strong>
-            </div>
-          </div>
-
-          <div class="hero-metrics">
-            <div class="hero-metric">
-              <span>Catalog</span>
-              <strong>{formatMetric(catalogStats.appTokens)} / {formatMetric(catalogStats.providerKeys)} / {formatMetric(catalogStats.queues)}</strong>
-            </div>
-            <div class="hero-metric">
-              <span>Target</span>
-              <strong>{activeProfile}</strong>
-            </div>
-            <div class="hero-metric">
-              <span>Protocol</span>
-              <strong>{protocol}</strong>
-            </div>
-          </div>
-        </div>
-      </article>
-
-      <article class="panel chat-panel">
-        <div class="panel-head dense">
-          <div>
-            <span class="panel-kicker">Conversation</span>
-            <h2>Latest turn</h2>
-          </div>
-          <div class="panel-actions">
-            <span class="meta-pill {responseSummary && responseSummary.status >= 200 && responseSummary.status < 300 ? 'good' : responseSummary && responseSummary.status >= 400 ? 'bad' : 'subtle'}">
-              {responseSummary ? (responseSummary.status ? `HTTP ${responseSummary.status}` : 'client error') : 'idle'}
+        {#if responseSummary}
+          <div class="pane-metrics">
+            <span class="status-badge {responseSummary.status >= 200 && responseSummary.status < 300 ? 'status-ok' : 'status-err'}">
+              HTTP {responseSummary.status}
             </span>
-            <span class="meta-pill subtle">{responseSummary ? formatLatency(responseSummary.latencyMs) : '0.0 ms'}</span>
+            <span class="latency-badge">
+              {formatLatency(responseSummary.latencyMs)}
+            </span>
           </div>
-        </div>
+        {/if}
+      </div>
 
-        <div class="panel-body chat-thread">
-          {#if requestError}
-            <section class="inline-alert error compact">
-              <ShieldAlert size={16} strokeWidth={1.8} />
-              <div>
-                <strong>Request failed</strong>
-                <p>{requestError}</p>
+      <div class="pane-content-wrapper">
+        {#if activeOutputTab === 'reply'}
+          <div class="tab-content chat-view">
+            {#if requestError}
+              <div class="error-banner">
+                <ShieldAlert size={16} strokeWidth={1.8} />
+                <div>
+                  <strong>Request Failed</strong>
+                  <p>{requestError}</p>
+                </div>
               </div>
-            </section>
-          {/if}
+            {/if}
 
-          <div class="chat-turn user-turn">
-            <span class="turn-label">User</span>
-            <p>{userPrompt}</p>
-          </div>
+            {#if !responseSummary && !requestRunning && !requestError}
+              <div class="empty-state">
+                <Sparkles size={24} strokeWidth={1.2} />
+                <h3>Playground Ready</h3>
+                <p>Type a message in the composer on the left and click **Run Request** to test gateway routing, keys, and latency.</p>
+              </div>
+            {:else}
+              <!-- User Prompt Card -->
+              <div class="chat-message user-msg">
+                <div class="msg-header">USER</div>
+                <div class="msg-body">{userPrompt}</div>
+              </div>
 
-          <div class="chat-turn assistant-turn">
-            <span class="turn-label">Assistant</span>
-            <pre>{responseSummary?.assistantText || 'Run a request to see the reply here.'}</pre>
-          </div>
-
-          {#if responseSummary?.toolCalls.length}
-            <div class="chat-turn tool-turn">
-              <span class="turn-label">Tools</span>
-              {#each responseSummary.toolCalls as toolCall, index}
-                <div class="tool-call">
-                  <strong>{index + 1}. {toolCall.name}</strong>
-                  <pre>{toolCall.arguments}</pre>
-                </div>
-              {/each}
-            </div>
-          {/if}
-
-          <div class="chat-turn meta-turn">
-            <span class="turn-label">Resolved</span>
-            <strong>{resolvedModel || '—'}</strong>
-            <p>{activeProfile}</p>
-          </div>
-        </div>
-      </article>
-
-      <article class="panel composer-panel">
-        <div class="panel-head dense">
-          <div>
-            <span class="panel-kicker">Composer</span>
-            <h2>Message</h2>
-          </div>
-          <button type="button" class="ghost compact" on:click={loadExample}>Load example</button>
-        </div>
-
-        <div class="panel-body composer-grid">
-          <div class="composer-tip span-2">
-            <span>Pick fast</span>
-            <strong>Type the message here. Route, generation, and code live below as collapsible actions.</strong>
-          </div>
-
-          <label class="span-2">
-            <span>App token</span>
-            <input bind:value={appTokenValue} placeholder={DEFAULT_APP_TOKEN_PLACEHOLDER} autocomplete="off" spellcheck="false" />
-          </label>
-
-          <label class="span-2">
-            <span>User prompt</span>
-            <textarea bind:value={userPrompt} rows="5" spellcheck="false"></textarea>
-          </label>
-
-          <div class="action-bar span-2">
-            <div class="target-preview">
-              <span>Resolved model</span>
-              <strong>{resolvedModel || '—'}</strong>
-            </div>
-
-            <button type="button" class="primary run-button" on:click={runRequest} disabled={requestRunning || !resolvedModel || !appTokenValue.trim()}>
-              {#if requestRunning}
-                <span class:spinning={requestRunning}><RefreshCw size={14} strokeWidth={1.8} /></span>
-                <span>Running</span>
-              {:else}
-                <Sparkles size={14} strokeWidth={1.8} />
-                <span>Run request</span>
-              {/if}
-            </button>
-          </div>
-        </div>
-      </article>
-
-      <section class="inspector-stack">
-        <details class="panel details-panel" bind:open={showRouteSettings}>
-          <summary class="details-summary">
-            <div>
-              <span class="panel-kicker">Actions</span>
-              <strong>Route settings</strong>
-            </div>
-            <span>{showRouteSettings ? 'Open' : 'Closed'}</span>
-          </summary>
-          <div class="panel-body inspector-body">
-            <div class="details-content">
-              <label class="span-2">
-                <span>Protocol</span>
-                <select bind:value={protocol}>
-                  <option value="anthropic">Anthropic</option>
-                  <option value="openai">OpenAI</option>
-                </select>
-              </label>
-
-              <label class="span-2">
-                <span>Target mode</span>
-                <select bind:value={targetMode}>
-                  <option value="queue">Queue</option>
-                  <option value="provider-model">Provider / model</option>
-                  <option value="custom">Custom</option>
-                </select>
-              </label>
-
-              {#if targetMode === 'queue'}
-                <label class="span-2">
-                  <span>Queue</span>
-                  <input bind:value={queueName} list="queue-options" placeholder="gemini" spellcheck="false" />
-                  <datalist id="queue-options">
-                    {#each queueSuggestions as suggestion}
-                      <option value={suggestion.replace(/^queue\//, '')}></option>
-                    {/each}
-                  </datalist>
-                </label>
-              {:else if targetMode === 'provider-model'}
-                <label>
-                  <span>Provider</span>
-                  <input bind:value={provider} list="provider-options" placeholder="google" spellcheck="false" />
-                  <datalist id="provider-options">
-                    {#each providerSuggestions as suggestion}
-                      <option value={suggestion}></option>
-                    {/each}
-                  </datalist>
-                </label>
-
-                <label>
-                  <span>Model</span>
-                  <input bind:value={model} list="model-options" placeholder="gemini-3.1-flash" spellcheck="false" />
-                  <datalist id="model-options">
-                    {#each modelSuggestions as suggestion}
-                      <option value={suggestion}></option>
-                    {/each}
-                  </datalist>
-                </label>
-              {:else}
-                <label class="span-2">
-                  <span>Custom model</span>
-                  <input bind:value={customModel} placeholder="queue/gemini or google/gemini-3.1-flash" spellcheck="false" />
-                </label>
-              {/if}
-
-              <div class="preset-strip span-2">
-                <div class="preset-strip-head">
-                  <span>Suggestions</span>
-                  <strong>{targetMode === 'queue' ? 'Queues' : targetMode === 'provider-model' ? 'Providers / models' : 'All targets'}</strong>
-                </div>
-                <div class="preset-chips">
-                  {#if targetMode === 'queue' || targetMode === 'custom'}
-                    {#each queueSuggestions.slice(0, 4) as suggestion}
-                      <button type="button" class="preset-chip" on:click={() => selectTargetPreset(suggestion)}>
-                        {suggestion.replace(/^queue\//, '')}
-                      </button>
-                    {/each}
-                  {/if}
-                  {#if targetMode === 'provider-model' || targetMode === 'custom'}
-                    {#each providerSuggestions.slice(0, 3) as providerSuggestion}
-                      {#each modelSuggestions.slice(0, 3) as modelSuggestion}
-                        <button
-                          type="button"
-                          class="preset-chip"
-                          on:click={() => selectTargetPreset(`${providerSuggestion}/${modelSuggestion}`)}
-                        >
-                          {providerSuggestion}/{modelSuggestion}
-                        </button>
-                      {/each}
-                    {/each}
+              <!-- Assistant Response Card -->
+              <div class="chat-message assistant-msg {requestRunning ? 'shimmer' : ''}">
+                <div class="msg-header">ASSISTANT</div>
+                <div class="msg-body">
+                  {#if requestRunning}
+                    <div class="loading-placeholder">Waiting for gateway response...</div>
+                  {:else}
+                    <pre class="assistant-pre">{responseSummary?.assistantText || 'No reply text returned.'}</pre>
                   {/if}
                 </div>
               </div>
-            </div>
-          </div>
-        </details>
 
-        <details class="panel details-panel" bind:open={showGenerationSettings}>
-          <summary class="details-summary">
-            <div>
-              <span class="panel-kicker">Actions</span>
-              <strong>Generation and tools</strong>
-            </div>
-            <span>{showGenerationSettings ? 'Open' : 'Closed'}</span>
-          </summary>
-          <div class="panel-body inspector-body">
-            <div class="details-content">
-              <label class="span-2">
-                <span>System prompt</span>
-                <textarea bind:value={systemPrompt} rows="5" spellcheck="false"></textarea>
-              </label>
-              <div class="settings-grid two">
-                <label>
-                  <span>Temperature</span>
-                  <input type="number" step="0.1" min="0" max="2" bind:value={temperature} />
-                </label>
-                <label>
-                  <span>Max tokens</span>
-                  <input type="number" step="1" min="1" bind:value={maxTokens} />
-                </label>
-                <label>
-                  <span>Top p</span>
-                  <input type="number" step="0.1" min="0" max="1" bind:value={topP} />
-                </label>
-              </div>
-              <label class="toggle-row">
-                <input type="checkbox" bind:checked={toolCallingEnabled} />
-                <span>Tool calling sample</span>
-              </label>
-              <p class="muted-copy">Keep this closed if you only want to test the route. Open it when you need to tune the generated request.</p>
-            </div>
+              <!-- Tool Calls Card -->
+              {#if responseSummary?.toolCalls.length}
+                <div class="chat-message tool-msg">
+                  <div class="msg-header">TOOL CALLS</div>
+                  <div class="msg-body">
+                    {#each responseSummary.toolCalls as toolCall, index}
+                      <div class="tool-call-block">
+                        <strong>{index + 1}. {toolCall.name}</strong>
+                        <pre>{toolCall.arguments}</pre>
+                      </div>
+                    {/each}
+                  </div>
+                </div>
+              {/if}
+            {/if}
           </div>
-        </details>
-
-        <details class="panel details-panel" bind:open={showRequestCode}>
-          <summary class="details-summary">
-            <div>
-              <span class="panel-kicker">Actions</span>
-              <strong>Request code</strong>
-            </div>
-            <span>{showRequestCode ? 'Open' : 'Closed'}</span>
-          </summary>
-          <div class="panel-body inspector-body">
-            <div class="panel-actions code-actions">
-              <div class="tab-strip">
-                <button type="button" class:active={codeTab === 'curl'} on:click={() => (codeTab = 'curl')}>cURL</button>
-                <button type="button" class:active={codeTab === 'json'} on:click={() => (codeTab = 'json')}>JSON</button>
-                <button type="button" class:active={codeTab === 'js'} on:click={() => (codeTab = 'js')}>JS</button>
+        {:else if activeOutputTab === 'code'}
+          <div class="tab-content code-view">
+            <div class="code-sub-tabs">
+              <div class="sub-tab-buttons">
+                <button class:active={codeTab === 'curl'} on:click={() => codeTab = 'curl'}>cURL</button>
+                <button class:active={codeTab === 'js'} on:click={() => codeTab = 'js'}>JavaScript</button>
+                <button class:active={codeTab === 'json'} on:click={() => codeTab = 'json'}>JSON Payload</button>
               </div>
-              <button type="button" class="ghost compact" on:click={() => copyText(codeTab === 'curl' ? curlSnippet : codeTab === 'js' ? jsSnippet : jsonSnippet)}>
+
+              <button type="button" class="copy-btn" on:click={() => copyText(codeTab === 'curl' ? curlSnippet : codeTab === 'js' ? jsSnippet : jsonSnippet)}>
                 {#if copiedSnippet === (codeTab === 'curl' ? curlSnippet : codeTab === 'js' ? jsSnippet : jsonSnippet)}
                   <Check size={14} strokeWidth={2} />
+                  <span>Copied!</span>
                 {:else}
                   <Copy size={14} strokeWidth={1.8} />
+                  <span>Copy</span>
                 {/if}
-                <span>Copy</span>
               </button>
             </div>
-            <div class="code-hint">
-              <span>Route</span>
-              <strong>{requestUrl}</strong>
-            </div>
-            <pre><code>{codeTab === 'curl' ? curlSnippet : codeTab === 'js' ? jsSnippet : jsonSnippet}</code></pre>
-          </div>
-        </details>
 
-        <details class="panel details-panel" bind:open={showRawResponse}>
-          <summary class="details-summary">
-            <div>
-              <span class="panel-kicker">Actions</span>
-              <strong>Raw response</strong>
-            </div>
-            <span>{showRawResponse ? 'Open' : 'Closed'}</span>
-          </summary>
-          <div class="panel-body inspector-body">
-            <div class="details-content">
-              <div class="settings-grid two">
-                <div class="mini-stat">
-                  <span>Status</span>
-                  <strong>{responseSummary ? (responseSummary.status ? `HTTP ${responseSummary.status}` : 'client error') : 'idle'}</strong>
-                </div>
-                <div class="mini-stat">
-                  <span>Latency</span>
-                  <strong>{responseSummary ? formatLatency(responseSummary.latencyMs) : '0.0 ms'}</strong>
-                </div>
+            <div class="code-output-block">
+              <div class="code-header">
+                <span>Endpoint:</span>
+                <strong>{requestUrl}</strong>
               </div>
-              <div class="section-card">
-                <div class="section-label">Headers</div>
-                <pre>{responseSummary?.headers.map(([key, value]) => `${key}: ${value}`).join('\n') || 'No headers yet.'}</pre>
-              </div>
-              <div class="section-card">
-                <div class="section-label">Body</div>
-                <pre>{responseSummary ? formatBodyText(responseSummary.body) : 'No response yet.'}</pre>
-              </div>
+              <pre class="code-pre"><code>{codeTab === 'curl' ? curlSnippet : codeTab === 'js' ? jsSnippet : jsonSnippet}</code></pre>
             </div>
           </div>
-        </details>
-      </section>
+        {:else if activeOutputTab === 'raw'}
+          <div class="tab-content raw-view">
+            {#if !responseSummary}
+              <div class="empty-state">
+                <h3>No Response Details</h3>
+                <p>Run a request first to inspect response headers and raw payload details.</p>
+              </div>
+            {:else}
+              <div class="raw-section">
+                <div class="raw-title">Response Headers</div>
+                <pre class="raw-headers-pre">{responseSummary.headers.map(([key, val]) => `${key}: ${val}`).join('\n') || 'No headers returned.'}</pre>
+              </div>
+
+              <div class="raw-section">
+                <div class="raw-title">Response Body</div>
+                <pre class="raw-body-pre">{formatBodyText(responseSummary.body)}</pre>
+              </div>
+            {/if}
+          </div>
+        {/if}
+      </div>
     </section>
-  </section>
+  </div>
 </main>
 
 <style>
@@ -1078,924 +948,725 @@ console.log(data);`;
   }
 
   .playground-shell {
-    min-height: 100vh;
-    padding: 0;
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+    height: 100dvh;
+    overflow: hidden;
+    background: var(--bg);
     color: var(--text);
-    background: transparent;
-  }
-
-  .playground-topbar,
-  .summary-strip,
-  .panel {
-    border: 1px solid var(--border);
-    border-radius: 5px;
-    background: var(--panel);
   }
 
   .playground-topbar {
-    margin: 1rem 1rem 0;
-    min-height: 56px;
-    padding: 0.75rem 1rem;
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 1rem;
-    backdrop-filter: blur(14px);
+    padding: 0 1.25rem;
+    height: 52px;
+    border-bottom: 1px solid var(--border);
+    background: rgba(13, 17, 22, 0.6);
+    backdrop-filter: blur(12px);
+    flex-shrink: 0;
   }
 
   .topbar-left {
     display: flex;
     align-items: center;
-    gap: 0.75rem;
-    min-width: 0;
-    flex-wrap: wrap;
+    gap: 1.25rem;
   }
 
   .back-button {
-    display: inline-flex;
+    display: flex;
     align-items: center;
     gap: 0.45rem;
-    height: 32px;
-    padding: 0 0.8rem;
-    border: 1px solid var(--border);
-    border-radius: 5px;
-    background: rgba(255, 255, 255, 0.02);
-    color: var(--text);
+    background: none;
+    border: none;
+    padding: 0;
+    color: var(--muted);
     font-size: 0.8rem;
+    cursor: pointer;
+    font-weight: 500;
+    transition: color 0.15s ease;
+  }
+
+  .back-button:hover {
+    color: var(--text);
   }
 
   .title-block {
-    display: grid;
+    display: flex;
+    flex-direction: column;
     gap: 0.05rem;
   }
 
-  .eyebrow {
+  .title-block .eyebrow {
+    font-size: 0.65rem;
     text-transform: uppercase;
-    letter-spacing: 0.14em;
-    color: var(--accent);
-    font-size: 0.62rem;
-    font-weight: 700;
+    letter-spacing: 0.08em;
+    color: var(--muted);
   }
 
   .title-block h1 {
+    font-size: 0.95rem;
+    font-weight: 600;
     margin: 0;
-    font-size: 1rem;
-    font-weight: 500;
-    line-height: 1.2;
-  }
-
-  .status-pill,
-  .meta-pill {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.35rem;
-    height: 28px;
-    padding: 0 0.6rem;
-    border: 1px solid var(--border);
-    border-radius: 4px;
-    font-size: 0.7rem;
-    text-transform: uppercase;
-    letter-spacing: 0.06em;
-    color: var(--muted);
-    background: rgba(255, 255, 255, 0.02);
-  }
-
-  .status-good,
-  .meta-pill.good {
-    color: #b7c98f;
-    border-color: rgba(138, 168, 106, 0.3);
-    background: rgba(138, 168, 106, 0.12);
-  }
-
-  .status-bad,
-  .meta-pill.bad {
-    color: #f0b3b3;
-    border-color: rgba(200, 117, 117, 0.3);
-    background: rgba(200, 117, 117, 0.12);
-  }
-
-  .status-pill.subtle,
-  .meta-pill.subtle {
-    background: rgba(255, 255, 255, 0.02);
+    color: var(--text);
   }
 
   .topbar-right {
     display: flex;
     align-items: center;
-    gap: 0.5rem;
+    gap: 0.75rem;
   }
 
-  .ghost {
-    height: 32px;
-    padding: 0 0.8rem;
-    border: 1px solid var(--border);
-    border-radius: 5px;
-    background: transparent;
-    color: var(--text);
-    font-size: 0.8rem;
+  .topbar-btn {
     display: inline-flex;
     align-items: center;
-    gap: 0.35rem;
+    gap: 0.45rem;
+    height: 30px;
+    padding: 0 0.85rem;
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    color: var(--text);
+    font-size: 0.78rem;
+    cursor: pointer;
+    font-weight: 500;
+    transition: background 0.15s ease, border-color 0.15s ease;
   }
 
-  .summary-strip {
-    margin: 1rem 1rem 0;
-    padding: 0.8rem 1rem;
+  .topbar-btn:hover {
+    background: rgba(255, 255, 255, 0.08);
+    border-color: rgba(255, 255, 255, 0.18);
+  }
+
+  .playground-workspace {
     display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: 0.75rem;
+    grid-template-columns: 420px 1fr;
+    flex: 1;
+    min-height: 0;
+    background: var(--bg);
   }
 
-  .summary-strip div {
-    display: grid;
-    gap: 0.15rem;
+  /* Left Side: Sidebar/Composer */
+  .composer-sidebar {
+    display: flex;
+    flex-direction: column;
+    border-right: 1px solid var(--border);
+    background: rgba(13, 17, 22, 0.35);
+    overflow-y: auto;
+    padding: 1.25rem;
+    gap: 1.25rem;
   }
 
-  .summary-strip span,
-  .panel-kicker,
-  .section-label {
+  .sidebar-section {
+    display: flex;
+    flex-direction: column;
+    padding: 1rem;
+    border: 1px solid var(--border);
+    background: rgba(255, 255, 255, 0.015);
+    border-radius: 6px;
+  }
+
+  .section-title {
+    font-size: 0.75rem;
+    font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.08em;
-    font-size: 0.65rem;
     color: var(--muted);
+    margin-bottom: 0.85rem;
   }
 
-  .summary-strip strong {
-    font-size: 0.85rem;
-    font-weight: 500;
-    color: var(--text);
-    word-break: break-word;
+  .input-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.85rem;
   }
 
-  .inline-alert {
-    margin: 1rem 1rem 0;
-    padding: 0.9rem 1rem;
-    display: flex;
-    align-items: flex-start;
-    gap: 0.75rem;
-    border: 1px solid rgba(200, 117, 117, 0.32);
-    background: rgba(200, 117, 117, 0.08);
-    border-radius: 5px;
-  }
-
-  .inline-alert.compact {
-    margin: 0 0 1rem;
-  }
-
-  .inline-alert p {
-    margin: 0.15rem 0 0;
-    color: rgba(255, 225, 225, 0.85);
-    font-size: 0.82rem;
-  }
-
-  .panel-head {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 1rem;
-    padding: 0.9rem 1rem;
-    border-bottom: 1px solid var(--border);
-  }
-
-  .panel-head.dense {
-    padding: 0.8rem 1rem;
-  }
-
-  .panel-head h2 {
-    margin: 0.15rem 0 0;
-    font-size: 0.96rem;
-    font-weight: 500;
-  }
-
-  .panel-subtle {
-    font-size: 0.72rem;
-    color: var(--muted);
-  }
-
-  .panel-body {
-    padding: 1rem;
+  .field-margin {
+    margin-top: 0.85rem;
   }
 
   label {
-    display: grid;
+    display: flex;
+    flex-direction: column;
     gap: 0.35rem;
-    font-size: 0.8rem;
-    color: var(--text);
   }
 
   label span {
-    color: var(--muted);
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
-    font-size: 0.63rem;
-  }
-
-  input,
-  select,
-  textarea {
-    width: 100%;
-    border: 1px solid var(--border);
-    border-radius: 5px;
-    background: rgba(255, 255, 255, 0.03);
-    color: var(--text);
-    padding: 0.55rem 0.7rem;
-    font: inherit;
-    outline: none;
-  }
-
-  textarea {
-    resize: vertical;
-    min-height: 96px;
-    line-height: 1.4;
-  }
-
-  input:focus,
-  select:focus,
-  textarea:focus {
-    border-color: rgba(216, 184, 88, 0.65);
-    box-shadow: 0 0 0 2px rgba(216, 184, 88, 0.12);
-  }
-
-  .toggle-row {
-    display: flex;
-    align-items: center;
-    gap: 0.6rem;
-    padding-top: 0.2rem;
-  }
-
-  .toggle-row input {
-    width: 16px;
-    height: 16px;
-    margin: 0;
-    padding: 0;
-    accent-color: var(--accent);
-  }
-
-  .toggle-row span {
-    text-transform: none;
-    letter-spacing: 0;
-    font-size: 0.84rem;
-    color: var(--text);
-  }
-
-  .target-preview {
-    padding: 0.8rem 0.9rem;
-    border: 1px solid var(--border);
-    border-radius: 5px;
-    background: rgba(255, 255, 255, 0.02);
-    display: grid;
-    gap: 0.15rem;
-  }
-
-  .target-preview span {
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
-    color: var(--muted);
-    font-size: 0.63rem;
-  }
-
-  .target-preview strong {
-    font-size: 0.9rem;
-    font-weight: 500;
-    word-break: break-word;
-  }
-
-  .run-button {
-    height: 38px;
-    justify-content: center;
-    background: rgba(216, 184, 88, 0.12);
-    border-color: rgba(216, 184, 88, 0.35);
-    color: #ead48f;
-  }
-
-  .run-button:hover:not(:disabled) {
-    background: rgba(216, 184, 88, 0.18);
-    border-color: rgba(216, 184, 88, 0.45);
-  }
-
-  .panel {
-    overflow: hidden;
-  }
-
-  .panel-actions {
-    display: flex;
-    align-items: center;
-    gap: 0.6rem;
-    flex-wrap: wrap;
-    justify-content: flex-end;
-  }
-
-  .tab-strip {
-    display: inline-flex;
-    border: 1px solid var(--border);
-    border-radius: 5px;
-    overflow: hidden;
-    background: rgba(255, 255, 255, 0.02);
-  }
-
-  .tab-strip button {
-    height: 30px;
-    padding: 0 0.8rem;
-    border: 0;
-    border-right: 1px solid var(--border);
-    border-radius: 0;
-    background: transparent;
-    color: var(--muted);
-    font-size: 0.75rem;
-  }
-
-  .tab-strip button:last-child {
-    border-right: 0;
-  }
-
-  .tab-strip button.active {
-    background: rgba(255, 255, 255, 0.06);
-    color: var(--text);
-  }
-
-  .ghost.compact {
-    height: 30px;
-    padding: 0 0.75rem;
-  }
-
-  .code-hint {
-    display: grid;
-    gap: 0.25rem;
-    padding: 0.8rem 0.85rem;
-    border: 1px solid var(--border);
-    border-radius: 5px;
-    background: rgba(255, 255, 255, 0.02);
-  }
-
-  .code-hint span {
-    font-size: 0.72rem;
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
-    color: var(--muted);
-  }
-
-  .code-hint strong {
-    font-size: 0.88rem;
-    color: var(--text);
-    word-break: break-all;
-  }
-
-  .response-meta {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-  }
-
-  .chat-panel,
-  .details-panel {
-    backdrop-filter: blur(14px);
-  }
-
-  .chat-panel {
-    order: 2;
-  }
-
-  .chat-panel .panel-body {
-    padding: 1rem;
-  }
-
-  .chat-thread {
-    display: grid;
-    gap: 0.75rem;
-  }
-
-  .chat-turn {
-    display: grid;
-    gap: 0.4rem;
-    padding: 0.9rem 0.95rem;
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    background: rgba(255, 255, 255, 0.02);
-  }
-
-  .chat-turn.user-turn {
-    margin-left: auto;
-    width: min(100%, 88%);
-    background: rgba(216, 184, 88, 0.06);
-    border-color: rgba(216, 184, 88, 0.16);
-  }
-
-  .chat-turn.assistant-turn {
-    width: min(100%, 96%);
-  }
-
-  .chat-turn.tool-turn,
-  .chat-turn.meta-turn {
-    width: min(100%, 96%);
-    background: rgba(255, 255, 255, 0.015);
-  }
-
-  .turn-label {
     font-size: 0.68rem;
+    font-weight: 500;
     text-transform: uppercase;
-    letter-spacing: 0.1em;
+    letter-spacing: 0.06em;
     color: var(--muted);
   }
 
-  .chat-turn p,
-  .chat-turn pre {
-    margin: 0;
-    white-space: pre-wrap;
-    word-break: break-word;
-    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
-    font-size: 0.84rem;
-    line-height: 1.55;
-    color: #dbe3ee;
-  }
-
-  .chat-turn.meta-turn strong {
-    font-size: 0.92rem;
-    color: var(--text);
-  }
-
-  .chat-turn.meta-turn p {
-    font-family: inherit;
-    color: var(--muted);
-  }
-
-  .tool-call {
-    display: grid;
-    gap: 0.45rem;
-    padding: 0.85rem 0.9rem;
+  input, select, textarea {
+    background: rgba(255, 255, 255, 0.03);
     border: 1px solid var(--border);
-    border-radius: 5px;
-    background: rgba(255, 255, 255, 0.02);
-  }
-
-  .tool-call pre {
-    max-height: 220px;
-    overflow: auto;
-  }
-
-  .spinning {
-    animation: spin 1s linear infinite;
-  }
-
-  @keyframes spin {
-    from {
-      transform: rotate(0deg);
-    }
-    to {
-      transform: rotate(360deg);
-    }
-  }
-
-  .playground-layout {
-    display: grid;
-    grid-template-columns: 220px minmax(0, 1fr);
-    gap: 0.85rem;
-    padding: 0.85rem 1rem 1rem;
-    align-items: start;
-  }
-
-  .rail-panel,
-  .hero-panel,
-  .composer-panel,
-  .chat-panel,
-  .details-panel {
-    backdrop-filter: blur(14px);
-  }
-
-  .rail-panel {
-    position: sticky;
-    top: 0.85rem;
-  }
-
-  .rail-body,
-  .hero-grid,
-  .composer-grid {
-    display: grid;
-    gap: 0.85rem;
-  }
-
-  .rail-body {
-    padding: 0.9rem;
-    position: sticky;
-    top: 4.4rem;
-  }
-
-  .mode-switch {
-    display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: 0.35rem;
-  }
-
-  .mode-switch button {
-    min-height: 38px;
-    border: 1px solid var(--border);
-    border-radius: 5px;
-    background: rgba(255, 255, 255, 0.02);
-    color: var(--muted);
-    font-weight: 600;
-  }
-
-  .mode-switch button.active {
-    border-color: rgba(216, 184, 88, 0.45);
-    background: rgba(216, 184, 88, 0.08);
     color: var(--text);
-  }
-
-  .mini-card,
-  .section-card,
-  .hero-metric,
-  .mini-item {
-    border: 1px solid var(--border);
-    border-radius: 5px;
-    background: rgba(255, 255, 255, 0.02);
-  }
-
-  .hero-card {
-    display: grid;
-    gap: 0.35rem;
-    padding: 0.9rem;
-  }
-
-  .hero-card span,
-  .hero-metric span,
-  .mini-stack-head span {
-    font-size: 0.75rem;
-    text-transform: uppercase;
-    letter-spacing: 0.1em;
-    color: var(--muted);
-  }
-
-  .hero-card strong,
-  .hero-metric strong {
-    font-size: 0.95rem;
-    color: var(--text);
-    word-break: break-word;
-  }
-
-  .hero-card p {
-    margin: 0;
-    color: var(--muted);
+    border-radius: 4px;
+    padding: 0.5rem 0.65rem;
     font-size: 0.82rem;
+    font-family: inherit;
+    outline: none;
+    transition: border-color 0.15s ease, box-shadow 0.15s ease;
   }
 
-  .mini-stack {
-    display: grid;
-    gap: 0.6rem;
+  input:focus, select:focus, textarea:focus {
+    border-color: rgba(216, 184, 88, 0.55);
+    box-shadow: 0 0 0 2px rgba(216, 184, 88, 0.08);
   }
 
-  .mini-stack-head {
-    display: flex;
-    align-items: baseline;
-    justify-content: space-between;
-    gap: 0.75rem;
-    padding: 0 0.1rem;
-  }
-
-  .mini-list {
-    display: grid;
-    gap: 0.35rem;
-  }
-
-  .mini-item {
-    display: grid;
-    gap: 0.15rem;
-    padding: 0.7rem 0.75rem;
-    text-align: left;
-    color: var(--text);
-  }
-
-  .mini-item span {
-    font-size: 0.72rem;
-    color: var(--muted);
-  }
-
-  .mini-item strong {
-    font-size: 0.84rem;
-    font-weight: 600;
-    word-break: break-word;
-  }
-
-  .playground-center {
-    display: flex;
-    flex-direction: column;
-    gap: 0.85rem;
-    min-width: 0;
-    min-height: 100%;
-  }
-
-  .hero-panel .panel-body {
-    padding: 1rem;
-  }
-
-  .hero-grid {
-    grid-template-columns: minmax(0, 1.35fr) minmax(220px, 0.75fr);
-  }
-
-  .hero-copy {
-    display: grid;
-    gap: 0.9rem;
-    align-content: start;
-  }
-
-  .hero-copy p {
-    margin: 0;
-    color: var(--text);
-    font-size: 1rem;
-    line-height: 1.5;
-    max-width: 60ch;
-  }
-
-  .route-line {
-    display: grid;
-    gap: 0.35rem;
-    padding: 0.85rem 0.9rem;
-    border: 1px solid var(--border);
-    border-radius: 5px;
-    background: rgba(255, 255, 255, 0.02);
-  }
-
-  .route-line span {
-    font-size: 0.75rem;
-    text-transform: uppercase;
-    letter-spacing: 0.1em;
-    color: var(--muted);
-  }
-
-  .route-line strong {
-    font-size: 0.92rem;
-    word-break: break-all;
-  }
-
-  .hero-metrics {
-    display: grid;
-    gap: 0.55rem;
-    align-content: start;
-  }
-
-  .hero-metric {
-    padding: 0.8rem 0.85rem;
-    display: grid;
-    gap: 0.25rem;
-    min-height: 74px;
-  }
-
-  .composer-panel .panel-body {
-    padding: 1rem;
-  }
-
-  .hero-panel {
-    order: 1;
-  }
-
-  .composer-panel {
-    order: 3;
-    position: sticky;
-    bottom: 0.85rem;
-    z-index: 2;
-  }
-
-  .composer-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  .composer-tip {
-    display: grid;
-    gap: 0.25rem;
-    padding: 0.85rem 0.9rem;
-    border: 1px solid var(--border);
-    border-radius: 5px;
-    background: rgba(255, 255, 255, 0.02);
-  }
-
-  .composer-tip span,
-  .preset-strip-head span {
-    font-size: 0.72rem;
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
-    color: var(--muted);
-  }
-
-  .composer-tip strong {
-    font-size: 0.88rem;
-    color: var(--text);
+  textarea {
+    resize: none;
     line-height: 1.45;
   }
 
+  /* Preset strip / suggestion chips */
   .preset-strip {
-    display: grid;
-    gap: 0.6rem;
-    padding: 0.85rem 0.9rem;
-    border: 1px solid var(--border);
-    border-radius: 5px;
-    background: rgba(255, 255, 255, 0.02);
+    display: flex;
+    flex-direction: column;
+    gap: 0.45rem;
   }
 
   .preset-strip-head {
     display: flex;
-    align-items: baseline;
+    align-items: center;
     justify-content: space-between;
-    gap: 0.75rem;
   }
 
-  .preset-strip-head strong {
-    font-size: 0.82rem;
-    color: var(--text);
+  .preset-strip-head span {
+    font-size: 0.65rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--muted);
   }
 
   .preset-chips {
     display: flex;
     flex-wrap: wrap;
-    gap: 0.45rem;
-  }
-
-  .preset-chip {
-    height: 30px;
-    padding: 0 0.75rem;
-    border: 1px solid var(--border);
-    border-radius: 5px;
-    background: rgba(255, 255, 255, 0.02);
-    color: var(--text);
-    font-size: 0.78rem;
-  }
-
-  .preset-chip:hover:not(:disabled) {
-    background: rgba(216, 184, 88, 0.08);
-    border-color: rgba(216, 184, 88, 0.3);
-  }
-
-  .span-2 {
-    grid-column: 1 / -1;
-  }
-
-  .action-bar {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 0.75rem;
-  }
-
-  .action-bar .target-preview {
-    min-width: 0;
-    flex: 1;
-  }
-
-  .section-card {
-    display: grid;
-    gap: 0.6rem;
-    padding: 0.85rem;
-  }
-
-  .section-card pre {
-    max-height: 220px;
-    overflow: auto;
-  }
-
-  .settings-grid {
-    display: grid;
-    gap: 0.65rem;
-  }
-
-  .settings-grid.two {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  .settings-grid label {
-    display: grid;
     gap: 0.35rem;
   }
 
-  .settings-grid span,
-  .target-preview span {
+  .preset-chip {
+    padding: 0.2rem 0.5rem;
+    background: rgba(255, 255, 255, 0.02);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    color: var(--text);
+    font-size: 0.72rem;
+    cursor: pointer;
+    transition: background 0.15s ease, border-color 0.15s ease;
+  }
+
+  .preset-chip:hover {
+    background: rgba(216, 184, 88, 0.06);
+    border-color: rgba(216, 184, 88, 0.3);
+  }
+
+  /* Collapsible Settings details styling */
+  .sidebar-section-details {
+    border: 1px solid var(--border);
+    background: rgba(255, 255, 255, 0.015);
+    border-radius: 6px;
+    overflow: hidden;
+  }
+
+  .details-header {
+    padding: 0.85rem 1rem;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    cursor: pointer;
+    user-select: none;
     font-size: 0.75rem;
+    font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.08em;
     color: var(--muted);
   }
 
-  .settings-grid input {
-    width: 100%;
+  .details-header::-webkit-details-marker {
+    display: none;
   }
 
-  .inspector-stack {
-    display: grid;
+  .icon-indicator {
+    font-size: 0.65rem;
+    color: var(--muted);
+  }
+
+  .details-body {
+    padding: 0 1rem 1rem;
+    border-top: 1px dashed var(--border);
+    padding-top: 1rem;
+  }
+
+  .toggle-row {
+    flex-direction: row;
+    align-items: center;
+    gap: 0.5rem;
+    cursor: pointer;
+  }
+
+  .toggle-row input[type="checkbox"] {
+    width: 14px;
+    height: 14px;
+    cursor: pointer;
+    accent-color: var(--accent);
+  }
+
+  .toggle-row span {
+    font-size: 0.75rem;
+    color: var(--text);
+    text-transform: none;
+    letter-spacing: 0;
+  }
+
+  /* Composer Message & Run */
+  .composer-prompt-area {
+    display: flex;
+    flex-direction: column;
     gap: 0.85rem;
-    order: 4;
+    margin-top: auto;
+    padding-top: 1rem;
+    border-top: 1px solid var(--border);
   }
 
-  .details-panel {
-    overflow: hidden;
-    border: 1px solid var(--border);
-    border-radius: 5px;
-    background: var(--panel);
-  }
-
-  .details-summary {
-    list-style: none;
+  .composer-actions {
     display: flex;
     align-items: center;
     justify-content: space-between;
     gap: 1rem;
-    padding: 0.85rem 1rem;
+  }
+
+  .resolved-badge {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+  }
+
+  .resolved-badge .badge-label {
+    font-size: 0.65rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--muted);
+  }
+
+  .resolved-badge .badge-value {
+    font-size: 0.85rem;
+    color: var(--text);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .primary-run-btn {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    height: 36px;
+    padding: 0 1rem;
+    background: #ead48f;
+    color: #111;
+    border: none;
+    border-radius: 4px;
+    font-weight: 600;
+    font-size: 0.8rem;
     cursor: pointer;
+    flex-shrink: 0;
+    transition: opacity 0.15s ease;
   }
 
-  .details-summary::-webkit-details-marker {
-    display: none;
+  .primary-run-btn:hover:not(:disabled) {
+    opacity: 0.9;
   }
 
-  .details-summary > div {
-    display: grid;
-    gap: 0.08rem;
+  .primary-run-btn:disabled {
+    background: rgba(255, 255, 255, 0.05);
+    color: var(--muted);
+    border: 1px solid var(--border);
+    cursor: not-allowed;
   }
 
-  .details-summary strong {
-    font-size: 0.92rem;
+  /* Right Side: Tabbed output details pane */
+  .inspector-output-pane {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    background: rgba(11, 13, 17, 0.85);
+  }
+
+  .pane-tabs-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    height: 48px;
+    padding: 0 1.25rem;
+    border-bottom: 1px solid var(--border);
+    background: rgba(13, 17, 22, 0.45);
+    flex-shrink: 0;
+  }
+
+  .tabs-buttons {
+    display: flex;
+    gap: 0.5rem;
+    height: 100%;
+    align-items: center;
+  }
+
+  .tabs-buttons button {
+    height: 100%;
+    padding: 0 0.85rem;
+    background: none;
+    border: none;
+    border-bottom: 2px solid transparent;
+    color: var(--muted);
+    font-size: 0.82rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: color 0.15s ease, border-color 0.15s ease;
+  }
+
+  .tabs-buttons button:hover {
     color: var(--text);
   }
 
-  .details-summary span:last-child {
-    color: var(--muted);
+  .tabs-buttons button.active {
+    color: var(--text);
+    border-bottom-color: rgba(216, 184, 88, 0.85);
+  }
+
+  .pane-metrics {
+    display: flex;
+    align-items: center;
+    gap: 0.65rem;
+  }
+
+  .status-badge {
+    padding: 0.15rem 0.45rem;
     font-size: 0.72rem;
+    font-weight: 600;
+    border-radius: 4px;
+    border: 1px solid transparent;
+  }
+
+  .status-badge.status-ok {
+    color: #4cd964;
+    border-color: rgba(76, 217, 100, 0.2);
+    background: rgba(76, 217, 100, 0.06);
+  }
+
+  .status-badge.status-err {
+    color: #ff3b30;
+    border-color: rgba(255, 59, 48, 0.2);
+    background: rgba(255, 59, 48, 0.06);
+  }
+
+  .latency-badge {
+    color: var(--muted);
+    font-size: 0.75rem;
+    font-weight: 500;
+  }
+
+  .pane-content-wrapper {
+    flex: 1;
+    overflow-y: auto;
+    padding: 1.5rem;
+    min-height: 0;
+  }
+
+  .tab-content {
+    display: flex;
+    flex-direction: column;
+    gap: 1.25rem;
+    min-height: 100%;
+  }
+
+  /* Empty state */
+  .empty-state {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    flex: 1;
+    gap: 0.5rem;
+    padding: 3rem 1rem;
+    color: var(--muted);
+  }
+
+  .empty-state h3 {
+    margin: 0;
+    font-size: 1rem;
+    font-weight: 600;
+    color: var(--text);
+  }
+
+  .empty-state p {
+    margin: 0;
+    font-size: 0.82rem;
+    max-width: 44ch;
+    line-height: 1.45;
+  }
+
+  /* Chat view reply style */
+  .chat-view {
+    justify-content: flex-start;
+  }
+
+  .chat-message {
+    display: flex;
+    flex-direction: column;
+    gap: 0.45rem;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: rgba(255, 255, 255, 0.015);
+    padding: 1rem;
+  }
+
+  .chat-message.user-msg {
+    border-left: 2px solid var(--muted);
+  }
+
+  .chat-message.assistant-msg {
+    border-left: 2px solid rgba(216, 184, 88, 0.65);
+    background: rgba(216, 184, 88, 0.01);
+  }
+
+  .chat-message.tool-msg {
+    border-left: 2px solid #5856d6;
+  }
+
+  .msg-header {
+    font-size: 0.65rem;
+    font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 0.08em;
+    color: var(--muted);
   }
 
-  .inspector-body {
-    padding: 0 1rem 1rem;
+  .msg-body {
+    font-size: 0.88rem;
+    line-height: 1.5;
+    color: var(--text);
   }
 
-  .code-actions {
-    margin-bottom: 0.65rem;
+  .assistant-pre {
+    margin: 0;
+    white-space: pre-wrap;
+    font-family: var(--font-mono, monospace);
+    font-size: 0.85rem;
   }
 
-  .details-content {
-    display: grid;
-    gap: 0.9rem;
+  .tool-call-block {
+    padding: 0.65rem;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    background: rgba(0, 0, 0, 0.2);
+    margin-top: 0.5rem;
   }
 
-  .mini-stat {
-    display: grid;
-    gap: 0.25rem;
-    padding: 0.8rem 0.85rem;
+  .tool-call-block strong {
+    font-size: 0.75rem;
+    color: #5856d6;
+  }
+
+  .tool-call-block pre {
+    margin: 0.35rem 0 0 0;
+    font-size: 0.78rem;
+    font-family: monospace;
+    color: var(--muted);
+  }
+
+  /* Error Banner */
+  .error-banner {
+    display: flex;
+    gap: 0.75rem;
+    padding: 0.85rem 1rem;
+    border: 1px solid rgba(255, 59, 48, 0.3);
+    background: rgba(255, 59, 48, 0.08);
+    border-radius: 6px;
+    color: #ff453a;
+  }
+
+  .error-banner div {
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+  }
+
+  .error-banner strong {
+    font-size: 0.85rem;
+    font-weight: 600;
+  }
+
+  .error-banner p {
+    margin: 0;
+    font-size: 0.78rem;
+    color: rgba(255, 255, 255, 0.85);
+  }
+
+  /* Code View snippet style */
+  .code-sub-tabs {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 0.65rem;
+  }
+
+  .sub-tab-buttons {
+    display: flex;
+  }
+
+  .sub-tab-buttons button {
+    padding: 0.25rem 0.65rem;
+    border: 1px solid var(--border);
+    background: rgba(255, 255, 255, 0.02);
+    border-radius: 4px;
+    font-size: 0.75rem;
+    color: var(--muted);
+    cursor: pointer;
+    transition: background 0.15s ease, color 0.15s ease;
+  }
+
+  .sub-tab-buttons button.active {
+    background: rgba(255, 255, 255, 0.08);
+    color: var(--text);
+    border-color: rgba(255, 255, 255, 0.25);
+  }
+
+  .copy-btn {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+    background: none;
+    border: none;
+    cursor: pointer;
+    color: var(--muted);
+    font-size: 0.75rem;
+    font-weight: 500;
+    transition: color 0.15s ease;
+  }
+
+  .copy-btn:hover {
+    color: var(--text);
+  }
+
+  .code-output-block {
+    display: flex;
+    flex-direction: column;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: rgba(0, 0, 0, 0.2);
+    overflow: hidden;
+  }
+
+  .code-header {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.65rem 0.85rem;
+    background: rgba(255, 255, 255, 0.02);
+    border-bottom: 1px solid var(--border);
+  }
+
+  .code-header span {
+    font-size: 0.68rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--muted);
+  }
+
+  .code-header strong {
+    font-size: 0.78rem;
+    font-family: monospace;
+    color: var(--text);
+  }
+
+  .code-pre {
+    margin: 0;
+    padding: 1rem;
+    overflow: auto;
+    font-size: 0.82rem;
+    font-family: var(--font-mono, monospace);
+    line-height: 1.45;
+  }
+
+  /* Raw logs view styling */
+  .raw-section {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+
+  .raw-title {
+    font-size: 0.75rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--muted);
+  }
+
+  .raw-headers-pre,
+  .raw-body-pre {
+    margin: 0;
+    padding: 0.85rem;
     border: 1px solid var(--border);
     border-radius: 5px;
-    background: rgba(255, 255, 255, 0.02);
+    background: rgba(0, 0, 0, 0.2);
+    font-family: monospace;
+    font-size: 0.8rem;
+    overflow: auto;
+    line-height: 1.4;
   }
 
-  .mini-stat span {
-    font-size: 0.72rem;
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
+  .raw-body-pre {
+    max-height: 380px;
+  }
+
+  /* Loading placeholders & animations */
+  .loading-placeholder {
     color: var(--muted);
+    font-style: italic;
+    font-size: 0.82rem;
   }
 
-  .mini-stat strong {
-    font-size: 0.9rem;
-    color: var(--text);
+  .spinning-icon {
+    display: inline-block;
+    animation: spin 1s linear infinite;
   }
 
-  .details-panel summary {
-    background: transparent;
+  @keyframes spin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
   }
 
-  @media (max-width: 1280px) {
-    .playground-layout {
-      grid-template-columns: 1fr;
-    }
-
-    .rail-panel {
-      position: static;
-    }
-
-    .hero-grid {
-      grid-template-columns: 1fr;
-    }
-
-    .composer-panel {
-      position: static;
-    }
+  /* Shimmering message loading effect */
+  .chat-message.assistant-msg.shimmer {
+    background: linear-gradient(
+      90deg,
+      rgba(255, 255, 255, 0.01) 25%,
+      rgba(255, 255, 255, 0.02) 50%,
+      rgba(255, 255, 255, 0.01) 75%
+    );
+    background-size: 200% 100%;
+    animation: shimmer 1.5s infinite;
   }
 
-  @media (max-width: 760px) {
-    .playground-layout {
-      padding-left: 0.5rem;
-      padding-right: 0.5rem;
-    }
+  @keyframes shimmer {
+    0% { background-position: -200% 0; }
+    100% { background-position: 200% 0; }
+  }
 
-    .composer-grid {
+  @media (max-width: 900px) {
+    .playground-workspace {
       grid-template-columns: 1fr;
     }
-
-    .span-2 {
-      grid-column: auto;
-    }
-
-    .action-bar {
-      flex-direction: column;
-      align-items: stretch;
-    }
-
-    .mode-switch {
-      grid-template-columns: 1fr;
+    .composer-sidebar {
+      border-right: none;
+      border-bottom: 1px solid var(--border);
     }
   }
 </style>
