@@ -1,62 +1,50 @@
 # LLMBridge
 
-Local LLM gateway, proxy rotator, and control plane for provider keys, app tokens, queues, and telemetry.
+LLMBridge is a local gateway for AI apps. It gives you one endpoint, multiple providers, key rotation, queues, and usage tracking without forcing every client to speak every provider's native API.
 
 `OpenAI-like proxy` `Anthropic-compatible /v1/messages` `Gemini via Claude Code` `Queue-based routing` `Key rotation` `Usage telemetry` `Local admin panel`
 
-LLMBridge sits between your apps and model providers so you can keep one stable local endpoint while the gateway handles routing, fallback, rotation, and usage tracking behind the scenes.
+If you are new to the project, start here:
 
-## Why It Exists
+1. Install it on your machine.
+2. Open the UI.
+3. Point your app or Claude Code at `http://127.0.0.1:8009`.
 
-Most teams end up needing the same set of capabilities:
+## See It In Action
 
-- multiple provider keys;
-- fallback when a key fails;
-- one stable API shape for many clients;
-- usage tracking by project;
-- a clear place to manage queues and rotation policy.
+The admin UI gives you a live view of usage, queues, provider health, and latency.
 
-LLMBridge turns that into a single gateway.
+<p>
+  <img src="docs/assets/readme/dashboard-overview-top.png" alt="LLMBridge overview dashboard" />
+</p>
 
-## What You Get
+<p>
+  <img src="docs/assets/readme/dashboard-overview-stats.png" alt="LLMBridge usage and metrics dashboard" />
+</p>
 
-- one local endpoint for multiple providers;
-- OpenAI-like responses for consumer apps;
-- Anthropic-like responses for Claude Code-style clients;
-- provider key rotation on failure, quota, or rate-limit conditions;
-- queues that can try models in order, rank them, or prefer low latency;
-- app-token access control and per-project telemetry;
-- a dashboard for runtime, usage, queues, keys, and overviews.
+## What It Does
 
-## Core Routes
+LLMBridge sits between your apps and your model providers.
 
-Use these route styles:
+It helps you:
 
-- `provider/model` for a real upstream model route;
-- `queue/name` for a logical queue that resolves to one or more provider/model candidates.
+- keep one local endpoint for many clients;
+- use provider keys more safely with rotation and fallback;
+- route requests through queues when you want ordered fallback;
+- track usage per app token and per project;
+- inspect runtime, queues, keys, logs, and telemetry in the admin UI;
+- talk to Claude Code through an Anthropic-compatible surface.
 
-Examples:
+## Best For
 
-- `google/gemini-3.1-flash`
-- `openai/gpt-4o-mini`
-- `openrouter/anthropic/claude-3.5-sonnet`
-- `queue/gemini`
-- `queue/production`
-
-## How It Works
-
-LLMBridge keeps the client protocol intact at the edge and uses internal adapters for routing and provider translation.
-
-- public Anthropic requests stay Anthropic-shaped;
-- public OpenAI-like requests stay OpenAI-shaped;
-- Google and other upstream providers are handled by adapters;
-- tool calls, ordering, and response intent are preserved;
-- the backend converts requests through a richer canonical internal IR before reaching provider adapters;
-- optional metadata cleanup can be enabled without changing the public contract.
+- people who want a stable local AI gateway;
+- teams with multiple provider keys;
+- apps that need a single place for routing and telemetry;
+- Claude Code users who want to point at a local bridge.
 
 ## Quick Start
 
-### 1. One-shot install
+### 1. Install
 
 Linux:
 
@@ -74,77 +62,37 @@ Set-Location .\LLMBridge
 .\bootstrap.bat
 ```
 
-Open PowerShell as Administrator before running the Windows bootstrap.
+Run PowerShell as Administrator on Windows before starting the bootstrap.
 
-If you prefer to run the scripts directly:
+If you want to launch the scripts manually:
 
 - Windows: [`bootstrap.bat`](bootstrap.bat)
 - Linux: [`bootstrap.sh`](bootstrap.sh)
 
-The bootstrap keeps your working clone local and stages the runnable service workspace under `C:\ProgramData\LLMBridge`.
-It uses the NSSM copy bundled with the project under `bin/` or the service workspace `bin/` folder, so it does not need to download NSSM from the internet.
+### 2. What the installer prepares
 
-If you are installing offline, place NSSM at:
+The bootstrap will:
 
-- `bin/nssm/win64/nssm.exe` on 64-bit Windows;
-- `bin/nssm/win32/nssm.exe` on 32-bit Windows.
+- create a local Python virtual environment;
+- install backend dependencies;
+- install frontend dependencies and build the UI;
+- create or repair `backend/.env`;
+- create the local SQLite database;
+- run the database migrations;
+- register the service automatically on Linux or Windows.
 
-If you keep a compressed package instead, the installer also accepts a local ZIP under `bin/` or `bin/nssm/`, or a ZIP path passed through `-NssmPath` or `-NssmRoot`.
+If `SECRET_KEY` or `ADMIN_PASSWORD` is missing, the installer generates them for you.
 
-### 2. What the bootstrap sets up
-
-The bootstrap creates or repairs `backend/.env` with the minimum required values:
-
-- `SECRET_KEY`
-- `ADMIN_PASSWORD`
-- `DATABASE_URL`
-- `TELEGRAM_BOT_TOKEN`
-- `TELEGRAM_CHAT_ID`
-- `LOG_FILE_ENABLED`
-- `LOG_LEVEL`
-- `LOG_FILE_PATH`
-- `LOGGING_CONTROL_KEY`
-- `TRACE_PROXY_ENABLED`
-- `TRACE_PROXY_DIR`
-- `TRACE_PROXY_REDACT`
-- `HOST`
-- `PORT`
-
-If `SECRET_KEY` or `ADMIN_PASSWORD` is missing or blank, the bootstrap generates them automatically.
-After that, it registers the full-stack service automatically on Linux or Windows.
-
-On Windows, the service installer expects NSSM to be available locally in `bin/` and copies it into the service workspace under `C:\ProgramData\LLMBridge\bin\`.
-If Windows keeps the old service entry around after removal, a reboot may be required before reinstalling.
-
-### 3. Logging and traces
-
-Logging is controlled through the same `.env` file:
-
-- `LOG_FILE_ENABLED=true` turns on rotating file logs under `logs/`;
-- `LOG_LEVEL` sets backend verbosity (`INFO`, `DEBUG`, `WARNING`, `ERROR`);
-- `LOG_FILE_PATH` stores the rotating file log path;
-- `LOGGING_CONTROL_KEY` unlocks extra request payload logging when sent as `X-Logging-Key`;
-- `TRACE_PROXY_ENABLED=true` writes one redacted JSON trace per request under `traces/`;
-- `TRACE_PROXY_DIR` changes the trace output directory;
-- `TRACE_PROXY_REDACT=true` keeps auth-like values out of the trace file.
-
-### 4. Start or manage the service
-
-The bootstrap already registers the full-stack service automatically. If you need to manage it manually, use:
-
-- Windows service: [`scripts/install-service.ps1`](scripts/install-service.ps1)
-- Linux service: [`scripts/install-service.sh`](scripts/install-service.sh)
-
-### 5. Open the UI
+### 3. Open the UI
 
 - frontend: `http://127.0.0.1:4173`
 - backend: `http://127.0.0.1:8009`
 
-## Claude Code
+The first place to check is the admin UI. It is where you can see the runtime, keys, queues, usage, and other operational details.
 
-Claude Code can point at the gateway using Anthropic-compatible configuration.
+### 4. Point Claude Code at LLMBridge
 
-Recommended pattern:
+Use this when you want Claude Code to talk to the gateway:
 
 ```json
 {
@@ -166,17 +114,7 @@ Recommended pattern:
 }
 ```
 
-That means:
-
-- Claude Code talks to your local gateway;
-- the gateway authenticates with your app token;
-- the model can be a queue alias or a direct provider route;
-- the queue can rotate, fallback, and re-rank behind the scenes;
-- the public Anthropic surface stays Anthropic-like.
-
-### Terminal setup
-
-For a one-off terminal session on Linux or macOS:
+You can also test it in a terminal:
 
 ```bash
 export ANTHROPIC_BASE_URL="http://127.0.0.1:8009"
@@ -185,18 +123,7 @@ export ANTHROPIC_MODEL="queue/gemini"
 claude
 ```
 
-To make it the default on Linux or macOS, add the exports to your shell profile:
-
-```bash
-cat <<'EOF' >> ~/.bashrc
-export ANTHROPIC_BASE_URL="http://127.0.0.1:8009"
-export ANTHROPIC_AUTH_TOKEN="app-token-example"
-export ANTHROPIC_MODEL="queue/gemini"
-EOF
-source ~/.bashrc
-```
-
-For Windows CMD, persist the values with `setx`, then reopen the terminal:
+If you are on Windows CMD:
 
 ```cmd
 setx ANTHROPIC_BASE_URL "http://127.0.0.1:8009"
@@ -204,21 +131,33 @@ setx ANTHROPIC_AUTH_TOKEN "app-token-example"
 setx ANTHROPIC_MODEL "queue/gemini"
 ```
 
-## Reference Docs
+## Common Paths
 
-If you want the technical contract, read:
+Use these route styles:
+
+- `provider/model` for a direct upstream model route;
+- `queue/name` for a logical queue that resolves to one or more candidates.
+
+Examples:
+
+- `google/gemini-3.1-flash`
+- `openai/gpt-4o-mini`
+- `openrouter/anthropic/claude-3.5-sonnet`
+- `queue/gemini`
+- `queue/production`
+
+## Logging and Offline Install
+
+The bootstrap uses local assets when possible.
+
+- On Windows, NSSM can be provided from `bin/` for offline installs.
+- Logs and traces are controlled through `backend/.env`.
+- The installer keeps the service setup local instead of downloading extra tools during bootstrap.
+
+## Need More Detail?
+
+If you want the technical contract or the project context, read:
 
 - [proxy spec](agent/specs/proxy.spec.md)
-- [data model spec](agent/specs/data-model.spec.md)
-- [observability spec](agent/specs/observability.spec.md)
-- [deployment spec](agent/specs/deployment.spec.md)
 - [docs overview](docs/overview.md)
-
-## Project Map
-
-- [`frontend/`](frontend/) - admin UI and docs experience;
-- [`backend/`](backend/) - API, routing, telemetry, and persistence;
-- [`scripts/`](scripts/) - service and bootstrap helpers;
-- [`agent/specs/`](agent/specs/) - normative contracts;
-- [`docs/`](docs/) - human context, decisions, guides, and reports;
-- [`bin/`](bin/) - offline install assets such as NSSM.
+- [deployment spec](agent/specs/deployment.spec.md)

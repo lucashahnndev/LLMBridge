@@ -26,16 +26,12 @@ fi
 banner() {
   cat <<EOF
 ${C_YELLOW}==============================================================${C_RESET}
-${C_YELLOW}   __    __  _      _ ____  ____  ____  ____  ____  ____${C_RESET}
-${C_YELLOW}  |  \\  /  || |    | |  _ \\| __ )| __ )| __ )|  _ \\| __ )${C_RESET}
-${C_YELLOW}  | |\\/| || |    | | | |_) |  _ \\|  _ \\|  _ \\| |_) |  _ \\${C_RESET}
-${C_YELLOW}  | |  | || |___ | | |  __/| |_) | |_) | |_) |  _ <| |_) |${C_RESET}
-${C_YELLOW}  |_|  |_||_____|_| |_|   |____/|____/|____/|_| \\_\\____/${C_RESET}
-${C_YELLOW}        .------.${C_RESET}
-${C_YELLOW}       /  __  o \\____${C_RESET}
-${C_YELLOW}      /  /  \\__/====>${C_RESET}
-${C_YELLOW}      \\_________/${C_RESET}
-${C_YELLOW}            LLMBridge${C_RESET} ${C_DIM}one-shot installer${C_RESET}
+${C_YELLOW}                         LLMBridge${C_RESET}
+${C_DIM}                   local one-shot installer${C_RESET}
+${C_YELLOW}                          ___${C_RESET}
+${C_YELLOW}                      ___/ o \\___${C_RESET}
+${C_YELLOW}                     /  _   _   _ \\${C_RESET}
+${C_YELLOW}                     \\_/ \\_/ \\_/ \\_/${C_RESET}
 ${C_YELLOW}==============================================================${C_RESET}
 EOF
 }

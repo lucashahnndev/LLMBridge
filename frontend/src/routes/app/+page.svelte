@@ -1666,20 +1666,8 @@
     <header class="topbar">
       <div class="topbar-left">
         <span class="topbar-section">{sections.find((s) => s.key === activeSection)?.label ?? 'Overview'}</span>
-        <span class="badge {backendHealth ? 'badge-good' : healthError ? 'badge-bad' : 'badge-warn'}">
-          {backendHealth ? `${backendHealth.service} ${backendHealth.status}` : healthError ? 'unreachable' : '…'}
-        </span>
       </div>
       <div class="topbar-tools">
-        <div class="topbar-actions">
-          <button type="button" on:click={refreshDashboard} disabled={loading}>
-            {loading ? 'Refreshing...' : 'Refresh'}
-          </button>
-          <button type="button" class="ghost" on:click={toggleAutoRefresh}>
-            {autoRefreshEnabled ? 'Pause' : 'Resume'}
-          </button>
-        </div>
-        <div class="topbar-divider"></div>
         <button type="button" class="ghost icon-only" title="Documentation" aria-label="Open documentation" on:click={() => goto('/docs')}>
           <BookOpenText size={16} strokeWidth={1.8} />
         </button>

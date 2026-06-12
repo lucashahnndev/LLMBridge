@@ -75,6 +75,7 @@
   let topP = 1;
   let toolCallingEnabled = true;
   let codeTab: CodeTab = 'curl';
+  let activeOutputTab: 'reply' | 'code' | 'raw' = 'reply';
 
   let requestRunning = false;
   let copiedSnippet = '';
@@ -493,6 +494,7 @@ console.log(data);`;
     }
 
     requestRunning = true;
+    activeOutputTab = 'reply';
     requestError = '';
     responseSummary = null;
 
@@ -563,6 +565,7 @@ console.log(data);`;
     topP = 1;
     toolCallingEnabled = true;
     codeTab = 'curl';
+    activeOutputTab = 'reply';
     showRawResponse = false;
     showSystemPrompt = false;
     showPromptTools = false;
