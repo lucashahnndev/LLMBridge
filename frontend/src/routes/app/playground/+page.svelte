@@ -1,6 +1,6 @@
 <script lang="ts">
   import { goto } from '$app/navigation';
-  import { onMount } from 'svelte';
+  import { onMount, tick } from 'svelte';
   import {
     fetchAppTokens,
     fetchHealth,
@@ -14,7 +14,7 @@
     type ProviderKey,
     type UsageLog
   } from '$lib/api';
-  import { Copy, Check, ChevronLeft, RefreshCw, Sparkles, ShieldAlert } from 'lucide-svelte';
+  import { Copy, Check, ChevronLeft, RefreshCw, Sparkles, ShieldAlert, Code2, Settings as SettingsIcon, Terminal } from 'lucide-svelte';
   import { topbarTitle } from '$lib/stores';
 
   type Protocol = 'anthropic' | 'openai';
@@ -76,7 +76,25 @@
   let topP = 1;
   let toolCallingEnabled = true;
   let codeTab: CodeTab = 'curl';
-  let activeOutputTab: 'reply' | 'code' | 'raw' = 'reply';
+  let activeOutputTab: 'code' | 'raw' = 'code';
+  let inspectorOpen = false;
+  let chatHistoryContainer: HTMLDivElement;
+
+  async function scrollToBottom() {
+    await tick();
+    if (chatHistoryContainer) {
+      chatHistoryContainer.scrollTop = chatHistoryContainer.scrollHeight;
+    }
+  }
+
+  function handleInputKeydown(event: KeyboardEvent) {
+    if (event.key === 'Enter' && !event.shiftKey) {
+      event.preventDefault();
+      if (!requestRunning && resolvedModel && appTokenValue.trim()) {
+        void runRequest();
+      }
+    }
+  }
 
   let requestRunning = false;
   let copiedSnippet = '';
@@ -495,9 +513,9 @@ console.log(data);`;
     }
 
     requestRunning = true;
-    activeOutputTab = 'reply';
     requestError = '';
     responseSummary = null;
+    void scrollToBottom();
 
     const controller = new AbortController();
     const timeout = window.setTimeout(() => controller.abort(), 60000);
@@ -551,6 +569,7 @@ console.log(data);`;
     } finally {
       clearTimeout(timeout);
       requestRunning = false;
+      void scrollToBottom();
     }
   }
 
@@ -566,7 +585,7 @@ console.log(data);`;
     topP = 1;
     toolCallingEnabled = true;
     codeTab = 'curl';
-    activeOutputTab = 'reply';
+    activeOutputTab = 'code';
     showRawResponse = false;
     showSystemPrompt = false;
     showPromptTools = false;
@@ -628,202 +647,208 @@ console.log(data);`;
     </section>
   {/if}
 
-  <!-- Left Side: Composer and Settings -->
+  <!-- Left Side: Config Panel (320px) -->
   <aside class="composer-sidebar">
     <div class="sidebar-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.85rem; border-bottom: 1px solid var(--border); padding-bottom: 0.5rem; flex-shrink: 0;">
       <span style="font-size: 0.72rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted);">Composer</span>
       <button type="button" class="preset-chip" style="margin: 0; padding: 0.15rem 0.45rem; font-size: 0.7rem; border-radius: 4px; height: auto;" on:click={loadExample}>Load example</button>
     </div>
-      <!-- Target Mode & Protocol selection -->
-      <div class="sidebar-section">
-        <div class="section-title">Routing & Protocol</div>
-        <div class="input-grid">
-          <label>
-            <span>Protocol</span>
-            <select bind:value={protocol}>
-              <option value="anthropic">Anthropic</option>
-              <option value="openai">OpenAI</option>
-            </select>
-          </label>
-          
-          <label>
-            <span>Target Mode</span>
-            <select bind:value={targetMode}>
-              <option value="queue">Queue</option>
-              <option value="provider-model">Provider / Model</option>
-              <option value="custom">Custom</option>
-            </select>
-          </label>
-        </div>
 
-        {#if targetMode === 'queue'}
-          <label class="field-margin">
-            <span>Queue Name</span>
-            <input bind:value={queueName} list="queue-options" placeholder="gemini" spellcheck="false" />
-            <datalist id="queue-options">
-              {#each queueSuggestions as suggestion}
-                <option value={suggestion.replace(/^queue\//, '')}></option>
+    <!-- Target Mode & Protocol selection -->
+    <div class="sidebar-section">
+      <div class="section-title">Routing & Protocol</div>
+      <div class="input-grid">
+        <label>
+          <span>Protocol</span>
+          <select bind:value={protocol}>
+            <option value="anthropic">Anthropic</option>
+            <option value="openai">OpenAI</option>
+          </select>
+        </label>
+        
+        <label>
+          <span>Target Mode</span>
+          <select bind:value={targetMode}>
+            <option value="queue">Queue</option>
+            <option value="provider-model">Provider / Model</option>
+            <option value="custom">Custom</option>
+          </select>
+        </label>
+      </div>
+
+      {#if targetMode === 'queue'}
+        <label class="field-margin">
+          <span>Queue Name</span>
+          <input bind:value={queueName} list="queue-options" placeholder="gemini" spellcheck="false" />
+          <datalist id="queue-options">
+            {#each queueSuggestions as suggestion}
+              <option value={suggestion.replace(/^queue\//, '')}></option>
+            {/each}
+          </datalist>
+        </label>
+      {:else if targetMode === 'provider-model'}
+        <div class="input-grid field-margin">
+          <label>
+            <span>Provider</span>
+            <input bind:value={provider} list="provider-options" placeholder="google" spellcheck="false" />
+            <datalist id="provider-options">
+              {#each providerSuggestions as suggestion}
+                <option value={suggestion}></option>
               {/each}
             </datalist>
           </label>
-        {:else if targetMode === 'provider-model'}
-          <div class="input-grid field-margin">
-            <label>
-              <span>Provider</span>
-              <input bind:value={provider} list="provider-options" placeholder="google" spellcheck="false" />
-              <datalist id="provider-options">
-                {#each providerSuggestions as suggestion}
-                  <option value={suggestion}></option>
-                {/each}
-              </datalist>
-            </label>
 
-            <label>
-              <span>Model</span>
-              <input bind:value={model} list="model-options" placeholder="gemini-3.1-flash" spellcheck="false" />
-              <datalist id="model-options">
-                {#each modelSuggestions as suggestion}
-                  <option value={suggestion}></option>
-                {/each}
-              </datalist>
-            </label>
-          </div>
-        {:else}
-          <label class="field-margin">
-            <span>Custom Target</span>
-            <input bind:value={customModel} placeholder="queue/gemini" spellcheck="false" />
+          <label>
+            <span>Model</span>
+            <input bind:value={model} list="model-options" placeholder="gemini-3.1-flash" spellcheck="false" />
+            <datalist id="model-options">
+              {#each modelSuggestions as suggestion}
+                <option value={suggestion}></option>
+              {/each}
+            </datalist>
           </label>
-        {/if}
+        </div>
+      {:else}
+        <label class="field-margin">
+          <span>Custom Target</span>
+          <input bind:value={customModel} placeholder="queue/gemini" spellcheck="false" />
+        </label>
+      {/if}
 
-        <!-- Suggestion Chips inside Sidebar -->
-        <div class="preset-strip field-margin">
-          <div class="preset-strip-head">
-            <span>Suggestions</span>
-          </div>
-          <div class="preset-chips">
-            {#if targetMode === 'queue' || targetMode === 'custom'}
-              {#each queueSuggestions.slice(0, 4) as suggestion}
-                <button type="button" class="preset-chip" on:click={() => selectTargetPreset(suggestion)}>
-                  {suggestion.replace(/^queue\//, '')}
+      <!-- Suggestion Chips inside Sidebar -->
+      <div class="preset-strip field-margin">
+        <div class="preset-strip-head">
+          <span>Suggestions</span>
+        </div>
+        <div class="preset-chips">
+          {#if targetMode === 'queue' || targetMode === 'custom'}
+            {#each queueSuggestions.slice(0, 4) as suggestion}
+              <button type="button" class="preset-chip" on:click={() => selectTargetPreset(suggestion)}>
+                {suggestion.replace(/^queue\//, '')}
+              </button>
+            {/each}
+          {/if}
+          {#if targetMode === 'provider-model' || targetMode === 'custom'}
+            {#each providerSuggestions.slice(0, 2) as providerSuggestion}
+              {#each modelSuggestions.slice(0, 2) as modelSuggestion}
+                <button
+                  type="button"
+                  class="preset-chip"
+                  on:click={() => selectTargetPreset(`${providerSuggestion}/${modelSuggestion}`)}
+                >
+                  {providerSuggestion}/{modelSuggestion}
                 </button>
               {/each}
-            {/if}
-            {#if targetMode === 'provider-model' || targetMode === 'custom'}
-              {#each providerSuggestions.slice(0, 2) as providerSuggestion}
-                {#each modelSuggestions.slice(0, 2) as modelSuggestion}
-                  <button
-                    type="button"
-                    class="preset-chip"
-                    on:click={() => selectTargetPreset(`${providerSuggestion}/${modelSuggestion}`)}
-                  >
-                    {providerSuggestion}/{modelSuggestion}
-                  </button>
-                {/each}
-              {/each}
-            {/if}
-          </div>
+            {/each}
+          {/if}
         </div>
       </div>
+    </div>
 
-      <!-- App Token -->
-      <div class="sidebar-section">
-        <label>
-          <span>App Token</span>
-          <input bind:value={appTokenValue} type="password" placeholder="lk-key-..." autocomplete="off" spellcheck="false" />
-        </label>
-      </div>
+    <!-- App Token -->
+    <div class="sidebar-section">
+      <label>
+        <span>App Token</span>
+        <input bind:value={appTokenValue} type="password" placeholder="lk-key-..." autocomplete="off" spellcheck="false" />
+      </label>
+    </div>
 
-      <!-- Parameters Collapsible -->
-      <details class="sidebar-section-details" bind:open={showGenerationSettings}>
-        <summary class="details-header">
-          <span>Parameters & System</span>
-          <span class="icon-indicator">{showGenerationSettings ? 'Collapse' : 'Expand'}</span>
-        </summary>
-        <div class="details-body">
-          <label class="field-margin">
-            <span>System Prompt</span>
-            <textarea bind:value={systemPrompt} rows="3" placeholder="System instructions..." spellcheck="false"></textarea>
-          </label>
-          
-          <div class="input-grid field-margin">
-            <label>
-              <span>Temperature</span>
-              <input type="number" step="0.1" min="0" max="2" bind:value={temperature} />
-            </label>
-            <label>
-              <span>Max Tokens</span>
-              <input type="number" step="1" min="1" bind:value={maxTokens} />
-            </label>
-            <label>
-              <span>Top P</span>
-              <input type="number" step="0.1" min="0" max="1" bind:value={topP} />
-            </label>
-          </div>
-
-          <label class="toggle-row field-margin">
-            <input type="checkbox" bind:checked={toolCallingEnabled} />
-            <span>Enable tool calling sample</span>
-          </label>
-        </div>
-      </details>
-
-      <!-- Composer Input Area -->
-      <div class="composer-prompt-area">
-        <label>
-          <span>User Message</span>
-          <textarea bind:value={userPrompt} rows="6" placeholder="Type a message to prompt the gateway..." spellcheck="false"></textarea>
+    <!-- Parameters Collapsible -->
+    <details class="sidebar-section-details" bind:open={showGenerationSettings}>
+      <summary class="details-header">
+        <span>Parameters & System</span>
+        <span class="icon-indicator">{showGenerationSettings ? 'Collapse' : 'Expand'}</span>
+      </summary>
+      <div class="details-body">
+        <label class="field-margin">
+          <span>System Prompt</span>
+          <textarea bind:value={systemPrompt} rows="3" placeholder="System instructions..." spellcheck="false"></textarea>
         </label>
         
-        <div class="composer-actions">
-          <div class="resolved-badge">
-            <span class="badge-label">Resolved Target:</span>
-            <strong class="badge-value">{resolvedModel || '—'}</strong>
-          </div>
-
-          <button type="button" class="primary-run-btn" on:click={runRequest} disabled={requestRunning || !resolvedModel || !appTokenValue.trim()}>
-            {#if requestRunning}
-              <span class="spinning-icon"><RefreshCw size={14} strokeWidth={1.8} /></span>
-              <span>Running...</span>
-            {:else}
-              <Sparkles size={14} strokeWidth={1.8} />
-              <span>Run Request</span>
-            {/if}
-          </button>
+        <div class="input-grid field-margin">
+          <label>
+            <span>Temperature</span>
+            <input type="number" step="0.1" min="0" max="2" bind:value={temperature} />
+          </label>
+          <label>
+            <span>Max Tokens</span>
+            <input type="number" step="1" min="1" bind:value={maxTokens} />
+          </label>
+          <label>
+            <span>Top P</span>
+            <input type="number" step="0.1" min="0" max="1" bind:value={topP} />
+          </label>
         </div>
+
+        <label class="toggle-row field-margin">
+          <input type="checkbox" bind:checked={toolCallingEnabled} />
+          <span>Enable tool calling sample</span>
+        </label>
       </div>
-    </aside>
+    </details>
+  </aside>
 
-    <!-- Right Side: Outputs & Inspector tabbed view -->
-    <section class="inspector-output-pane">
-      <div class="pane-tabs-header">
-        <div class="tabs-buttons">
-          <button class:active={activeOutputTab === 'reply'} on:click={() => activeOutputTab = 'reply'}>
-            Chat Reply
-          </button>
-          <button class:active={activeOutputTab === 'code'} on:click={() => activeOutputTab = 'code'}>
-            Code Snippets
-          </button>
-          <button class:active={activeOutputTab === 'raw'} on:click={() => activeOutputTab = 'raw'}>
-            Raw Details
-          </button>
-        </div>
-
+  <!-- Middle Column: Interactive Chat Workspace -->
+  <section class="chat-workspace">
+    <div class="chat-header">
+      <div class="chat-header-title">
+        <h3>Playground Console</h3>
         {#if responseSummary}
-          <div class="pane-metrics">
+          <div class="chat-header-meta">
             <span class="status-badge {responseSummary.status >= 200 && responseSummary.status < 300 ? 'status-ok' : 'status-err'}">
               HTTP {responseSummary.status}
             </span>
-            <span class="latency-badge">
-              {formatLatency(responseSummary.latencyMs)}
-            </span>
+            <span class="latency-badge">{formatLatency(responseSummary.latencyMs)}</span>
           </div>
         {/if}
       </div>
+      <div class="chat-header-actions">
+        <button type="button" class="inspector-toggle-btn" class:active={inspectorOpen} on:click={() => inspectorOpen = !inspectorOpen} title="Toggle Code & Raw Inspector">
+          <Code2 size={14} strokeWidth={1.8} />
+          <span>{inspectorOpen ? 'Hide Details' : 'Show Details'}</span>
+        </button>
+      </div>
+    </div>
 
-      <div class="pane-content-wrapper">
-        {#if activeOutputTab === 'reply'}
-          <div class="tab-content chat-view">
-            {#if requestError}
+    <div class="chat-history" bind:this={chatHistoryContainer}>
+      <!-- System prompt card at the top -->
+      {#if systemPrompt}
+        <div class="system-prompt-card">
+          <div class="system-card-header">
+            <span class="system-icon"><SettingsIcon size={12} strokeWidth={2} /></span>
+            <span>SYSTEM PROMPT</span>
+          </div>
+          <div class="system-card-body">
+            {systemPrompt}
+          </div>
+        </div>
+      {/if}
+
+      {#if !responseSummary && !requestRunning && !requestError}
+        <div class="chat-empty-state">
+          <div class="empty-icon"><Sparkles size={28} strokeWidth={1.2} /></div>
+          <h3>Interactive LLM Gateway Playground</h3>
+          <p>Configure routing parameters on the left, type a prompt message below, and click Run to test gateway key rotation, metrics, and latency.</p>
+        </div>
+      {:else}
+        <!-- User Bubble -->
+        <div class="chat-bubble user-bubble">
+          <div class="bubble-sender">USER</div>
+          <div class="bubble-body">{userPrompt}</div>
+        </div>
+
+        <!-- Assistant Bubble -->
+        {#if requestRunning}
+          <div class="chat-bubble assistant-bubble loading-bubble">
+            <div class="bubble-sender">LLMBRIDGE</div>
+            <div class="bubble-body">
+              <span class="shimmer-text">Processing request... routing keys...</span>
+            </div>
+          </div>
+        {:else if requestError}
+          <div class="chat-bubble error-bubble">
+            <div class="bubble-sender">GATEWAY ERROR</div>
+            <div class="bubble-body">
               <div class="error-banner">
                 <ShieldAlert size={16} strokeWidth={1.8} />
                 <div>
@@ -831,100 +856,132 @@ console.log(data);`;
                   <p>{requestError}</p>
                 </div>
               </div>
-            {/if}
+            </div>
+          </div>
+        {:else if responseSummary}
+          <div class="chat-bubble assistant-bubble">
+            <div class="bubble-sender">ASSISTANT</div>
+            <div class="bubble-body">
+              <pre class="chat-pre">{responseSummary.assistantText || 'No reply text returned.'}</pre>
+            </div>
+          </div>
 
-            {#if !responseSummary && !requestRunning && !requestError}
-              <div class="empty-state">
-                <Sparkles size={24} strokeWidth={1.2} />
-                <h3>Playground Ready</h3>
-                <p>Type a message in the composer on the left and click **Run Request** to test gateway routing, keys, and latency.</p>
-              </div>
-            {:else}
-              <!-- User Prompt Card -->
-              <div class="chat-message user-msg">
-                <div class="msg-header">USER</div>
-                <div class="msg-body">{userPrompt}</div>
-              </div>
-
-              <!-- Assistant Response Card -->
-              <div class="chat-message assistant-msg {requestRunning ? 'shimmer' : ''}">
-                <div class="msg-header">ASSISTANT</div>
-                <div class="msg-body">
-                  {#if requestRunning}
-                    <div class="loading-placeholder">Waiting for gateway response...</div>
-                  {:else}
-                    <pre class="assistant-pre">{responseSummary?.assistantText || 'No reply text returned.'}</pre>
-                  {/if}
-                </div>
-              </div>
-
-              <!-- Tool Calls Card -->
-              {#if responseSummary?.toolCalls.length}
-                <div class="chat-message tool-msg">
-                  <div class="msg-header">TOOL CALLS</div>
-                  <div class="msg-body">
-                    {#each responseSummary.toolCalls as toolCall, index}
-                      <div class="tool-call-block">
-                        <strong>{index + 1}. {toolCall.name}</strong>
-                        <pre>{toolCall.arguments}</pre>
-                      </div>
-                    {/each}
+          {#if responseSummary.toolCalls.length}
+            <div class="chat-bubble tool-bubble">
+              <div class="bubble-sender">RESOLVED TOOL CALLS</div>
+              <div class="bubble-body">
+                {#each responseSummary.toolCalls as toolCall, index}
+                  <div class="tool-call-block">
+                    <strong>{index + 1}. {toolCall.name}</strong>
+                    <pre>{toolCall.arguments}</pre>
                   </div>
-                </div>
-              {/if}
-            {/if}
-          </div>
-        {:else if activeOutputTab === 'code'}
-          <div class="tab-content code-view">
-            <div class="code-sub-tabs">
-              <div class="sub-tab-buttons">
-                <button class:active={codeTab === 'curl'} on:click={() => codeTab = 'curl'}>cURL</button>
-                <button class:active={codeTab === 'js'} on:click={() => codeTab = 'js'}>JavaScript</button>
-                <button class:active={codeTab === 'json'} on:click={() => codeTab = 'json'}>JSON Payload</button>
+                {/each}
               </div>
-
-              <button type="button" class="copy-btn" on:click={() => copyText(codeTab === 'curl' ? curlSnippet : codeTab === 'js' ? jsSnippet : jsonSnippet)}>
-                {#if copiedSnippet === (codeTab === 'curl' ? curlSnippet : codeTab === 'js' ? jsSnippet : jsonSnippet)}
-                  <Check size={14} strokeWidth={2} />
-                  <span>Copied!</span>
-                {:else}
-                  <Copy size={14} strokeWidth={1.8} />
-                  <span>Copy</span>
-                {/if}
-              </button>
             </div>
-
-            <div class="code-output-block">
-              <div class="code-header">
-                <span>Endpoint:</span>
-                <strong>{requestUrl}</strong>
-              </div>
-              <pre class="code-pre"><code>{codeTab === 'curl' ? curlSnippet : codeTab === 'js' ? jsSnippet : jsonSnippet}</code></pre>
-            </div>
-          </div>
-        {:else if activeOutputTab === 'raw'}
-          <div class="tab-content raw-view">
-            {#if !responseSummary}
-              <div class="empty-state">
-                <h3>No Response Details</h3>
-                <p>Run a request first to inspect response headers and raw payload details.</p>
-              </div>
-            {:else}
-              <div class="raw-section">
-                <div class="raw-title">Response Headers</div>
-                <pre class="raw-headers-pre">{responseSummary.headers.map(([key, val]) => `${key}: ${val}`).join('\n') || 'No headers returned.'}</pre>
-              </div>
-
-              <div class="raw-section">
-                <div class="raw-title">Response Body</div>
-                <pre class="raw-body-pre">{formatBodyText(responseSummary.body)}</pre>
-              </div>
-            {/if}
-          </div>
+          {/if}
         {/if}
+      {/if}
+    </div>
+
+    <!-- Chat input area at bottom -->
+    <div class="chat-input-container">
+      <div class="chat-input-row">
+        <textarea
+          bind:value={userPrompt}
+          placeholder="Type user message here... (Press Enter to run, Shift+Enter for new line)"
+          rows="1"
+          on:keydown={handleInputKeydown}
+          spellcheck="false"
+        ></textarea>
+        
+        <button
+          type="button"
+          class="send-btn"
+          on:click={runRequest}
+          disabled={requestRunning || !resolvedModel || !appTokenValue.trim()}
+        >
+          {#if requestRunning}
+            <span class="spinning-icon"><RefreshCw size={13} strokeWidth={2} /></span>
+            <span>Running</span>
+          {:else}
+            <Sparkles size={13} strokeWidth={2} />
+            <span>Run</span>
+          {/if}
+        </button>
       </div>
-    </section>
-  </div>
+      <div class="chat-input-footer">
+        <span class="target-indicator">
+          Resolved Target: <strong>{resolvedModel || '—'}</strong>
+        </span>
+      </div>
+    </div>
+  </section>
+
+  <!-- Right Side: Code & Raw Inspector (Collapsible) -->
+  <aside class="inspector-sidebar" class:open={inspectorOpen}>
+    <div class="inspector-header">
+      <div class="tabs-buttons">
+        <button class:active={activeOutputTab === 'code'} on:click={() => activeOutputTab = 'code'}>
+          Code Snippets
+        </button>
+        <button class:active={activeOutputTab === 'raw'} on:click={() => activeOutputTab = 'raw'}>
+          Raw Details
+        </button>
+      </div>
+    </div>
+    
+    <div class="inspector-content">
+      {#if activeOutputTab === 'code'}
+        <div class="code-view">
+          <div class="code-sub-tabs">
+            <div class="sub-tab-buttons">
+              <button class:active={codeTab === 'curl'} on:click={() => codeTab = 'curl'}>cURL</button>
+              <button class:active={codeTab === 'js'} on:click={() => codeTab = 'js'}>JavaScript</button>
+              <button class:active={codeTab === 'json'} on:click={() => codeTab = 'json'}>JSON</button>
+            </div>
+
+            <button type="button" class="copy-btn" on:click={() => copyText(codeTab === 'curl' ? curlSnippet : codeTab === 'js' ? jsSnippet : jsonSnippet)}>
+              {#if copiedSnippet === (codeTab === 'curl' ? curlSnippet : codeTab === 'js' ? jsSnippet : jsonSnippet)}
+                <Check size={14} strokeWidth={2} />
+                <span>Copied!</span>
+              {:else}
+                <Copy size={14} strokeWidth={1.8} />
+                <span>Copy</span>
+              {/if}
+            </button>
+          </div>
+
+          <div class="code-output-block">
+            <div class="code-header">
+              <span>Endpoint:</span>
+              <strong>{requestUrl}</strong>
+            </div>
+            <pre class="code-pre"><code>{codeTab === 'curl' ? curlSnippet : codeTab === 'js' ? jsSnippet : jsonSnippet}</code></pre>
+          </div>
+        </div>
+      {:else if activeOutputTab === 'raw'}
+        <div class="raw-view">
+          {#if !responseSummary}
+            <div class="empty-state">
+              <h3>No Response Details</h3>
+              <p>Run a request first to inspect response headers and raw response body.</p>
+            </div>
+          {:else}
+            <div class="raw-section">
+              <div class="raw-title">Response Headers</div>
+              <pre class="raw-headers-pre">{responseSummary.headers.map(([key, val]) => `${key}: ${val}`).join('\n') || 'No headers returned.'}</pre>
+            </div>
+
+            <div class="raw-section">
+              <div class="raw-title">Response Body</div>
+              <pre class="raw-body-pre">{formatBodyText(responseSummary.body)}</pre>
+            </div>
+          {/if}
+        </div>
+      {/if}
+    </div>
+  </aside>
+</div>
 
 <style>
   :global(body) {
@@ -937,8 +994,7 @@ console.log(data);`;
     position: absolute;
     inset: 0;
     z-index: 10;
-    display: grid;
-    grid-template-columns: 420px 1fr;
+    display: flex;
     background: var(--bg);
     color: var(--text);
     overflow: hidden;
@@ -946,6 +1002,8 @@ console.log(data);`;
 
   /* Left Side: Sidebar/Composer */
   .composer-sidebar {
+    width: 320px;
+    flex-shrink: 0;
     display: flex;
     flex-direction: column;
     border-right: 1px solid var(--border);
@@ -1119,81 +1177,17 @@ console.log(data);`;
     letter-spacing: 0;
   }
 
-  /* Composer Message & Run */
-  .composer-prompt-area {
-    display: flex;
-    flex-direction: column;
-    gap: 0.85rem;
-    margin-top: auto;
-    padding-top: 1rem;
-    border-top: 1px solid var(--border);
-  }
-
-  .composer-actions {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 1rem;
-  }
-
-  .resolved-badge {
-    display: flex;
-    flex-direction: column;
+  /* Center Workspace: Chat Mode */
+  .chat-workspace {
+    flex: 1;
     min-width: 0;
-  }
-
-  .resolved-badge .badge-label {
-    font-size: 0.65rem;
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
-    color: var(--muted);
-  }
-
-  .resolved-badge .badge-value {
-    font-size: 0.85rem;
-    color: var(--text);
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  .primary-run-btn {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    height: 36px;
-    padding: 0 1rem;
-    background: #ead48f;
-    color: #111;
-    border: none;
-    border-radius: 4px;
-    font-weight: 600;
-    font-size: 0.8rem;
-    cursor: pointer;
-    flex-shrink: 0;
-    transition: opacity 0.15s ease;
-  }
-
-  .primary-run-btn:hover:not(:disabled) {
-    opacity: 0.9;
-  }
-
-  .primary-run-btn:disabled {
-    background: rgba(255, 255, 255, 0.05);
-    color: var(--muted);
-    border: 1px solid var(--border);
-    cursor: not-allowed;
-  }
-
-  /* Right Side: Tabbed output details pane */
-  .inspector-output-pane {
     display: flex;
     flex-direction: column;
-    min-height: 0;
-    background: rgba(11, 13, 17, 0.85);
+    background: rgba(10, 12, 16, 0.3);
+    height: 100%;
   }
 
-  .pane-tabs-header {
+  .chat-header {
     display: flex;
     align-items: center;
     justify-content: space-between;
@@ -1202,6 +1196,296 @@ console.log(data);`;
     border-bottom: 1px solid var(--border);
     background: rgba(13, 17, 22, 0.45);
     flex-shrink: 0;
+  }
+
+  .chat-header-title {
+    display: flex;
+    align-items: center;
+    gap: 0.85rem;
+  }
+
+  .chat-header-title h3 {
+    margin: 0;
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: var(--text);
+  }
+
+  .chat-header-meta {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+
+  .chat-header-actions {
+    display: flex;
+    align-items: center;
+  }
+
+  .inspector-toggle-btn {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.25rem 0.65rem;
+    border: 1px solid var(--border);
+    background: rgba(255, 255, 255, 0.02);
+    border-radius: 4px;
+    color: var(--muted);
+    font-size: 0.72rem;
+    cursor: pointer;
+    transition: all 0.15s ease;
+  }
+
+  .inspector-toggle-btn:hover,
+  .inspector-toggle-btn.active {
+    color: var(--text);
+    border-color: rgba(255, 255, 255, 0.2);
+    background: rgba(255, 255, 255, 0.08);
+  }
+
+  .chat-history {
+    flex: 1;
+    overflow-y: auto;
+    padding: 1.5rem;
+    display: flex;
+    flex-direction: column;
+    gap: 1.25rem;
+    min-height: 0;
+  }
+
+  .chat-empty-state {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    flex: 1;
+    gap: 0.5rem;
+    color: var(--muted);
+  }
+
+  .chat-empty-state .empty-icon {
+    color: rgba(216, 184, 88, 0.8);
+    margin-bottom: 0.5rem;
+  }
+
+  .chat-empty-state h3 {
+    margin: 0;
+    font-size: 0.95rem;
+    font-weight: 600;
+    color: var(--text);
+  }
+
+  .chat-empty-state p {
+    margin: 0;
+    font-size: 0.8rem;
+    max-width: 44ch;
+    line-height: 1.45;
+  }
+
+  /* Chat Bubbles */
+  .chat-bubble {
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+    padding: 0.85rem 1rem;
+    border-radius: 6px;
+    border: 1px solid var(--border);
+    max-width: 85%;
+    line-height: 1.5;
+  }
+
+  .user-bubble {
+    align-self: flex-end;
+    background: rgba(255, 255, 255, 0.015);
+    border-left: 2px solid var(--muted);
+  }
+
+  .assistant-bubble {
+    align-self: flex-start;
+    background: rgba(216, 184, 88, 0.01);
+    border-left: 2px solid rgba(216, 184, 88, 0.65);
+  }
+
+  .tool-bubble {
+    align-self: flex-start;
+    background: rgba(88, 86, 214, 0.01);
+    border-left: 2px solid #5856d6;
+    max-width: 90%;
+  }
+
+  .error-bubble {
+    align-self: flex-start;
+    border-left: 2px solid #ff3b30;
+    background: rgba(255, 59, 48, 0.02);
+    width: 100%;
+    max-width: 600px;
+  }
+
+  .bubble-sender {
+    font-size: 0.62rem;
+    font-weight: 700;
+    color: var(--muted);
+    letter-spacing: 0.06em;
+  }
+
+  .bubble-body {
+    font-size: 0.85rem;
+    color: var(--text);
+  }
+
+  .chat-pre {
+    margin: 0;
+    white-space: pre-wrap;
+    font-family: var(--font-mono, monospace);
+    font-size: 0.82rem;
+    line-height: 1.45;
+  }
+
+  /* System Prompt Card */
+  .system-prompt-card {
+    align-self: flex-start;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: rgba(255, 255, 255, 0.01);
+    padding: 0.75rem 1rem;
+    max-width: 100%;
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+  }
+
+  .system-card-header {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    font-size: 0.62rem;
+    font-weight: 700;
+    color: var(--muted);
+    letter-spacing: 0.06em;
+  }
+
+  .system-card-header .system-icon {
+    display: flex;
+    align-items: center;
+    color: rgba(216, 184, 88, 0.7);
+  }
+
+  .system-card-body {
+    font-size: 0.78rem;
+    font-family: var(--font-mono, monospace);
+    line-height: 1.45;
+    color: var(--muted);
+  }
+
+  /* Chat Input Area */
+  .chat-input-container {
+    border-top: 1px solid var(--border);
+    padding: 1rem 1.25rem;
+    background: rgba(13, 17, 22, 0.45);
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    flex-shrink: 0;
+  }
+
+  .chat-input-row {
+    display: flex;
+    gap: 0.75rem;
+    align-items: flex-end;
+  }
+
+  .chat-input-row textarea {
+    flex: 1;
+    min-height: 40px;
+    max-height: 160px;
+    resize: none;
+    background: rgba(0, 0, 0, 0.2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 0.6rem 0.85rem;
+    font-size: 0.85rem;
+    color: var(--text);
+    font-family: inherit;
+    line-height: 1.45;
+  }
+
+  .send-btn {
+    height: 38px;
+    display: flex;
+    align-items: center;
+    gap: 0.45rem;
+    padding: 0 1.15rem;
+    background: #ead48f;
+    color: #111;
+    border: none;
+    border-radius: 6px;
+    font-weight: 600;
+    font-size: 0.8rem;
+    cursor: pointer;
+    flex-shrink: 0;
+    transition: opacity 0.15s ease;
+  }
+
+  .send-btn:hover:not(:disabled) {
+    opacity: 0.9;
+  }
+
+  .send-btn:disabled {
+    background: rgba(255, 255, 255, 0.04);
+    color: var(--muted);
+    border: 1px solid var(--border);
+    cursor: not-allowed;
+  }
+
+  .chat-input-footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-size: 0.68rem;
+    color: var(--muted);
+  }
+
+  .target-indicator strong {
+    color: rgba(216, 184, 88, 0.85);
+  }
+
+  /* Right Side Collapsible Inspector */
+  .inspector-sidebar {
+    width: 0;
+    opacity: 0;
+    flex-shrink: 0;
+    display: flex;
+    flex-direction: column;
+    background: rgba(13, 17, 22, 0.25);
+    transition: width 200ms cubic-bezier(0.4, 0, 0.2, 1), opacity 200ms ease;
+    overflow: hidden;
+  }
+
+  .inspector-sidebar.open {
+    width: 380px;
+    opacity: 1;
+    border-left: 1px solid var(--border);
+  }
+
+  .inspector-header {
+    height: 48px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    padding: 0 1rem;
+    flex-shrink: 0;
+    background: rgba(13, 17, 22, 0.45);
+  }
+
+  .inspector-content {
+    flex: 1;
+    overflow-y: auto;
+    padding: 1.25rem;
+    display: flex;
+    flex-direction: column;
+    gap: 1.25rem;
+    min-height: 0;
   }
 
   .tabs-buttons {
@@ -1233,12 +1517,6 @@ console.log(data);`;
     border-bottom-color: rgba(216, 184, 88, 0.85);
   }
 
-  .pane-metrics {
-    display: flex;
-    align-items: center;
-    gap: 0.65rem;
-  }
-
   .status-badge {
     padding: 0.15rem 0.45rem;
     font-size: 0.72rem;
@@ -1265,142 +1543,11 @@ console.log(data);`;
     font-weight: 500;
   }
 
-  .pane-content-wrapper {
-    flex: 1;
-    overflow-y: auto;
-    padding: 1.5rem;
-    min-height: 0;
-  }
-
-  .tab-content {
+  .code-view, .raw-view {
     display: flex;
     flex-direction: column;
     gap: 1.25rem;
     min-height: 100%;
-  }
-
-  /* Empty state */
-  .empty-state {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    text-align: center;
-    flex: 1;
-    gap: 0.5rem;
-    padding: 3rem 1rem;
-    color: var(--muted);
-  }
-
-  .empty-state h3 {
-    margin: 0;
-    font-size: 1rem;
-    font-weight: 600;
-    color: var(--text);
-  }
-
-  .empty-state p {
-    margin: 0;
-    font-size: 0.82rem;
-    max-width: 44ch;
-    line-height: 1.45;
-  }
-
-  /* Chat view reply style */
-  .chat-view {
-    justify-content: flex-start;
-  }
-
-  .chat-message {
-    display: flex;
-    flex-direction: column;
-    gap: 0.45rem;
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    background: rgba(255, 255, 255, 0.015);
-    padding: 1rem;
-  }
-
-  .chat-message.user-msg {
-    border-left: 2px solid var(--muted);
-  }
-
-  .chat-message.assistant-msg {
-    border-left: 2px solid rgba(216, 184, 88, 0.65);
-    background: rgba(216, 184, 88, 0.01);
-  }
-
-  .chat-message.tool-msg {
-    border-left: 2px solid #5856d6;
-  }
-
-  .msg-header {
-    font-size: 0.65rem;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
-    color: var(--muted);
-  }
-
-  .msg-body {
-    font-size: 0.88rem;
-    line-height: 1.5;
-    color: var(--text);
-  }
-
-  .assistant-pre {
-    margin: 0;
-    white-space: pre-wrap;
-    font-family: var(--font-mono, monospace);
-    font-size: 0.85rem;
-  }
-
-  .tool-call-block {
-    padding: 0.65rem;
-    border: 1px solid var(--border);
-    border-radius: 4px;
-    background: rgba(0, 0, 0, 0.2);
-    margin-top: 0.5rem;
-  }
-
-  .tool-call-block strong {
-    font-size: 0.75rem;
-    color: #5856d6;
-  }
-
-  .tool-call-block pre {
-    margin: 0.35rem 0 0 0;
-    font-size: 0.78rem;
-    font-family: monospace;
-    color: var(--muted);
-  }
-
-  /* Error Banner */
-  .error-banner {
-    display: flex;
-    gap: 0.75rem;
-    padding: 0.85rem 1rem;
-    border: 1px solid rgba(255, 59, 48, 0.3);
-    background: rgba(255, 59, 48, 0.08);
-    border-radius: 6px;
-    color: #ff453a;
-  }
-
-  .error-banner div {
-    display: flex;
-    flex-direction: column;
-    gap: 0.15rem;
-  }
-
-  .error-banner strong {
-    font-size: 0.85rem;
-    font-weight: 600;
-  }
-
-  .error-banner p {
-    margin: 0;
-    font-size: 0.78rem;
-    color: rgba(255, 255, 255, 0.85);
   }
 
   /* Code View snippet style */
@@ -1414,6 +1561,7 @@ console.log(data);`;
 
   .sub-tab-buttons {
     display: flex;
+    gap: 0.25rem;
   }
 
   .sub-tab-buttons button {
@@ -1421,7 +1569,7 @@ console.log(data);`;
     border: 1px solid var(--border);
     background: rgba(255, 255, 255, 0.02);
     border-radius: 4px;
-    font-size: 0.75rem;
+    font-size: 0.72rem;
     color: var(--muted);
     cursor: pointer;
     transition: background 0.15s ease, color 0.15s ease;
@@ -1477,7 +1625,7 @@ console.log(data);`;
 
   .code-header strong {
     font-size: 0.78rem;
-    font-family: monospace;
+    font-family: var(--font-mono, monospace);
     color: var(--text);
   }
 
@@ -1512,7 +1660,7 @@ console.log(data);`;
     border: 1px solid var(--border);
     border-radius: 5px;
     background: rgba(0, 0, 0, 0.2);
-    font-family: monospace;
+    font-family: var(--font-mono, monospace);
     font-size: 0.8rem;
     overflow: auto;
     line-height: 1.4;
@@ -1522,11 +1670,42 @@ console.log(data);`;
     max-height: 380px;
   }
 
-  /* Loading placeholders & animations */
-  .loading-placeholder {
+  .empty-state {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    flex: 1;
+    gap: 0.5rem;
     color: var(--muted);
+    padding: 2rem 0;
+  }
+
+  .empty-state h3 {
+    margin: 0;
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: var(--text);
+  }
+
+  .empty-state p {
+    margin: 0;
+    font-size: 0.78rem;
+    line-height: 1.4;
+  }
+
+
+
+  .shimmer-text {
     font-style: italic;
-    font-size: 0.82rem;
+    animation: pulse 1.5s infinite;
+  }
+
+  @keyframes pulse {
+    0% { opacity: 0.45; }
+    50% { opacity: 0.85; }
+    100% { opacity: 0.45; }
   }
 
   .spinning-icon {
@@ -1539,30 +1718,67 @@ console.log(data);`;
     to { transform: rotate(360deg); }
   }
 
-  /* Shimmering message loading effect */
-  .chat-message.assistant-msg.shimmer {
-    background: linear-gradient(
-      90deg,
-      rgba(255, 255, 255, 0.01) 25%,
-      rgba(255, 255, 255, 0.02) 50%,
-      rgba(255, 255, 255, 0.01) 75%
-    );
-    background-size: 200% 100%;
-    animation: shimmer 1.5s infinite;
+  .tool-call-block {
+    padding: 0.65rem;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    background: rgba(0, 0, 0, 0.2);
+    margin-top: 0.5rem;
   }
 
-  @keyframes shimmer {
-    0% { background-position: -200% 0; }
-    100% { background-position: 200% 0; }
+  .tool-call-block strong {
+    font-size: 0.75rem;
+    color: #5856d6;
+  }
+
+  .tool-call-block pre {
+    margin: 0.35rem 0 0 0;
+    font-size: 0.78rem;
+    font-family: var(--font-mono, monospace);
+    color: var(--muted);
+  }
+
+  /* Error Banner */
+  .error-banner {
+    display: flex;
+    gap: 0.75rem;
+    padding: 0.85rem 1rem;
+    border: 1px solid rgba(255, 59, 48, 0.3);
+    background: rgba(255, 59, 48, 0.08);
+    border-radius: 6px;
+    color: #ff453a;
+  }
+
+  .error-banner div {
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+  }
+
+  .error-banner strong {
+    font-size: 0.85rem;
+    font-weight: 600;
+  }
+
+  .error-banner p {
+    margin: 0;
+    font-size: 0.78rem;
+    color: rgba(255, 255, 255, 0.85);
   }
 
   @media (max-width: 900px) {
     .playground-page-overlay {
-      grid-template-columns: 1fr;
+      flex-direction: column;
     }
     .composer-sidebar {
+      width: 100%;
       border-right: none;
       border-bottom: 1px solid var(--border);
+    }
+    .inspector-sidebar.open {
+      width: 100%;
+      border-left: none;
+      border-top: 1px solid var(--border);
     }
   }
 </style>

@@ -83,14 +83,12 @@
       <div style="display: flex; gap: 0.75rem; align-items: center; margin-bottom: 1rem;">
         <ShieldCheck size={32} color="var(--accent)" />
       </div>
-      <span class="eyebrow">LLMBridge</span>
       <h1>Console access</h1>
       <p>Local operator sign-in.</p>
     </div>
 
     <div class="auth-panel">
       <div class="health-row">
-        <span>Backend</span>
         <strong>{backendHealth ? `${backendHealth.service} ${backendHealth.status}` : 'Unknown'}</strong>
       </div>
       {#if healthError}
