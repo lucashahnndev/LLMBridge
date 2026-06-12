@@ -23,14 +23,19 @@ if /I "%ROOT_FULL%"=="%INSTALL_ROOT_FULL%" (
 )
 
 echo =======================================================
-echo   __        __   _     ____   ____  ____  _____
-echo   \ \      / /__| |__ | __ ) / ___|| __ )| ____|
-echo    \ \ /\ / / _ \ '_ \|  _ \\___ \|  _ \|  _|
-echo     \ V  V /  __/ |_) | |_) |___) | |_) | |___
-echo      \_/\_/ \___|_.__/|____/|____/|____/|_____|
-echo
-echo            LLMBridge Windows Bootstrap
-echo             local, clean, fast
+color 0E
+echo    __    __  _      _ ____  ____  ____  ____  ____  ____
+echo   ^|  \  /  ^|^| ^|    ^| ^|  _ \^| __ )^| __ )^| __ )^|  _ \^| __ )
+echo   ^| ^|\/^| ^|^| ^|    ^| ^| ^|_) ^|  _ \^|  _ \^|  _ \^| ^|_) ^|  _ \
+echo   ^| ^|  ^| ^|^| ^|___ ^| ^| ^|  __/^| ^|_) ^| ^|_) ^| ^|_) ^|  _ <^| ^|_) ^|
+echo   ^|_^|  ^|_^|^|_____^|_^| ^|_^|   ^|____/^|____/^|____/^|_^| \_\
+echo         .------.
+echo        /  __  o \____
+echo       /  /  \__/====^>
+echo       \_________/
+echo             LLMBridge Windows Bootstrap
+echo              local, clean, fast
+color 07
 echo =======================================================
 echo.
 
@@ -53,7 +58,7 @@ if errorlevel 1 (
 )
 
 if not exist ".venv" (
-    echo %STEP% 1/6 criando ambiente virtual .venv
+    echo %STEP% 1/7 criando ambiente virtual .venv
     python -m venv .venv
     if errorlevel 1 (
         echo %ERR% Falha ao criar o ambiente virtual.
@@ -65,12 +70,12 @@ if not exist ".venv" (
     echo %OK% Ambiente virtual .venv ja existe.
 )
 
-echo %STEP% 2/6 atualizando pip
-".venv\Scripts\python.exe" -m pip install --upgrade pip
+echo %STEP% 2/7 atualizando pip
+".venv\Scripts\python.exe" -m pip install --upgrade pip --quiet --disable-pip-version-check --no-input
 
 if exist "backend\requirements.txt" (
-    echo %STEP% 3/6 instalando bibliotecas
-    ".venv\Scripts\python.exe" -m pip install -r backend\requirements.txt
+    echo %STEP% 3/7 instalando bibliotecas
+    ".venv\Scripts\python.exe" -m pip install -r backend\requirements.txt --quiet --disable-pip-version-check --no-input
     if errorlevel 1 (
         echo %ERR% Falha ao instalar as bibliotecas.
         pause
@@ -87,7 +92,7 @@ if not exist "bin" mkdir bin
 
 if not exist "%INSTALL_ROOT%" mkdir "%INSTALL_ROOT%" >nul 2>&1
 
-echo %STEP% 4/6 preparando backend\.env e banco SQLite
+echo %STEP% 4/7 preparando backend\.env e banco SQLite
 python scripts\bootstrap_env.py
 if errorlevel 1 (
     echo %ERR% Falha ao preparar backend\.env.
@@ -104,7 +109,7 @@ if errorlevel 1 (
     exit /b 1
 )
 
-echo %STEP% 5/6 aplicando migracoes automaticas
+echo %STEP% 5/7 aplicando migracoes automaticas
 ".venv\Scripts\python.exe" -m backend.migrate
 if errorlevel 1 (
     echo %ERR% Falha ao aplicar migracoes automaticas.
@@ -113,8 +118,44 @@ if errorlevel 1 (
     exit /b 1
 )
 
-echo %OK% Bootstrap local concluido.
-echo %STEP% 6/6 registrando o servico automatico do Windows
+set "FRONTEND_LOG=%TEMP%\llmbridge-frontend-install.log"
+set "FRONTEND_BUILD_LOG=%TEMP%\llmbridge-frontend-build.log"
+if exist "%FRONTEND_LOG%" del /f /q "%FRONTEND_LOG%" >nul 2>&1
+if exist "%FRONTEND_BUILD_LOG%" del /f /q "%FRONTEND_BUILD_LOG%" >nul 2>&1
+
+echo %STEP% 6/7 instalando dependencias e build do frontend
+pushd frontend >nul
+npm ci --silent --no-audit --no-fund > "%FRONTEND_LOG%" 2>&1
+if errorlevel 1 (
+    popd
+    echo %ERR% Falha ao instalar dependencias do frontend.
+    echo.
+    echo ===== frontend install log =====
+    type "%FRONTEND_LOG%"
+    echo ===== end log =====
+    pause
+    popd
+    exit /b 1
+)
+
+npm run build --silent > "%FRONTEND_BUILD_LOG%" 2>&1
+if errorlevel 1 (
+    popd
+    echo %ERR% Falha ao gerar o build do frontend.
+    echo.
+    echo ===== frontend build log =====
+    type "%FRONTEND_BUILD_LOG%"
+    echo ===== end log =====
+    pause
+    popd
+    exit /b 1
+)
+popd >nul
+if exist "%FRONTEND_LOG%" del /f /q "%FRONTEND_LOG%" >nul 2>&1
+if exist "%FRONTEND_BUILD_LOG%" del /f /q "%FRONTEND_BUILD_LOG%" >nul 2>&1
+echo %OK% Dependencias e build do frontend concluido.
+
+echo %STEP% 7/7 registrando o servico automatico do Windows
 set "SERVICE_INSTALL_LOG=%TEMP%\llmbridge-install-service.log"
 if exist "%SERVICE_INSTALL_LOG%" del /f /q "%SERVICE_INSTALL_LOG%" >nul 2>&1
 powershell -NoProfile -ExecutionPolicy Bypass -Command ^
@@ -133,6 +174,7 @@ if errorlevel 1 (
 )
 
 echo.
+echo %OK% Bootstrap local concluido.
 echo %OK% Instalacao concluida.
 if exist "%SERVICE_INSTALL_LOG%" del /f /q "%SERVICE_INSTALL_LOG%" >nul 2>&1
 pause

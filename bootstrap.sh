@@ -24,15 +24,48 @@ else
 fi
 
 banner() {
-  printf '%s\n' "${C_CYAN}==============================================${C_RESET}"
-  printf '%s\n' "${C_CYAN}  LLMBridge${C_RESET} ${C_DIM}one-shot installer${C_RESET}"
-  printf '%s\n' "${C_CYAN}==============================================${C_RESET}"
+  cat <<EOF
+${C_YELLOW}==============================================================${C_RESET}
+${C_YELLOW}   __    __  _      _ ____  ____  ____  ____  ____  ____${C_RESET}
+${C_YELLOW}  |  \\  /  || |    | |  _ \\| __ )| __ )| __ )|  _ \\| __ )${C_RESET}
+${C_YELLOW}  | |\\/| || |    | | | |_) |  _ \\|  _ \\|  _ \\| |_) |  _ \\${C_RESET}
+${C_YELLOW}  | |  | || |___ | | |  __/| |_) | |_) | |_) |  _ <| |_) |${C_RESET}
+${C_YELLOW}  |_|  |_||_____|_| |_|   |____/|____/|____/|_| \\_\\____/${C_RESET}
+${C_YELLOW}        .------.${C_RESET}
+${C_YELLOW}       /  __  o \\____${C_RESET}
+${C_YELLOW}      /  /  \\__/====>${C_RESET}
+${C_YELLOW}      \\_________/${C_RESET}
+${C_YELLOW}            LLMBridge${C_RESET} ${C_DIM}one-shot installer${C_RESET}
+${C_YELLOW}==============================================================${C_RESET}
+EOF
 }
 
 step() { printf '%s\n' "${C_YELLOW}[>]${C_RESET} $*"; }
 ok() { printf '%s\n' "${C_GREEN}[+]${C_RESET} $*"; }
 warn() { printf '%s\n' "${C_YELLOW}[!]${C_RESET} $*"; }
 fail() { printf '%s\n' "${C_RED}[x]${C_RESET} $*"; }
+
+run_quiet() {
+  local label="$1"
+  local success="$2"
+  shift 2
+
+  local logfile
+  logfile="$(mktemp)"
+
+  step "$label"
+  if "$@" >"$logfile" 2>&1; then
+    ok "$success"
+    rm -f "$logfile"
+    return 0
+  fi
+
+  fail "$label"
+  warn "Mostrando os ultimos registros do passo que falhou:"
+  tail -n 80 "$logfile"
+  rm -f "$logfile"
+  exit 1
+}
 
 banner
 echo
@@ -56,12 +89,10 @@ else
   ok "Ambiente virtual .venv ja existe."
 fi
 
-step "2/7 atualizando pip"
-".venv/bin/python" -m pip install --upgrade pip
+run_quiet "2/7 atualizando pip" "pip atualizado" ".venv/bin/python" -m pip install --upgrade pip --quiet --disable-pip-version-check --no-input
 
 if [[ -f "backend/requirements.txt" ]]; then
-  step "3/7 instalando dependencias do backend"
-  ".venv/bin/python" -m pip install -r backend/requirements.txt
+  run_quiet "3/7 instalando dependencias do backend" "dependencias do backend instaladas" ".venv/bin/python" -m pip install -r backend/requirements.txt --quiet --disable-pip-version-check --no-input
 else
   warn "backend/requirements.txt nao encontrado. Backend ignorado."
 fi
@@ -99,10 +130,8 @@ PY
   if [[ "$frontend_build_fresh" == true ]]; then
     ok "Frontend ja esta atualizado; npm install e build reutilizados."
   else
-    step "4/7 instalando dependencias do frontend"
-    (cd frontend && npm install)
-    step "4.1/7 gerando build do frontend"
-    (cd frontend && npm run build)
+    run_quiet "4/7 instalando dependencias do frontend" "dependencias do frontend instaladas" bash -lc 'cd frontend && npm ci --silent --no-audit --no-fund'
+    run_quiet "5/7 gerando build do frontend" "build do frontend concluido" bash -lc 'cd frontend && npm run build --silent'
     if [[ -n "$frontend_fingerprint" ]]; then
       printf '%s\n' "$frontend_fingerprint" > "$FRONTEND_BUILD_STAMP"
     fi
@@ -113,7 +142,7 @@ fi
 
 mkdir -p backend logs bin
 
-step "5/7 preparando backend/.env e banco SQLite"
+step "6/7 preparando backend/.env, banco SQLite e migracoes"
 python3 scripts/bootstrap_env.py
 
 ".venv/bin/python" - <<'PY'
@@ -123,9 +152,8 @@ db.parent.mkdir(parents=True, exist_ok=True)
 sqlite3.connect(db).close()
 PY
 
-step "6/7 aplicando migracoes automaticas"
 ".venv/bin/python" -m backend.migrate
 
-ok "Bootstrap local concluido."
 step "7/7 registrando o servico automatico do Linux"
 bash scripts/install-service.sh
+ok "Bootstrap local concluido."
