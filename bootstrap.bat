@@ -9,6 +9,11 @@ set "STEP=[>]"
 set "WARN=[!]"
 set "ERR=[x]"
 set "INSTALL_ROOT=%ProgramData%\LLMBridge"
+set "PIP_LOG=%TEMP%\llmbridge-pip.log"
+set "BACKEND_LOG=%TEMP%\llmbridge-backend-install.log"
+set "BOOTSTRAP_ENV_LOG=%TEMP%\llmbridge-bootstrap-env.log"
+set "SQLITE_LOG=%TEMP%\llmbridge-sqlite.log"
+set "MIGRATE_LOG=%TEMP%\llmbridge-migrate.log"
 
 for %%I in ("%ROOT%") do set "ROOT_FULL=%%~fI"
 for %%I in ("%INSTALL_ROOT%") do set "INSTALL_ROOT_FULL=%%~fI"
@@ -68,13 +73,27 @@ if not exist ".venv" (
 )
 
 echo %STEP% 2/7 atualizando pip
-".venv\Scripts\python.exe" -m pip install --upgrade pip --quiet --disable-pip-version-check --no-input
+".venv\Scripts\python.exe" -m pip install --upgrade pip --quiet --disable-pip-version-check --no-input > "%PIP_LOG%" 2>&1
+if errorlevel 1 (
+    echo %ERR% Falha ao atualizar pip.
+    echo.
+    echo ===== pip log =====
+    type "%PIP_LOG%"
+    echo ===== end log =====
+    pause
+    popd
+    exit /b 1
+)
 
 if exist "backend\requirements.txt" (
     echo %STEP% 3/7 instalando bibliotecas
-    ".venv\Scripts\python.exe" -m pip install -r backend\requirements.txt --quiet --disable-pip-version-check --no-input
+    ".venv\Scripts\python.exe" -m pip install -r backend\requirements.txt --quiet --disable-pip-version-check --no-input > "%BACKEND_LOG%" 2>&1
     if errorlevel 1 (
         echo %ERR% Falha ao instalar as bibliotecas.
+        echo.
+        echo ===== backend install log =====
+        type "%BACKEND_LOG%"
+        echo ===== end log =====
         pause
         popd
         exit /b 1
@@ -90,26 +109,38 @@ if not exist "bin" mkdir bin
 if not exist "%INSTALL_ROOT%" mkdir "%INSTALL_ROOT%" >nul 2>&1
 
 echo %STEP% 4/7 preparando backend\.env e banco SQLite
-python scripts\bootstrap_env.py
+python scripts\bootstrap_env.py > "%BOOTSTRAP_ENV_LOG%" 2>&1
 if errorlevel 1 (
     echo %ERR% Falha ao preparar backend\.env.
+    echo.
+    echo ===== bootstrap env log =====
+    type "%BOOTSTRAP_ENV_LOG%"
+    echo ===== end log =====
     pause
     popd
     exit /b 1
 )
 
-".venv\Scripts\python.exe" -c "import sqlite3, pathlib; db = pathlib.Path('backend/database.db'); db.parent.mkdir(parents=True, exist_ok=True); sqlite3.connect(db).close()"
+".venv\Scripts\python.exe" -c "import sqlite3, pathlib; db = pathlib.Path('backend/database.db'); db.parent.mkdir(parents=True, exist_ok=True); sqlite3.connect(db).close()" > "%SQLITE_LOG%" 2>&1
 if errorlevel 1 (
     echo %ERR% Falha ao inicializar o banco SQLite.
+    echo.
+    echo ===== sqlite log =====
+    type "%SQLITE_LOG%"
+    echo ===== end log =====
     pause
     popd
     exit /b 1
 )
 
 echo %STEP% 5/7 aplicando migracoes automaticas
-".venv\Scripts\python.exe" -m backend.migrate
+".venv\Scripts\python.exe" -m backend.migrate > "%MIGRATE_LOG%" 2>&1
 if errorlevel 1 (
     echo %ERR% Falha ao aplicar migracoes automaticas.
+    echo.
+    echo ===== migrate log =====
+    type "%MIGRATE_LOG%"
+    echo ===== end log =====
     pause
     popd
     exit /b 1
@@ -156,7 +187,7 @@ echo %STEP% 7/7 registrando o servico automatico do Windows
 set "SERVICE_INSTALL_LOG=%TEMP%\llmbridge-install-service.log"
 if exist "%SERVICE_INSTALL_LOG%" del /f /q "%SERVICE_INSTALL_LOG%" >nul 2>&1
 powershell -NoProfile -ExecutionPolicy Bypass -Command ^
-    "$repo = (Get-Location).Path; $installRoot = Join-Path $env:ProgramData 'LLMBridge'; $log = '%SERVICE_INSTALL_LOG%'; $script = Join-Path $repo 'scripts\install-service.ps1'; $serviceArgs = @('-NoProfile','-ExecutionPolicy','Bypass','-File',$script,'-SourceRoot',$repo,'-InstallRoot',$installRoot,'-LogPath',$log,'-NoPause'); $p = Start-Process -FilePath powershell -ArgumentList $serviceArgs -WorkingDirectory $installRoot -Verb RunAs -Wait -PassThru; exit $p.ExitCode"
+    "$repo = (Get-Location).Path; $installRoot = Join-Path $env:ProgramData 'LLMBridge'; $log = '%SERVICE_INSTALL_LOG%'; $script = Join-Path $repo 'scripts\install-service.ps1'; $serviceArgs = @('-NoProfile','-ExecutionPolicy','Bypass','-File',$script,'-SourceRoot',$repo,'-InstallRoot',$installRoot,'-LogPath',$log,'-NoPause'); $p = Start-Process -FilePath powershell -ArgumentList $serviceArgs -WorkingDirectory $installRoot -Verb RunAs -Wait -PassThru; exit $p.ExitCode" > "%SERVICE_INSTALL_LOG%" 2>&1
 if errorlevel 1 (
     echo %ERR% Falha ao registrar o servico.
     if exist "%SERVICE_INSTALL_LOG%" (
