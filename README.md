@@ -14,12 +14,9 @@ If you are new to the project, start here:
 
 The admin UI gives you a live view of usage, queues, provider health, and latency.
 
-<p>
-  <img src="docs/assets/readme/dashboard-overview-top.png" alt="LLMBridge overview dashboard" />
-</p>
-
-<p>
-  <img src="docs/assets/readme/dashboard-overview-stats.png" alt="LLMBridge usage and metrics dashboard" />
+<p align="center">
+  <img src="docs/assets/readme/dashboard-overview-top-dark.png" alt="LLMBridge overview dashboard in dark mode" width="48%" />
+  <img src="docs/assets/readme/dashboard-overview-stats-dark.png" alt="LLMBridge usage and metrics dashboard in dark mode" width="48%" />
 </p>
 
 ## What It Does
