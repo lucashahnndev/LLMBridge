@@ -26,8 +26,13 @@ fi
 banner() {
   cat <<EOF
 ${C_YELLOW}==============================================================${C_RESET}
-${C_YELLOW}                         LLMBridge${C_RESET}
-${C_DIM}                   local one-shot installer${C_RESET}
+${C_YELLOW}█     █     █   █ ████  ████  ███ ████   ███  █████${C_RESET}
+${C_YELLOW}█     █     ██ ██ █   █ █   █  █  █   █ █     █${C_RESET}
+${C_YELLOW}█     █     █ █ █ ████  ████   █  █   █ █  ██ ████${C_RESET}
+${C_YELLOW}█     █     █   █ █   █ █  █   █  █   █ █   █ █${C_RESET}
+${C_YELLOW}█████ █████ █   █ ████  █   █ ███ ████   ███  █████${C_RESET}
+${C_DIM}                        LLMBridge${C_RESET}
+${C_DIM}                  local one-shot installer${C_RESET}
 ${C_YELLOW}==============================================================${C_RESET}
 EOF
 }

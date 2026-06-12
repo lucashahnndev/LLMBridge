@@ -24,6 +24,12 @@ if /I "%ROOT_FULL%"=="%INSTALL_ROOT_FULL%" (
 
 echo =======================================================
 color 0E
+echo █     █     █   █ ████  ████  ███ ████   ███  █████
+echo █     █     ██ ██ █   █ █   █  █  █   █ █     █
+echo █     █     █ █ █ ████  ████   █  █   █ █  ██ ████
+echo █     █     █   █ █   █ █  █   █  █   █ █   █ █
+echo █████ █████ █   █ ████  █   █ ███ ████   ███  █████
+echo.
 echo                          LLMBridge
 echo                    local one-shot installer
 color 07
