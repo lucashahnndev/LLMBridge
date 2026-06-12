@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="docs/assets/readme/llmbridge-banner.svg" alt="LLMBridge banner" width="100%" />
+</p>
+
 # LLMBridge
 
 LLMBridge is a local gateway for AI apps. It gives you one endpoint, multiple providers, key rotation, queues, and usage tracking without forcing every client to speak every provider's native API.

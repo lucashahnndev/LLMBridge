@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="240" viewBox="0 0 1400 240" role="img" aria-labelledby="title desc">
+  <title id="title">LLMBridge banner</title>
+  <desc id="desc">ASCII-style LLMBridge banner in yellow on transparent background.</desc>
+  <style>
+    .banner {
+      fill: #f1c84b;
+      font-family: "Courier New", Courier, monospace;
+      font-size: 26px;
+      font-weight: 700;
+      letter-spacing: 0;
+    }
+  </style>
+  <rect width="1400" height="240" fill="transparent" />
+  <text class="banner" x="50" y="52" xml:space="preserve"> █     █     █   █ ████  ████  ███ ████   ███  █████ </text>
+  <text class="banner" x="50" y="94" xml:space="preserve">█     █     ██ ██ █   █ █   █  █  █   █ █     █     </text>
+  <text class="banner" x="50" y="136" xml:space="preserve">█     █     █ █ █ ████  ████   █  █   █ █  ██ ████  </text>
+  <text class="banner" x="50" y="178" xml:space="preserve">█     █     █   █ █   █ █  █   █  █   █ █   █ █     </text>
+  <text class="banner" x="50" y="220" xml:space="preserve">█████ █████ █   █ ████  █   █ ███ ████   ███  █████ </text>
+</svg>
