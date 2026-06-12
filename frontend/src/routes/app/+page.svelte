@@ -25,6 +25,7 @@
     peekProviderKey as peekProviderKeyApi,
     peekAppToken as peekAppTokenApi,
     logoutAdmin,
+    sendTelegramTestAlert,
     setRuntimeApiBaseUrl,
     setStoredAdminToken,
     updateAppToken,
@@ -48,9 +49,24 @@
     type UsageLog,
     type UsageLogPage
   } from '$lib/api';
+  import { formatOverviewTimeLabel } from '$lib/formatting';
   import { overviewRouteHref } from '$lib/overview';
   import { applyThemeMode, getStoredThemeMode, setStoredThemeMode, type ThemeMode } from '$lib/theme';
-  import { LayoutDashboard, Key, Coins, BarChart2, Settings, ChevronDown, PanelLeftClose, PanelLeftOpen, BookOpenText, SquareTerminal } from 'lucide-svelte';
+  import {
+    LayoutDashboard,
+    Key,
+    Coins,
+    BarChart2,
+    Settings,
+    ChevronDown,
+    PanelLeftClose,
+    PanelLeftOpen,
+    BookOpenText,
+    SquareTerminal,
+    Copy,
+    Pencil,
+    Trash2
+  } from 'lucide-svelte';
   import { Line, Doughnut, Bar } from 'svelte-chartjs';
   import { Chart, Title, Tooltip, LineElement, PointElement, CategoryScale, LinearScale, Filler, ArcElement, BarElement, Legend, type ChartOptions } from 'chart.js';
 
@@ -100,6 +116,7 @@
   import { activeSection as activeSectionStore, topbarTitle, refreshTrigger } from '$lib/stores';
 
   let activeSection: SectionKey = 'overview';
+  let telegramTestReady = false;
   $: activeSection = $activeSectionStore;
   $: if (activeSection !== $activeSectionStore) {
     activeSectionStore.set(activeSection);
@@ -110,6 +127,10 @@
       topbarTitle.set(matched.label);
     }
   }
+  $: telegramTestReady = Boolean(
+    (alertTelegramChatId.trim() || alertSettings?.telegram_chat_id) &&
+      (alertTelegramBotToken.trim() || alertSettings?.telegram_bot_token_configured)
+  );
   let token = '';
   let themeMode: ThemeMode = 'system';
   let loading = false;
@@ -153,6 +174,7 @@
   let alertQueueExhausted = true;
   let alertProviderPoolExhausted = true;
   let alertProviderKeyStatusChanges = true;
+  let alertTestBusy = false;
 
   let providerName = '';
   let providerType = 'openai';
@@ -368,23 +390,17 @@
 
   $: overviewBuckets = overviewTimeseries?.buckets ?? [];
   $: overviewRequestsTotal = overviewBuckets.reduce((total, bucket) => total + bucket.requests_count, 0);
-  $: overviewSuccessCount = overviewBuckets.reduce((total, bucket) => total + bucket.success_count, 0);
-  $: overviewErrorCount = overviewBuckets.reduce((total, bucket) => total + bucket.error_count, 0);
   $: overviewTokensTotal = overviewBuckets.reduce((total, bucket) => total + bucket.total_tokens_consumed, 0);
   $: overviewLatencyAverage = overviewBuckets.length
     ? overviewBuckets.reduce((total, bucket) => total + bucket.avg_latency_ms, 0) / overviewBuckets.length
     : 0;
-  $: overviewMaxRequests = Math.max(...overviewBuckets.map((bucket) => bucket.requests_count), 1);
-  $: overviewMaxLatency = Math.max(...overviewBuckets.map((bucket) => bucket.avg_latency_ms), 1);
-  $: overviewMaxErrors = Math.max(...overviewBuckets.map((bucket) => bucket.error_count), 1);
-  $: overviewMaxTokens = Math.max(...overviewBuckets.map((bucket) => bucket.total_tokens_consumed), 1);
   $: overviewRequestsSeries = overviewBuckets.map((bucket) => bucket.requests_count);
   $: overviewErrorsSeries = overviewBuckets.map((bucket) => bucket.error_count);
   $: overviewLatencySeries = overviewBuckets.map((bucket) => bucket.avg_latency_ms);
   $: overviewTokensSeries = overviewBuckets.map((bucket) => bucket.total_tokens_consumed);
 
   $: overviewLabels = overviewBuckets.map((bucket) => {
-    return formatChartBucketLabel(bucket.bucket_start, overviewTimeseries?.granularity);
+    return formatOverviewTimeLabel(bucket.bucket_start, overviewRange);
   });
 
   const masterChartOptions: ChartOptions<'line'> = {
@@ -496,36 +512,6 @@
     }]
   };
 
-  function formatChartBucketLabel(bucketStart: string, granularity?: string) {
-    const date = new Date(bucketStart);
-    if (Number.isNaN(date.getTime())) {
-      return bucketStart;
-    }
-
-    if (granularity === 'day') {
-      return new Intl.DateTimeFormat('en-US', {
-        month: 'short',
-        day: 'numeric',
-      }).format(date);
-    }
-
-    if (granularity === 'hour') {
-      return new Intl.DateTimeFormat('en-US', {
-        month: 'short',
-        day: 'numeric',
-        hour: '2-digit',
-        minute: '2-digit',
-        hour12: false,
-      }).format(date);
-    }
-
-    return new Intl.DateTimeFormat('en-US', {
-      hour: '2-digit',
-      minute: '2-digit',
-      hour12: false,
-    }).format(date);
-  }
-
   function setOverviewRange(nextRange: '1h' | '24h' | '7d' | '30d') {
     overviewRange = nextRange;
     if (token) {
@@ -586,9 +572,9 @@
     runtimeError = '';
     try {
       const [global, timeseries, projects, providers, apps, queues, usage, runtime, alerts] = await Promise.all([
-        fetchGlobalMetrics(jwt),
+        fetchGlobalMetrics(jwt, overviewRange),
         fetchMetricsTimeseries(jwt, overviewRange),
-        fetchProjectMetrics(jwt),
+        fetchProjectMetrics(jwt, overviewRange),
         fetchProviderKeys(jwt, { provider: providerKeyProviderFilter, status: providerKeyStatusFilter }),
         fetchAppTokens(jwt, appTokenActiveFilter === '' ? null : appTokenActiveFilter === 'true'),
         fetchModelQueues(jwt),
@@ -743,6 +729,33 @@
       pushNotice('error', 'Alert settings update failed', alertError);
     } finally {
       actionBusy = false;
+    }
+  }
+
+  async function handleTelegramTest() {
+    if (!token) {
+      alertError = 'Login as admin before testing Telegram alerts.';
+      return;
+    }
+
+    if (!telegramTestReady) {
+      alertError = 'Configure a Telegram chat ID and bot token before sending a test.';
+      return;
+    }
+
+    alertTestBusy = true;
+    alertError = '';
+    try {
+      const response = await sendTelegramTestAlert(token, {
+        telegram_bot_token: alertTelegramBotToken.trim() || null,
+        telegram_chat_id: alertTelegramChatId.trim() || null
+      });
+      pushNotice('success', 'Telegram test sent', response.detail);
+    } catch (error) {
+      alertError = error instanceof Error ? error.message : 'Failed to send Telegram test';
+      pushNotice('error', 'Telegram test failed', alertError);
+    } finally {
+      alertTestBusy = false;
     }
   }
 
@@ -1714,58 +1727,35 @@
                       <Line data={masterChartData} options={masterChartOptions} />
                     </div>
                     <div class="chart-axis">
-                      <span>{overviewBuckets[0] ? formatDate(overviewBuckets[0].bucket_start) : ''}</span>
-                      <span>{overviewBuckets[overviewBuckets.length - 1] ? formatDate(overviewBuckets[overviewBuckets.length - 1].bucket_end) : ''}</span>
+                      <span>{overviewBuckets[0] ? formatOverviewTimeLabel(overviewBuckets[0].bucket_start, overviewRange) : ''}</span>
+                      <span>{overviewBuckets[overviewBuckets.length - 1] ? formatOverviewTimeLabel(overviewBuckets[overviewBuckets.length - 1].bucket_end, overviewRange) : ''}</span>
                     </div>
                   {:else}
                     <div class="chart-empty">No historical data yet</div>
                   {/if}
                 </div>
-                <div class="chart-summary">
-                  <div class="chart-stat">
-                    <span>Requests</span>
-                    <strong>{formatMetric(overviewRequestsTotal)}</strong>
+                <div class="overview-side-card">
+                  <div class="card-header">
+                    <div class="card-header-row">
+                      <h3>App Requests</h3>
+                      <span class="chart-legend accent">{projectMetrics.length} apps</span>
+                    </div>
                   </div>
-                  <div class="chart-stat">
-                    <span>Success</span>
-                    <strong>{overviewRequestsTotal ? `${formatMetric((overviewSuccessCount / overviewRequestsTotal) * 100, 1)}%` : '0%'}</strong>
-                  </div>
-                  <div class="chart-stat">
-                    <span>Errors</span>
-                    <strong>{overviewRequestsTotal ? `${formatMetric((overviewErrorCount / overviewRequestsTotal) * 100, 1)}%` : '0%'}</strong>
-                  </div>
-                  <div class="chart-stat">
-                    <span>Latency</span>
-                    <strong>{overviewLatencyAverage ? `${overviewLatencyAverage.toFixed(1)}ms` : '0ms'}</strong>
-                  </div>
-                  <div class="chart-stat">
-                    <span>Tokens</span>
-                    <strong>{formatMetric(overviewTokensTotal)}</strong>
+                  <div class="card-body">
+                    {#if projectMetrics.length}
+                      <div class="chart-stage chart-stage-donut chart-stage-donut-compact">
+                        <Doughnut data={appRequestsData} options={biChartOptions} />
+                      </div>
+                    {:else}
+                      <div class="chart-empty compact">No data</div>
+                    {/if}
                   </div>
                 </div>
               </div>
             </div>
           </div>
 
-          <div class="dashboard-row cols-3 app-chart-row">
-            <div class="dashboard-card chart-card app-chart-card app-chart-card-donut">
-              <div class="card-header">
-                <div class="card-header-row">
-                  <h3>App Requests</h3>
-                  <span class="chart-legend accent">{projectMetrics.length} apps</span>
-                </div>
-              </div>
-              <div class="card-body">
-                {#if projectMetrics.length}
-                  <div class="chart-stage chart-stage-donut chart-stage-donut-large">
-                    <Doughnut data={appRequestsData} options={biChartOptions} />
-                  </div>
-                {:else}
-                  <div class="chart-empty compact">No data</div>
-                {/if}
-              </div>
-            </div>
-
+          <div class="dashboard-row cols-2 app-chart-row">
             <div class="dashboard-card chart-card app-chart-card app-chart-card-bar">
               <div class="card-header">
                 <div class="card-header-row">
@@ -1992,7 +1982,6 @@
                 <div class="control-table-cell">Key Name</div>
                 <div class="control-table-cell">Provider</div>
                 <div class="control-table-cell">Status</div>
-                <div class="control-table-cell">Masked Key</div>
                 <div class="control-table-cell">Failures</div>
                 <div class="control-table-cell actions">Actions</div>
               </div>
@@ -2019,9 +2008,6 @@
                       {formatStatus(providerKey.status)}
                     </span>
                   </div>
-                  <div class="control-table-cell" style="font-family: monospace; opacity: 0.8;">
-                    {providerKey.masked_token}
-                  </div>
                   <div class="control-table-cell">
                     {providerKey.failure_count}
                   </div>
@@ -2029,11 +2015,11 @@
                     <button type="button" class="ghost icon-only" title="Open overview" aria-label={`Open overview for ${providerKey.name}`} on:click|stopPropagation={() => openProviderOverview(providerKey)} disabled={actionBusy}>
                       <BarChart2 size={16} />
                     </button>
-                    <button type="button" class="ghost" on:click|stopPropagation={() => selectProviderKey(providerKey)} disabled={actionBusy}>
-                      Edit
+                    <button type="button" class="ghost icon-only" title={`Edit ${providerKey.name}`} aria-label={`Edit ${providerKey.name}`} on:click|stopPropagation={() => selectProviderKey(providerKey)} disabled={actionBusy}>
+                      <Pencil size={15} />
                     </button>
-                    <button type="button" class="btn-danger" on:click|stopPropagation={() => handleDeleteProviderKey(providerKey.id)} disabled={actionBusy}>
-                      Delete
+                    <button type="button" class="btn-danger icon-only" title={`Delete ${providerKey.name}`} aria-label={`Delete ${providerKey.name}`} on:click|stopPropagation={() => handleDeleteProviderKey(providerKey.id)} disabled={actionBusy}>
+                      <Trash2 size={15} />
                     </button>
                   </div>
                 </div>
@@ -2285,7 +2271,6 @@
                 <div class="control-table-cell">Token Name</div>
                 <div class="control-table-cell">Environment</div>
                 <div class="control-table-cell">Status</div>
-                <div class="control-table-cell">Masked Token</div>
                 <div class="control-table-cell">Rate Limit</div>
                 <div class="control-table-cell actions">Actions</div>
               </div>
@@ -2312,9 +2297,6 @@
                       {appToken.is_active ? 'active' : 'disabled'}
                     </span>
                   </div>
-                  <div class="control-table-cell" style="font-family: monospace; opacity: 0.8;">
-                    {appToken.masked_token}
-                  </div>
                   <div class="control-table-cell">
                     {appToken.rpm_limit ? `${appToken.rpm_limit} rpm` : 'No limit'}
                   </div>
@@ -2322,14 +2304,25 @@
                     <button type="button" class="ghost icon-only" title="Open overview" aria-label={`Open overview for ${appToken.name}`} on:click|stopPropagation={() => openAppTokenOverview(appToken)} disabled={actionBusy}>
                       <BarChart2 size={16} />
                     </button>
-                    <button type="button" class="ghost" on:click|stopPropagation={() => selectAppToken(appToken)} disabled={actionBusy}>
-                      Edit
+                    <button type="button" class="ghost icon-only" title={`Edit ${appToken.name}`} aria-label={`Edit ${appToken.name}`} on:click|stopPropagation={() => selectAppToken(appToken)} disabled={actionBusy}>
+                      <Pencil size={15} />
                     </button>
-                    <button type="button" class="ghost" on:click={() => handleToggleAppToken(appToken)} disabled={actionBusy}>
-                      {appToken.is_active ? 'Disable' : 'Enable'}
+                    <button
+                      type="button"
+                      class="row-switch"
+                      class:on={appToken.is_active}
+                      on:click|stopPropagation={() => handleToggleAppToken(appToken)}
+                      title={appToken.is_active ? `Disable ${appToken.name}` : `Enable ${appToken.name}`}
+                      aria-label={appToken.is_active ? `Disable ${appToken.name}` : `Enable ${appToken.name}`}
+                      aria-pressed={appToken.is_active}
+                      disabled={actionBusy}
+                    >
+                      <span class="row-switch-track">
+                        <span class="row-switch-thumb"></span>
+                      </span>
                     </button>
-                    <button type="button" class="btn-danger" on:click={() => handleDeleteAppToken(appToken.id)} disabled={actionBusy}>
-                      Delete
+                    <button type="button" class="btn-danger icon-only" title={`Delete ${appToken.name}`} aria-label={`Delete ${appToken.name}`} on:click={() => handleDeleteAppToken(appToken.id)} disabled={actionBusy}>
+                      <Trash2 size={15} />
                     </button>
                   </div>
                 </div>
@@ -2419,23 +2412,18 @@
                     <button type="button" class="ghost" on:click={() => (selectedAppTokenSecret = null)}>Close</button>
                   </div>
                   <div class="modal-body">
-                    <p class="muted" style="margin: 0; padding: 0; border: 0; background: transparent; box-shadow: none;">
-                      Copy this token now. It will not be shown again unless you reveal it again or rotate it.
-                    </p>
-                    <div class="created-token" style="margin-top: 1rem;">
-                      <div class="created-token-head">
-                        <div>
-                          <span>Token</span>
-                          <strong>{selectedAppTokenName}</strong>
-                        </div>
-                        <button type="button" class="ghost" on:click={() => (selectedAppTokenSecret = null)}>
-                          Hide
-                        </button>
-                      </div>
-                      <div class="created-token-body">
+                    <div class="token-reveal-flat">
+                      <strong>{selectedAppTokenName}</strong>
+                      <div class="token-reveal-row">
                         <code>{selectedAppTokenSecret.token}</code>
-                        <button type="button" on:click={handleCopySelectedAppTokenSecret}>
-                          Copy token
+                        <button
+                          type="button"
+                          class="ghost icon-only"
+                          on:click={handleCopySelectedAppTokenSecret}
+                          aria-label="Copy token"
+                          title="Copy token"
+                        >
+                          <Copy size={15} />
                         </button>
                       </div>
                     </div>
@@ -2534,11 +2522,11 @@
                             {candidate.avg_latency_ms ? `${candidate.avg_latency_ms.toFixed(1)}ms` : '0ms'}
                           </div>
                           <div class="control-table-cell actions">
-                            <button type="button" class="ghost" on:click|stopPropagation={() => selectQueueCandidate(candidate)} disabled={actionBusy}>
-                              Edit
+                            <button type="button" class="ghost icon-only" title={`Edit ${candidate.provider}/${candidate.model_name}`} aria-label={`Edit ${candidate.provider}/${candidate.model_name}`} on:click|stopPropagation={() => selectQueueCandidate(candidate)} disabled={actionBusy}>
+                              <Pencil size={15} />
                             </button>
-                            <button type="button" class="btn-danger" on:click|stopPropagation={() => handleDeleteQueueCandidate(candidate.id)} disabled={actionBusy}>
-                              Delete
+                            <button type="button" class="btn-danger icon-only" title={`Delete ${candidate.provider}/${candidate.model_name}`} aria-label={`Delete ${candidate.provider}/${candidate.model_name}`} on:click|stopPropagation={() => handleDeleteQueueCandidate(candidate.id)} disabled={actionBusy}>
+                              <Trash2 size={15} />
                             </button>
                           </div>
                         </div>
@@ -2613,7 +2601,6 @@
               <div class="control-table-cell">Strategy</div>
               <div class="control-table-cell">Status</div>
               <div class="control-table-cell">Candidates</div>
-              <div class="control-table-cell">Description</div>
               <div class="control-table-cell actions">Actions</div>
             </div>
 
@@ -2633,18 +2620,15 @@
                 <div class="control-table-cell">
                   {queue.candidates.length} candidates
                 </div>
-                <div class="control-table-cell" style="opacity: 0.8;">
-                  {queue.description ?? 'No description'}
-                </div>
                 <div class="control-table-cell actions">
                   <button type="button" class="ghost icon-only" title="Open overview" aria-label={`Open overview for ${queue.name}`} on:click|stopPropagation={() => openQueueOverview(queue)} disabled={actionBusy}>
                     <BarChart2 size={16} />
                   </button>
-                  <button type="button" class="ghost" on:click|stopPropagation={() => openEditModelQueueModal(queue)} disabled={actionBusy}>
-                    Edit
+                  <button type="button" class="ghost icon-only" title={`Edit ${queue.name}`} aria-label={`Edit ${queue.name}`} on:click|stopPropagation={() => openEditModelQueueModal(queue)} disabled={actionBusy}>
+                    <Pencil size={15} />
                   </button>
-                  <button type="button" class="btn-danger" on:click|stopPropagation={() => handleDeleteModelQueue(queue.id)} disabled={actionBusy}>
-                    Delete
+                  <button type="button" class="btn-danger icon-only" title={`Delete ${queue.name}`} aria-label={`Delete ${queue.name}`} on:click|stopPropagation={() => handleDeleteModelQueue(queue.id)} disabled={actionBusy}>
+                    <Trash2 size={15} />
                   </button>
                 </div>
               </div>
@@ -2928,11 +2912,6 @@
 
       {#if activeSection === 'runtime'}
         <section class="section-block">
-          <div class="runtime-strip">
-            <div class="chip">{runtimeConfig?.restart_required ? 'Restart needed' : 'Live'}</div>
-            <div class="muted">{runtimeConfig ? runtimeConfig.api_base_url : 'Not loaded'}</div>
-          </div>
-
           <div class="split-panels">
             <div class="panel-surface">
               <div class="panel-head">
@@ -3020,6 +2999,15 @@
 
               <button type="button" class="primary" on:click={handleAlertSettingsSave} disabled={loading || actionBusy} style="max-width: max-content; margin-top: 1rem;">
                 Save alert settings
+              </button>
+              <button
+                type="button"
+                class="ghost"
+                on:click={handleTelegramTest}
+                disabled={loading || actionBusy || alertTestBusy || !telegramTestReady}
+                style="max-width: max-content; margin-top: 0.75rem;"
+              >
+                {alertTestBusy ? 'Sending test...' : 'Test Telegram'}
               </button>
               {#if alertError}
                 <p class="muted">{alertError}</p>

@@ -1,9 +1,12 @@
 import unittest
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, patch
 
 from backend.app.services.alerts import (
     format_provider_pool_exhausted_alert,
     format_proxy_failure_alert,
     format_queue_exhausted_alert,
+    send_telegram_test_message,
 )
 
 
@@ -24,12 +27,14 @@ class TelegramAlertFormattingTest(unittest.TestCase):
             error={"error": {"message": "Provider timeout"}},
         )
 
-        self.assertIn("Proxy failure", message)
-        self.assertIn("App token: Atlas", message)
-        self.assertIn("Queue: gemini", message)
-        self.assertIn("Final route: google/gemini-3-flash-preview", message)
-        self.assertIn("Tool calling: yes", message)
-        self.assertIn("Error: Provider timeout", message)
+        self.assertIn("*LLMBridge Proxy failure*", message)
+        self.assertIn("```text", message)
+        self.assertRegex(message, r"App token\s+Atlas")
+        self.assertRegex(message, r"Requested model\s+queue/gemini")
+        self.assertRegex(message, r"Final route\s+google/gemini-3-flash-preview")
+        self.assertRegex(message, r"Tool calling\s+yes")
+        self.assertIn("*Error log*", message)
+        self.assertIn("Provider timeout", message)
 
     def test_format_queue_exhausted_alert_is_direct(self) -> None:
         message = format_queue_exhausted_alert(
@@ -41,8 +46,9 @@ class TelegramAlertFormattingTest(unittest.TestCase):
             error="Queue 'gemini' has no active candidates",
         )
 
-        self.assertIn("Queue exhausted", message)
-        self.assertIn("Queue: gemini", message)
+        self.assertIn("*LLMBridge Queue exhausted*", message)
+        self.assertIn("```text", message)
+        self.assertRegex(message, r"Queue\s+gemini")
         self.assertIn("Queue 'gemini' has no active candidates", message)
 
     def test_format_provider_pool_exhausted_alert_is_direct(self) -> None:
@@ -55,9 +61,42 @@ class TelegramAlertFormattingTest(unittest.TestCase):
             error="No eligible provider keys available for provider 'google'",
         )
 
-        self.assertIn("Provider pool exhausted", message)
-        self.assertIn("Provider: google", message)
+        self.assertIn("*LLMBridge Provider pool exhausted*", message)
+        self.assertIn("```text", message)
+        self.assertRegex(message, r"Provider\s+google")
         self.assertIn("No eligible provider keys available for provider 'google'", message)
+
+    def test_send_telegram_test_message_uses_provided_credentials(self) -> None:
+        asyncio_result = self._run_send_telegram_test_message()
+        self.assertEqual(asyncio_result, "987654321")
+
+    def _run_send_telegram_test_message(self) -> str:
+        import asyncio
+
+        async def _run() -> str:
+            fake_settings = SimpleNamespace(telegram_bot_token="", telegram_chat_id="123")
+            fake_alert_settings = SimpleNamespace(
+                telegram_bot_token_encrypted=None,
+                telegram_chat_id="123",
+            )
+
+            with patch("backend.app.services.alerts.get_settings", return_value=fake_settings), patch(
+                "backend.app.services.alerts.get_alert_settings", new=AsyncMock(return_value=fake_alert_settings)
+            ), patch("backend.app.services.alerts._send_telegram_message", new=AsyncMock()) as send_mock:
+                chat_id = await send_telegram_test_message(
+                    session=SimpleNamespace(),
+                    telegram_bot_token="  test-token  ",
+                    telegram_chat_id=" 987654321 ",
+                )
+
+            send_mock.assert_awaited_once()
+            kwargs = send_mock.await_args.kwargs
+            self.assertEqual(kwargs["bot_token"], "test-token")
+            self.assertEqual(kwargs["chat_id"], "987654321")
+            self.assertIn("LLMBridge Telegram test", kwargs["text"])
+            return chat_id
+
+        return asyncio.run(_run())
 
 
 if __name__ == "__main__":

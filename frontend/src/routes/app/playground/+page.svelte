@@ -103,7 +103,6 @@
   let copiedSnippet = '';
   let responseSummary: ResponseSummary = null;
   let showRouteSettings = false;
-  let showGenerationSettings = false;
   let showRequestCode = false;
   let showRawResponse = false;
   let showSystemPrompt = false;
@@ -636,7 +635,6 @@ console.log(data);`;
     showSystemPrompt = false;
     showPromptTools = false;
     showRouteSettings = false;
-    showGenerationSettings = false;
     showRequestCode = false;
   }
 
@@ -695,9 +693,9 @@ console.log(data);`;
 
   <!-- Left Side: Config Panel (320px) -->
   <aside class="composer-sidebar">
-    <div class="sidebar-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.85rem; border-bottom: 1px solid var(--border); padding-bottom: 0.5rem; flex-shrink: 0;">
-      <span style="font-size: 0.72rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted);">Composer</span>
-      <button type="button" class="preset-chip" style="margin: 0; padding: 0.15rem 0.45rem; font-size: 0.7rem; border-radius: 4px; height: auto;" on:click={loadExample}>Load example</button>
+    <div class="sidebar-header">
+      <span>Composer</span>
+      <button type="button" class="preset-chip preset-chip-compact" on:click={loadExample}>Load example</button>
     </div>
 
     <!-- Target Mode & Protocol selection -->
@@ -799,7 +797,7 @@ console.log(data);`;
           <option value="" disabled>Select an app token</option>
           {#each appTokens as token}
             <option value={String(token.id)}>
-              {token.name} · {token.masked_token} · {token.environment}
+              {token.name}
             </option>
           {/each}
         </select>
@@ -814,38 +812,33 @@ console.log(data);`;
     </div>
 
     <!-- Parameters Collapsible -->
-    <details class="sidebar-section-details" bind:open={showGenerationSettings}>
-      <summary class="details-header">
-        <span>Parameters & System</span>
-        <span class="icon-indicator">{showGenerationSettings ? 'Collapse' : 'Expand'}</span>
-      </summary>
-      <div class="details-body">
-        <label class="field-margin">
-          <span>System Prompt</span>
-          <textarea bind:value={systemPrompt} rows="3" placeholder="System instructions..." spellcheck="false"></textarea>
-        </label>
-        
-        <div class="input-grid field-margin">
-          <label>
-            <span>Temperature</span>
-            <input type="number" step="0.1" min="0" max="2" bind:value={temperature} />
-          </label>
-          <label>
-            <span>Max Tokens</span>
-            <input type="number" step="1" min="1" bind:value={maxTokens} />
-          </label>
-          <label>
-            <span>Top P</span>
-            <input type="number" step="0.1" min="0" max="1" bind:value={topP} />
-          </label>
-        </div>
+    <div class="sidebar-section">
+      <div class="section-title">Parameters & System</div>
+      <label class="field-margin">
+        <span>System Prompt</span>
+        <textarea bind:value={systemPrompt} rows="3" placeholder="System instructions..." spellcheck="false"></textarea>
+      </label>
 
-        <label class="toggle-row field-margin">
-          <input type="checkbox" bind:checked={toolCallingEnabled} />
-          <span>Enable tool calling sample</span>
+      <div class="input-grid field-margin">
+        <label>
+          <span>Temperature</span>
+          <input type="number" step="0.1" min="0" max="2" bind:value={temperature} />
+        </label>
+        <label>
+          <span>Max Tokens</span>
+          <input type="number" step="1" min="1" bind:value={maxTokens} />
+        </label>
+        <label>
+          <span>Top P</span>
+          <input type="number" step="0.1" min="0" max="1" bind:value={topP} />
         </label>
       </div>
-    </details>
+
+      <label class="toggle-row field-margin">
+        <input type="checkbox" bind:checked={toolCallingEnabled} />
+        <span>Enable tool calling sample</span>
+      </label>
+    </div>
   </aside>
 
   <!-- Middle Column: Interactive Chat Workspace -->
@@ -1067,19 +1060,43 @@ console.log(data);`;
     display: flex;
     flex-direction: column;
     border-right: 1px solid var(--border);
-    background: rgba(13, 17, 22, 0.35);
+    background: rgba(13, 17, 22, 0.28);
     overflow-y: auto;
-    padding: 1.25rem;
-    gap: 1.25rem;
+    padding: 1rem 1rem 1.15rem;
+    gap: 0.9rem;
+  }
+
+  .sidebar-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding-bottom: 0.65rem;
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+  }
+
+  .sidebar-header span {
+    font-size: 0.72rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--muted);
   }
 
   .sidebar-section {
     display: flex;
     flex-direction: column;
-    padding: 1rem;
-    border: 1px solid var(--border);
-    background: rgba(255, 255, 255, 0.015);
-    border-radius: 6px;
+    padding: 0.1rem 0 0;
+    margin: 0;
+    border: 0;
+    background: transparent;
+    border-radius: 0;
+    gap: 0.7rem;
+  }
+
+  .sidebar-section + .sidebar-section {
+    padding-top: 0.95rem;
+    border-top: 1px solid var(--border);
   }
 
   .section-title {
@@ -1088,7 +1105,7 @@ console.log(data);`;
     text-transform: uppercase;
     letter-spacing: 0.08em;
     color: var(--muted);
-    margin-bottom: 0.85rem;
+    margin-bottom: 0;
   }
 
   .input-grid {
@@ -1120,11 +1137,29 @@ console.log(data);`;
     border: 1px solid var(--border);
     color: var(--text);
     border-radius: 4px;
-    padding: 0.5rem 0.65rem;
+    box-sizing: border-box;
+    padding: 0.6rem 0.75rem;
     font-size: 0.82rem;
+    line-height: 1.25;
     font-family: inherit;
     outline: none;
     transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  }
+
+  select {
+    min-height: 38px;
+    padding-right: 2rem;
+  }
+
+  html[data-theme='dark'] .composer-sidebar select {
+    background-color: rgba(10, 12, 16, 0.96);
+    color-scheme: dark;
+    color: var(--text);
+  }
+
+  html[data-theme='dark'] .composer-sidebar select option {
+    background-color: #0e1218;
+    color: var(--text);
   }
 
   input:focus, select:focus, textarea:focus {
@@ -1179,41 +1214,12 @@ console.log(data);`;
     border-color: rgba(216, 184, 88, 0.3);
   }
 
-  /* Collapsible Settings details styling */
-  .sidebar-section-details {
-    border: 1px solid var(--border);
-    background: rgba(255, 255, 255, 0.015);
-    border-radius: 6px;
-    overflow: hidden;
-  }
-
-  .details-header {
-    padding: 0.85rem 1rem;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    cursor: pointer;
-    user-select: none;
-    font-size: 0.75rem;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
-    color: var(--muted);
-  }
-
-  .details-header::-webkit-details-marker {
-    display: none;
-  }
-
-  .icon-indicator {
-    font-size: 0.65rem;
-    color: var(--muted);
-  }
-
-  .details-body {
-    padding: 0 1rem 1rem;
-    border-top: 1px dashed var(--border);
-    padding-top: 1rem;
+  .preset-chip-compact {
+    margin: 0;
+    padding: 0.15rem 0.45rem;
+    font-size: 0.7rem;
+    border-radius: 4px;
+    height: auto;
   }
 
   .toggle-row {
@@ -1578,23 +1584,20 @@ console.log(data);`;
   }
 
   .status-badge {
-    padding: 0.15rem 0.45rem;
+    padding: 0;
     font-size: 0.72rem;
     font-weight: 600;
-    border-radius: 4px;
-    border: 1px solid transparent;
+    border-radius: 0;
+    border: 0;
+    background: transparent;
   }
 
   .status-badge.status-ok {
     color: #4cd964;
-    border-color: rgba(76, 217, 100, 0.2);
-    background: rgba(76, 217, 100, 0.06);
   }
 
   .status-badge.status-err {
     color: #ff3b30;
-    border-color: rgba(255, 59, 48, 0.2);
-    background: rgba(255, 59, 48, 0.06);
   }
 
   .latency-badge {

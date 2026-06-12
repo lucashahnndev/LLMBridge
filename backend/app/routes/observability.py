@@ -27,13 +27,25 @@ SessionDep = Annotated[AsyncSession, Depends(get_session)]
 
 
 @router.get("/metrics/global", response_model=GlobalMetricsResponse)
-async def global_metrics(session: SessionDep) -> GlobalMetricsResponse:
-    return await build_global_metrics(session)
+async def global_metrics(
+    session: SessionDep,
+    range_filter: str = Query(default="24h", alias="range"),
+) -> GlobalMetricsResponse:
+    try:
+        return await build_global_metrics(session, range_filter)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
 
 @router.get("/metrics/projects", response_model=list[ProjectMetricsResponse])
-async def project_metrics(session: SessionDep) -> list[ProjectMetricsResponse]:
-    return await build_project_metrics(session)
+async def project_metrics(
+    session: SessionDep,
+    range_filter: str = Query(default="24h", alias="range"),
+) -> list[ProjectMetricsResponse]:
+    try:
+        return await build_project_metrics(session, range_filter)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
 
 @router.get("/metrics/timeseries", response_model=MetricsTimeseriesResponse)

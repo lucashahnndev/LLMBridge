@@ -16,6 +16,7 @@
   import type { ChartOptions } from 'chart.js';
   import type { OverviewDetail } from '$lib/api';
   import type { OverviewRange } from '$lib/overview';
+  import { formatOverviewTimeLabel } from '$lib/formatting';
 
   Chart.register(Title, Tooltip, Legend, LineElement, PointElement, CategoryScale, LinearScale, Filler, ArcElement, BarElement);
 
@@ -70,37 +71,8 @@
     return detail.context_label;
   }
 
-  function formatChartBucketLabel(value: string, granularity: string | undefined) {
-    const date = new Date(value);
-    if (granularity === 'minute') {
-      return new Intl.DateTimeFormat('en-US', {
-        hour: '2-digit',
-        minute: '2-digit',
-        hour12: false,
-        timeZone: 'America/Sao_Paulo'
-      }).format(date);
-    }
-
-    if (granularity === 'day') {
-      return new Intl.DateTimeFormat('en-US', {
-        month: 'short',
-        day: 'numeric',
-        timeZone: 'America/Sao_Paulo'
-      }).format(date);
-    }
-
-    return new Intl.DateTimeFormat('en-US', {
-      month: 'short',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
-      hour12: false,
-      timeZone: 'America/Sao_Paulo'
-    }).format(date);
-  }
-
   $: buckets = detail?.timeseries.buckets ?? [];
-  $: labels = buckets.map((bucket) => formatChartBucketLabel(bucket.bucket_start, detail?.timeseries.granularity));
+  $: labels = buckets.map((bucket) => formatOverviewTimeLabel(bucket.bucket_start, range));
   $: requestsSeries = buckets.map((bucket) => bucket.requests_count);
   $: errorsSeries = buckets.map((bucket) => bucket.error_count);
   $: latencySeries = buckets.map((bucket) => bucket.avg_latency_ms);
@@ -321,8 +293,8 @@
             {/if}
           </div>
           <div class="chart-axis" style="margin-top: 0.25rem;">
-            <span>{buckets[0] ? formatChartBucketLabel(buckets[0].bucket_start, detail.timeseries.granularity) : ''}</span>
-            <span>{buckets[buckets.length - 1] ? formatChartBucketLabel(buckets[buckets.length - 1].bucket_end, detail.timeseries.granularity) : ''}</span>
+            <span>{buckets[0] ? formatOverviewTimeLabel(buckets[0].bucket_start, range) : ''}</span>
+            <span>{buckets[buckets.length - 1] ? formatOverviewTimeLabel(buckets[buckets.length - 1].bucket_end, range) : ''}</span>
           </div>
         </div>
       </div>

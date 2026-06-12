@@ -4,12 +4,13 @@
   import { page } from '$app/stores';
   import { clearStoredAdminToken, getStoredAdminToken, logoutAdmin } from '$lib/api';
   import { applyThemeMode, getStoredThemeMode, setStoredThemeMode, type ThemeMode } from '$lib/theme';
-  import { activeSection, topbarTitle, refreshTrigger, sidebarCollapsed, type SectionKey } from '$lib/stores';
+  import { activeSection, topbarTitle, refreshTrigger, type SectionKey } from '$lib/stores';
   import {
     LayoutDashboard,
     Key,
     Coins,
-    BarChart2,
+    Layers3,
+    Activity,
     Settings,
     PanelLeftClose,
     PanelLeftOpen,
@@ -21,13 +22,16 @@
   let themeMode: ThemeMode = 'system';
   let isMounted = false;
   let hideBrandWordmark = false;
+  let sidebarPinnedOpen = false;
+  let sidebarHovered = false;
+  let sidebarHoverLocked = false;
 
   const sections: Array<{ key: SectionKey; label: string; icon: typeof LayoutDashboard }> = [
     { key: 'overview', label: 'Overview', icon: LayoutDashboard },
     { key: 'keys', label: 'Provider Keys', icon: Key },
     { key: 'tokens', label: 'App Tokens', icon: Coins },
-    { key: 'queues', label: 'Model Queues', icon: BarChart2 },
-    { key: 'usage', label: 'Usage', icon: BarChart2 },
+    { key: 'queues', label: 'Model Queues', icon: Layers3 },
+    { key: 'usage', label: 'Usage', icon: Activity },
     { key: 'runtime', label: 'Runtime', icon: Settings }
   ];
 
@@ -62,6 +66,30 @@
     }
   }
 
+  function handleSidebarToggle() {
+    if (sidebarPinnedOpen) {
+      sidebarPinnedOpen = false;
+      sidebarHovered = false;
+      sidebarHoverLocked = true;
+      return;
+    }
+
+    sidebarPinnedOpen = true;
+    sidebarHovered = true;
+    sidebarHoverLocked = false;
+  }
+
+  function handleSidebarMouseEnter() {
+    if (!sidebarPinnedOpen && !sidebarHoverLocked) {
+      sidebarHovered = true;
+    }
+  }
+
+  function handleSidebarMouseLeave() {
+    sidebarHovered = false;
+    sidebarHoverLocked = false;
+  }
+
   $: hideBrandWordmark = $page.url.pathname.startsWith('/app/playground');
 
   onMount(() => {
@@ -78,59 +106,76 @@
 </script>
 
 {#if isMounted}
-  <main class="shell" class:sidebar-collapsed={$sidebarCollapsed}>
-    <aside class="sidebar">
-      <div class="brand">
-        {#if $sidebarCollapsed}
-          <div class="brand-icon">LB</div>
-        {:else}
-          {#if !hideBrandWordmark}
-            <div class="eyebrow">LLMBridge</div>
+  <main
+    class="shell"
+    class:sidebar-collapsed={!sidebarPinnedOpen && !sidebarHovered}
+    class:sidebar-hover-preview={sidebarHovered && !sidebarPinnedOpen}
+    class:sidebar-pinned-open={sidebarPinnedOpen}
+  >
+    <aside
+      class="sidebar"
+      on:mouseenter={handleSidebarMouseEnter}
+      on:mouseleave={handleSidebarMouseLeave}
+    >
+      <div class="sidebar-panel">
+        <div class="brand">
+          {#if !sidebarPinnedOpen && !sidebarHovered}
+            <div class="brand-icon">LB</div>
+          {:else}
+            {#if !hideBrandWordmark}
+              <div class="eyebrow">LLMBridge</div>
+            {/if}
+            <h1>Control plane</h1>
           {/if}
-          <h1>Control plane</h1>
-        {/if}
-      </div>
+        </div>
 
-      <nav class="nav">
-        {#each sections as section}
+        <nav class="nav">
+          {#each sections as section}
+            <button
+              type="button"
+              class:active={$page.url.pathname === '/app' && $activeSection === section.key}
+              on:click={() => handleNavClick(section.key)}
+              title={!sidebarPinnedOpen && !sidebarHovered ? section.label : ''}
+            >
+              <span class="nav-icon"><svelte:component this={section.icon} size={15} strokeWidth={1.6} /></span>
+              {#if sidebarPinnedOpen || sidebarHovered}
+                <span class="nav-label">{section.label}</span>
+              {/if}
+            </button>
+          {/each}
           <button
             type="button"
-            class:active={$page.url.pathname === '/app' && $activeSection === section.key}
-            on:click={() => handleNavClick(section.key)}
-            title={$sidebarCollapsed ? section.label : ''}
+            class:active={$page.url.pathname === '/app/playground'}
+            on:click={() => goto('/app/playground')}
+            title={!sidebarPinnedOpen && !sidebarHovered ? 'Playground' : ''}
           >
-            <span class="nav-icon"><svelte:component this={section.icon} size={15} strokeWidth={1.6} /></span>
-            {#if !$sidebarCollapsed}
-              <span class="nav-label">{section.label}</span>
+            <span class="nav-icon"><SquareTerminal size={15} strokeWidth={1.6} /></span>
+            {#if sidebarPinnedOpen || sidebarHovered}
+              <span class="nav-label">Playground</span>
             {/if}
           </button>
-        {/each}
-        <button
-          type="button"
-          class:active={$page.url.pathname === '/app/playground'}
-          on:click={() => goto('/app/playground')}
-          title={$sidebarCollapsed ? 'Playground' : ''}
-        >
-          <span class="nav-icon"><SquareTerminal size={15} strokeWidth={1.6} /></span>
-          {#if !$sidebarCollapsed}
-            <span class="nav-label">Playground</span>
-          {/if}
-        </button>
-      </nav>
+        </nav>
 
-      <div class="sidebar-footer">
-        <button class="collapse-btn" on:click={() => sidebarCollapsed.set(!$sidebarCollapsed)} title={$sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}>
-          <span class="nav-icon">
-            {#if $sidebarCollapsed}
-              <PanelLeftOpen size={15} strokeWidth={1.6} />
-            {:else}
-              <PanelLeftClose size={15} strokeWidth={1.6} />
+        <div class="sidebar-footer">
+          <button
+            class="collapse-btn"
+            on:click={handleSidebarToggle}
+            title={sidebarPinnedOpen ? 'Unpin sidebar' : 'Pin sidebar open'}
+            aria-pressed={sidebarPinnedOpen}
+            aria-expanded={sidebarPinnedOpen || sidebarHovered}
+          >
+            <span class="nav-icon">
+              {#if sidebarPinnedOpen}
+                <PanelLeftClose size={15} strokeWidth={1.6} />
+              {:else}
+                <PanelLeftOpen size={15} strokeWidth={1.6} />
+              {/if}
+            </span>
+            {#if sidebarPinnedOpen || sidebarHovered}
+              <span class="nav-label">{sidebarPinnedOpen ? 'Unpin' : 'Pin open'}</span>
             {/if}
-          </span>
-          {#if !$sidebarCollapsed}
-            <span class="nav-label">Collapse</span>
-          {/if}
-        </button>
+          </button>
+        </div>
       </div>
     </aside>
 

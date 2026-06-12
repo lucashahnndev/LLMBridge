@@ -19,17 +19,40 @@ from backend.app.schemas.metrics import (
 )
 
 
-async def build_global_metrics(session: AsyncSession) -> GlobalMetricsResponse:
-    total_requests_stmt = select(func.count(UsageLog.id))
+def resolve_usage_window_filter(window: str) -> tuple[datetime, datetime]:
+    lookback, _ = resolve_metrics_window(window)
+    now = datetime.now(timezone.utc)
+    start = now - lookback
+    return start, now
+
+
+async def build_global_metrics(session: AsyncSession, window: str = "24h") -> GlobalMetricsResponse:
+    start, now = resolve_usage_window_filter(window)
+
+    total_requests_stmt = select(func.count(UsageLog.id)).where(
+        UsageLog.created_at >= start,
+        UsageLog.created_at <= now,
+    )
     success_count_stmt = select(func.count(UsageLog.id)).where(
         UsageLog.status_code >= 200,
         UsageLog.status_code < 300,
+        UsageLog.created_at >= start,
+        UsageLog.created_at <= now,
     )
-    avg_latency_stmt = select(func.coalesce(func.avg(UsageLog.latency_ms), 0.0))
-    total_tokens_stmt = select(func.coalesce(func.sum(UsageLog.total_tokens), 0))
+    avg_latency_stmt = select(func.coalesce(func.avg(UsageLog.latency_ms), 0.0)).where(
+        UsageLog.created_at >= start,
+        UsageLog.created_at <= now,
+    )
+    total_tokens_stmt = select(func.coalesce(func.sum(UsageLog.total_tokens), 0)).where(
+        UsageLog.created_at >= start,
+        UsageLog.created_at <= now,
+    )
     active_keys_stmt = select(func.count(ProviderKey.id)).where(ProviderKey.status == KeyStatus.ACTIVE)
     cooldown_keys_stmt = select(func.count(ProviderKey.id)).where(ProviderKey.status == KeyStatus.COOLDOWN)
-    rotated_stmt = select(func.coalesce(func.sum(case((UsageLog.was_rotated.is_(True), 1), else_=0)), 0))
+    rotated_stmt = select(func.coalesce(func.sum(case((UsageLog.was_rotated.is_(True), 1), else_=0)), 0)).where(
+        UsageLog.created_at >= start,
+        UsageLog.created_at <= now,
+    )
 
     total_requests = int((await session.execute(total_requests_stmt)).scalar_one())
     success_count = int((await session.execute(success_count_stmt)).scalar_one())
@@ -52,7 +75,8 @@ async def build_global_metrics(session: AsyncSession) -> GlobalMetricsResponse:
     )
 
 
-async def build_project_metrics(session: AsyncSession) -> list[ProjectMetricsResponse]:
+async def build_project_metrics(session: AsyncSession, window: str = "24h") -> list[ProjectMetricsResponse]:
+    start, now = resolve_usage_window_filter(window)
     stmt = (
         select(
             AppToken.id,
@@ -63,7 +87,10 @@ async def build_project_metrics(session: AsyncSession) -> list[ProjectMetricsRes
             func.coalesce(func.avg(UsageLog.latency_ms), 0.0).label("avg_latency_ms"),
         )
         .select_from(AppToken)
-        .outerjoin(UsageLog, UsageLog.app_token_id == AppToken.id)
+        .outerjoin(
+            UsageLog,
+            (UsageLog.app_token_id == AppToken.id) & (UsageLog.created_at >= start) & (UsageLog.created_at <= now),
+        )
         .group_by(AppToken.id, AppToken.name, AppToken.environment)
         .order_by(func.count(UsageLog.id).desc(), AppToken.id.desc())
     )

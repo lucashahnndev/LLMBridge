@@ -201,6 +201,11 @@ export type AlertSettings = {
   updated_at: string;
 };
 
+export type AlertTelegramTestResponse = {
+  sent: boolean;
+  detail: string;
+};
+
 export function apiBaseUrl() {
   if (typeof localStorage !== 'undefined') {
     const runtimeBaseUrl = localStorage.getItem(RUNTIME_BASE_URL_KEY);
@@ -273,8 +278,11 @@ export async function logoutAdmin(token: string): Promise<void> {
   }
 }
 
-export async function fetchGlobalMetrics(token: string): Promise<GlobalMetrics> {
-  const response = await fetch(`${apiBaseUrl()}/observability/metrics/global`, {
+export async function fetchGlobalMetrics(
+  token: string,
+  range: '1h' | '24h' | '7d' | '30d' = '24h'
+): Promise<GlobalMetrics> {
+  const response = await fetch(`${apiBaseUrl()}/observability/metrics/global?range=${range}`, {
     headers: { Authorization: `Bearer ${token}` }
   });
 
@@ -285,8 +293,11 @@ export async function fetchGlobalMetrics(token: string): Promise<GlobalMetrics> 
   return response.json();
 }
 
-export async function fetchProjectMetrics(token: string): Promise<ProjectMetrics[]> {
-  const response = await fetch(`${apiBaseUrl()}/observability/metrics/projects`, {
+export async function fetchProjectMetrics(
+  token: string,
+  range: '1h' | '24h' | '7d' | '30d' = '24h'
+): Promise<ProjectMetrics[]> {
+  const response = await fetch(`${apiBaseUrl()}/observability/metrics/projects?range=${range}`, {
     headers: { Authorization: `Bearer ${token}` }
   });
 
@@ -843,6 +854,30 @@ export async function updateAlertSettings(
   if (!response.ok) {
     const detail = await response.text();
     throw new Error(detail || 'Failed to update alert settings');
+  }
+
+  return response.json();
+}
+
+export async function sendTelegramTestAlert(
+  token: string,
+  payload: {
+    telegram_bot_token?: string | null;
+    telegram_chat_id?: string | null;
+  }
+): Promise<AlertTelegramTestResponse> {
+  const response = await fetch(`${apiBaseUrl()}/admin/alerts/test`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify(payload)
+  });
+
+  if (!response.ok) {
+    const detail = await response.text();
+    throw new Error(detail || 'Failed to send Telegram test alert');
   }
 
   return response.json();

@@ -100,7 +100,9 @@ button, input, select, textarea {
   display: grid;
   place-items: center;
   padding: 1.5rem;
-  background: radial-gradient(circle at 50% -20%, rgba(216, 184, 88, 0.08), transparent 70%);
+  background:
+    radial-gradient(circle at 50% -20%, rgba(216, 184, 88, 0.08), transparent 45%),
+    linear-gradient(180deg, #090b0d 0%, #0c0d10 55%, #090b0d 100%);
   position: relative;
   overflow: hidden;
 }
@@ -108,22 +110,22 @@ button, input, select, textarea {
 .auth-shell::before {
   content: '';
   position: absolute;
-  width: 250px;
-  height: 250px;
-  background: radial-gradient(circle, rgba(216, 184, 88, 0.04) 0%, transparent 70%);
-  top: 10%;
-  left: 15%;
+  width: 420px;
+  height: 420px;
+  background: radial-gradient(circle, rgba(216, 184, 88, 0.08) 0%, transparent 68%);
+  top: -6%;
+  left: -8%;
   z-index: 0;
   pointer-events: none;
 }
 .auth-shell::after {
   content: '';
   position: absolute;
-  width: 350px;
-  height: 350px;
-  background: radial-gradient(circle, rgba(216, 184, 88, 0.03) 0%, transparent 70%);
-  bottom: 15%;
-  right: 10%;
+  width: 520px;
+  height: 520px;
+  background: radial-gradient(circle, rgba(245, 158, 11, 0.05) 0%, transparent 72%);
+  bottom: -12%;
+  right: -10%;
   z-index: 0;
   pointer-events: none;
 }
@@ -134,7 +136,7 @@ button, input, select, textarea {
   z-index: 10;
   background: var(--panel);
   border: 1px solid var(--border);
-  border-radius: var(--radius-md);
+  border-radius: 0;
   box-shadow: 0 15px 35px rgba(0, 0, 0, 0.4);
   transition: transform 0.3s ease, box-shadow 0.3s ease;
 }
@@ -144,7 +146,7 @@ button, input, select, textarea {
 }
 
 .auth-card {
-  width: min(100%, 680px);
+  width: min(100%, 720px);
 }
 
 .redirect-card {
@@ -156,9 +158,9 @@ button, input, select, textarea {
 .redirect-card h1,
 .auth-copy h1 {
   margin: 0.25rem 0 0.5rem;
-  font-size: 1.6rem;
-  font-weight: 700;
-  letter-spacing: -0.02em;
+  font-size: 2.15rem;
+  font-weight: 800;
+  letter-spacing: -0.04em;
   color: var(--text);
 }
 
@@ -167,6 +169,8 @@ button, input, select, textarea {
   margin: 0;
   color: var(--muted);
   font-size: 0.85rem;
+  max-width: 24rem;
+  line-height: 1.55;
 }
 
 .redirect-card a {
@@ -195,12 +199,14 @@ button, input, select, textarea {
   display: grid;
   grid-template-columns: 1.1fr 1fr;
   overflow: hidden;
-  min-height: 380px;
+  min-height: 360px;
 }
 
 .auth-copy {
-  padding: 2.25rem 2rem;
-  background: linear-gradient(135deg, rgba(216, 184, 88, 0.03), transparent);
+  padding: 2.5rem 2.1rem;
+  background:
+    linear-gradient(135deg, rgba(216, 184, 88, 0.04), transparent 55%),
+    linear-gradient(180deg, rgba(255,255,255,0.015), transparent);
   border-right: 1px solid var(--border);
   display: flex;
   flex-direction: column;
@@ -208,8 +214,8 @@ button, input, select, textarea {
 }
 
 .auth-panel {
-  padding: 2.25rem 2rem;
-  background: rgba(0, 0, 0, 0.1);
+  padding: 2.5rem 2rem;
+  background: rgba(0, 0, 0, 0.14);
   display: flex;
   flex-direction: column;
   justify-content: center;
@@ -219,43 +225,23 @@ html[data-theme='light'] .auth-panel {
   background: rgba(255, 255, 255, 0.2);
 }
 
-.eyebrow {
-  text-transform: uppercase;
-  letter-spacing: 0.15em;
-  color: var(--accent);
-  font-size: 0.68rem;
-  font-weight: 700;
-}
-
-.health-row {
-  display: flex;
-  justify-content: space-between;
-  gap: 1rem;
-  align-items: center;
+.brand-lockup {
+  display: grid;
+  gap: 0.6rem;
+  justify-items: start;
   margin-bottom: 1.25rem;
-  padding-bottom: 0.75rem;
-  border-bottom: 1px solid var(--border);
 }
 
-.health-row span {
-  color: var(--muted);
-  font-size: 0.78rem;
-  font-weight: 500;
-}
-
-.health-row strong {
-  font-size: 0.75rem;
-  color: var(--good);
-  background: rgba(16, 185, 129, 0.1);
-  padding: 0.15rem 0.5rem;
-  border-radius: 10px;
-  border: 1px solid rgba(16, 185, 129, 0.15);
+.brand-rule {
+  width: 3.5rem;
+  height: 2px;
+  background: var(--accent-gradient);
 }
 
 .inline-note {
   margin-bottom: 1rem;
   padding: 0.65rem 0.85rem;
-  border-radius: var(--radius-sm);
+  border-radius: 0;
   border: 1px solid var(--border);
   font-size: 0.8rem;
   line-height: 1.4;
@@ -278,19 +264,21 @@ html[data-theme='light'] .inline-note.error {
   flex-direction: column;
   gap: 0.35rem;
   margin-bottom: 1rem;
-  font-size: 0.8rem;
-  font-weight: 500;
+  font-size: 0.78rem;
+  font-weight: 600;
   color: var(--text);
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
 }
 
 .auth-panel input {
   width: 100%;
-  height: 32px;
-  padding: 0 0.75rem;
+  height: 36px;
+  padding: 0 0.8rem;
   font-size: 0.88rem;
   background: rgba(255, 255, 255, 0.03);
   border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
+  border-radius: 0;
   color: var(--text);
   box-sizing: border-box;
   transition: all 0.2s ease;
@@ -304,22 +292,22 @@ html[data-theme='light'] .inline-note.error {
 .auth-panel input:focus {
   background: rgba(255, 255, 255, 0.05);
   border-color: var(--accent);
-  box-shadow: 0 0 0 3px rgba(216, 184, 88, 0.15);
+  box-shadow: 0 0 0 2px rgba(216, 184, 88, 0.12);
   outline: none;
 }
 
 .auth-panel button {
   width: 100%;
-  height: 34px;
+  height: 38px;
   background: var(--accent-gradient);
   color: #0c0d0f;
   font-weight: 700;
   font-size: 0.88rem;
   border: none;
-  border-radius: var(--radius-sm);
+  border-radius: 0;
   margin-top: 0.25rem;
   cursor: pointer;
-  box-shadow: 0 3px 8px rgba(216, 184, 88, 0.15);
+  box-shadow: 0 4px 14px rgba(216, 184, 88, 0.12);
   transition: all 0.2s ease;
 }
 
@@ -365,7 +353,7 @@ html[data-theme='light'] .inline-note.error {
 .theme-control select {
   min-width: 110px;
   height: 28px;
-  border-radius: var(--radius-sm);
+  border-radius: 0;
   background: var(--panel-2);
   border: 1px solid var(--border);
   color: var(--text);
@@ -377,13 +365,6 @@ html[data-theme='light'] .inline-note.error {
 }
 .theme-control select:hover {
   border-color: rgba(216, 184, 88, 0.25);
-}
-
-.fineprint {
-  margin: 1rem 0 0;
-  color: var(--muted);
-  font-size: 0.75rem;
-  text-align: center;
 }
 
 @media (max-width: 900px) {

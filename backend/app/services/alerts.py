@@ -22,6 +22,41 @@ class AlertChannel(str, enum.Enum):
 
 ALERT_SETTINGS_KEY = "global"
 
+_MARKDOWN_V2_SPECIALS = "\\_*[]()~`>#+-=|{}.!\""
+
+
+def _escape_markdown_v2(text: str) -> str:
+    escaped = text.replace("\\", "\\\\")
+    for char in _MARKDOWN_V2_SPECIALS:
+        if char == "\\":
+            continue
+        escaped = escaped.replace(char, f"\\{char}")
+    return escaped
+
+
+def _escape_code_block(text: str) -> str:
+    return text.replace("\\", "\\\\").replace("`", "\\`")
+
+
+def _format_code_block(lines: list[str]) -> str:
+    return "```text\n" + "\n".join(_escape_code_block(line) for line in lines) + "\n```"
+
+
+def _format_summary_block(items: list[tuple[str, str]]) -> str:
+    width = max((len(label) for label, _ in items), default=0)
+    lines = [f"{label.ljust(width)}  {value}" for label, value in items]
+    return _format_code_block(lines)
+
+
+def _build_telegram_test_message() -> str:
+    return "\n".join(
+        [
+            "LLMBridge Telegram test",
+            f"Time: {_now_utc()}",
+            "If you received this, Telegram delivery is working.",
+        ]
+    )
+
 
 def _default_alert_settings() -> AlertSettings:
     settings = get_settings()
@@ -37,6 +72,63 @@ def _default_alert_settings() -> AlertSettings:
         alert_provider_pool_exhausted=True,
         alert_provider_key_status_changes=True,
     )
+
+
+def _resolve_telegram_credentials(
+    alert_settings: AlertSettings | None = None,
+    *,
+    telegram_bot_token: str | None = None,
+    telegram_chat_id: str | None = None,
+) -> tuple[str, str]:
+    settings = get_settings()
+
+    override_token = telegram_bot_token.strip() if telegram_bot_token else ""
+    override_chat_id = telegram_chat_id.strip() if telegram_chat_id else ""
+
+    stored_token = ""
+    stored_chat_id = ""
+    if alert_settings is not None:
+        stored_token = (
+            decrypt_text(alert_settings.telegram_bot_token_encrypted)
+            if alert_settings.telegram_bot_token_encrypted
+            else settings.telegram_bot_token
+        ).strip()
+        stored_chat_id = (alert_settings.telegram_chat_id or settings.telegram_chat_id).strip()
+    else:
+        stored_token = settings.telegram_bot_token.strip()
+        stored_chat_id = settings.telegram_chat_id.strip()
+
+    bot_token = override_token or stored_token
+    chat_id = override_chat_id or stored_chat_id
+
+    if not bot_token:
+        raise RuntimeError("Telegram bot token is not configured")
+    if not chat_id:
+        raise RuntimeError("Telegram chat ID is not configured")
+
+    return bot_token, chat_id
+
+
+async def _send_telegram_message(
+    *,
+    bot_token: str,
+    chat_id: str,
+    text: str,
+    reply_to_message_id: int | None = None,
+    parse_mode: str | None = None,
+) -> None:
+    payload: dict[str, object] = {
+        "chat_id": chat_id,
+        "text": text,
+        "disable_web_page_preview": True,
+    }
+    if reply_to_message_id is not None:
+        payload["reply_to_message_id"] = reply_to_message_id
+    if parse_mode is not None:
+        payload["parse_mode"] = parse_mode
+
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        await _telegram_request(client, bot_token, "sendMessage", payload)
 
 
 async def get_alert_settings(session: AsyncSession) -> AlertSettings:
@@ -104,6 +196,7 @@ async def send_telegram_alert(
     *,
     session: AsyncSession | None = None,
     channel: AlertChannel | str | None = None,
+    parse_mode: str | None = None,
 ) -> bool:
     settings = get_settings()
     alert_settings: AlertSettings | None = None
@@ -126,31 +219,44 @@ async def send_telegram_alert(
     if not bot_token or not chat_id:
         return False
 
-    url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
-    payload = {
-        "chat_id": chat_id,
-        "text": message,
-        "disable_web_page_preview": True,
-    }
-
-    async with httpx.AsyncClient(timeout=10.0) as client:
-        response = await client.post(url, json=payload)
-        response.raise_for_status()
+    await _send_telegram_message(
+        bot_token=bot_token,
+        chat_id=chat_id,
+        text=message,
+        parse_mode=parse_mode,
+    )
     return True
+
+
+async def send_telegram_test_message(
+    session: AsyncSession,
+    *,
+    telegram_bot_token: str | None = None,
+    telegram_chat_id: str | None = None,
+) -> str:
+    alert_settings = await get_alert_settings(session)
+    bot_token, chat_id = _resolve_telegram_credentials(
+        alert_settings,
+        telegram_bot_token=telegram_bot_token,
+        telegram_chat_id=telegram_chat_id,
+    )
+    message = _build_telegram_test_message()
+    await _send_telegram_message(bot_token=bot_token, chat_id=chat_id, text=message)
+    return chat_id
 
 
 def _now_utc() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%SZ")
 
 
-def _coerce_error_message(error: str | dict[str, object] | list[object] | None) -> str:
+def _coerce_error_log(error: str | dict[str, object] | list[object] | None) -> str:
     if error is None:
         return "Proxy request failed"
     if isinstance(error, str):
         text = error.strip()
         return text or "Proxy request failed"
     if isinstance(error, list):
-        return json.dumps(error, ensure_ascii=False)
+        return json.dumps(error, ensure_ascii=False, indent=2)
     detail = error.get("detail") if isinstance(error, dict) else None
     if isinstance(detail, str) and detail.strip():
         return detail.strip()
@@ -159,7 +265,7 @@ def _coerce_error_message(error: str | dict[str, object] | list[object] | None) 
         message = nested_error.get("message")
         if isinstance(message, str) and message.strip():
             return message.strip()
-    return json.dumps(error, ensure_ascii=False)
+    return json.dumps(error, ensure_ascii=False, indent=2)
 
 
 def format_proxy_failure_alert(
@@ -177,27 +283,30 @@ def format_proxy_failure_alert(
     rotated: bool,
     error: str | dict[str, object] | list[object] | None,
 ) -> str:
-    lines = [
-        "[LLMBridge] Proxy failure",
-        f"Time: {_now_utc()}",
-        f"App token: {app_token_name}",
-        f"Requested model: {requested_model}",
-        f"Final route: {final_route or 'n/a'}",
-        f"Route kind: {route_kind}",
-    ]
-    if queue_name:
-        lines.append(f"Queue: {queue_name}")
-    lines.extend(
+    summary = _format_summary_block(
         [
-            f"Protocol in/out: {protocol_in}/{protocol_out}",
-            f"Status: {status_code}",
-            f"Attempts: {attempts}",
-            f"Rotated: {'yes' if rotated else 'no'}",
-            f"Tool calling: {'yes' if tool_calling else 'no'}",
-            f"Error: {_coerce_error_message(error)}",
+            ("Time", _now_utc()),
+            ("App token", app_token_name),
+            ("Requested model", requested_model),
+            ("Final route", final_route or "n/a"),
+            ("Route kind", route_kind),
+            ("Queue", queue_name or "n/a"),
+            ("Protocol in/out", f"{protocol_in} / {protocol_out}"),
+            ("Status", str(status_code)),
+            ("Attempts", str(attempts)),
+            ("Rotated", "yes" if rotated else "no"),
+            ("Tool calling", "yes" if tool_calling else "no"),
         ]
     )
-    return "\n".join(lines)
+    error_log = _format_code_block([_coerce_error_log(error)])
+    return "\n".join(
+        [
+            f"*{_escape_markdown_v2('LLMBridge Proxy failure')}*",
+            summary,
+            "*Error log*",
+            error_log,
+        ]
+    )
 
 
 def format_queue_exhausted_alert(
@@ -209,15 +318,22 @@ def format_queue_exhausted_alert(
     protocol_out: str,
     error: str | dict[str, object] | list[object] | None,
 ) -> str:
+    summary = _format_summary_block(
+        [
+            ("Time", _now_utc()),
+            ("App token", app_token_name),
+            ("Queue", queue_name),
+            ("Requested model", requested_model),
+            ("Protocol in/out", f"{protocol_in} / {protocol_out}"),
+        ]
+    )
+    error_log = _format_code_block([_coerce_error_log(error)])
     return "\n".join(
         [
-            "[LLMBridge] Queue exhausted",
-            f"Time: {_now_utc()}",
-            f"App token: {app_token_name}",
-            f"Queue: {queue_name}",
-            f"Requested model: {requested_model}",
-            f"Protocol in/out: {protocol_in}/{protocol_out}",
-            f"Error: {_coerce_error_message(error)}",
+            f"*{_escape_markdown_v2('LLMBridge Queue exhausted')}*",
+            summary,
+            "*Error log*",
+            error_log,
         ]
     )
 
@@ -231,14 +347,21 @@ def format_provider_pool_exhausted_alert(
     protocol_out: str,
     error: str | dict[str, object] | list[object] | None,
 ) -> str:
+    summary = _format_summary_block(
+        [
+            ("Time", _now_utc()),
+            ("App token", app_token_name),
+            ("Provider", provider),
+            ("Requested model", requested_model),
+            ("Protocol in/out", f"{protocol_in} / {protocol_out}"),
+        ]
+    )
+    error_log = _format_code_block([_coerce_error_log(error)])
     return "\n".join(
         [
-            "[LLMBridge] Provider pool exhausted",
-            f"Time: {_now_utc()}",
-            f"App token: {app_token_name}",
-            f"Provider: {provider}",
-            f"Requested model: {requested_model}",
-            f"Protocol in/out: {protocol_in}/{protocol_out}",
-            f"Error: {_coerce_error_message(error)}",
+            f"*{_escape_markdown_v2('LLMBridge Provider pool exhausted')}*",
+            summary,
+            "*Error log*",
+            error_log,
         ]
     )

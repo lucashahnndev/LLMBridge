@@ -240,9 +240,15 @@ async def log_usage(
     await session.commit()
 
 
-async def _best_effort_send_alert(session: AsyncSession, message: str, *, channel: AlertChannel | None = None) -> None:
+async def _best_effort_send_alert(
+    session: AsyncSession,
+    message: str,
+    *,
+    channel: AlertChannel | None = None,
+    parse_mode: str | None = None,
+) -> None:
     try:
-        await send_telegram_alert(message, session=session, channel=channel)
+        await send_telegram_alert(message, session=session, channel=channel, parse_mode=parse_mode)
     except Exception:
         return
 
@@ -295,7 +301,12 @@ async def _send_resolution_alert(
         rotated=rotated,
         error=error,
     )
-    await _best_effort_send_alert(session, alert_message, channel=AlertChannel.PROXY_FAILURE)
+    await _best_effort_send_alert(
+        session,
+        alert_message,
+        channel=AlertChannel.PROXY_FAILURE,
+        parse_mode="MarkdownV2",
+    )
 
 
 async def mark_provider_key_success(session: AsyncSession, provider_key: ProviderKey) -> None:
@@ -1014,6 +1025,7 @@ async def proxy_chat_completion(
                             error=error_text,
                         ),
                         channel=AlertChannel.QUEUE_EXHAUSTED,
+                        parse_mode="MarkdownV2",
                     )
                 else:
                     provider = payload.model.split("/", 1)[0] if "/" in payload.model else "unknown"
@@ -1028,6 +1040,7 @@ async def proxy_chat_completion(
                             error=error_text,
                         ),
                         channel=AlertChannel.PROVIDER_POOL_EXHAUSTED,
+                        parse_mode="MarkdownV2",
                     )
             if trace.enabled:
                 trace.write()
@@ -1153,6 +1166,7 @@ async def proxy_chat_completion_stream(
                         error=error_text,
                     ),
                     channel=AlertChannel.QUEUE_EXHAUSTED,
+                    parse_mode="MarkdownV2",
                 )
             else:
                 provider = payload.model.split("/", 1)[0] if "/" in payload.model else "unknown"
@@ -1167,6 +1181,7 @@ async def proxy_chat_completion_stream(
                         error=error_text,
                     ),
                     channel=AlertChannel.PROVIDER_POOL_EXHAUSTED,
+                    parse_mode="MarkdownV2",
                 )
         if trace.enabled:
             trace.write()

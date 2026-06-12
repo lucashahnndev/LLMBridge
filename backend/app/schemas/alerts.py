@@ -26,3 +26,13 @@ class AlertSettingsUpdate(BaseModel):
     alert_queue_exhausted: bool | None = None
     alert_provider_pool_exhausted: bool | None = None
     alert_provider_key_status_changes: bool | None = None
+
+
+class AlertTelegramTestRequest(BaseModel):
+    telegram_bot_token: str | None = Field(default=None, description="Optional Telegram bot token override in plain text.")
+    telegram_chat_id: str | None = Field(default=None, description="Optional Telegram chat ID override.")
+
+
+class AlertTelegramTestResponse(BaseModel):
+    sent: bool = True
+    detail: str

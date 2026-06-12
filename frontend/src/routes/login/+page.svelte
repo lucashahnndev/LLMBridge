@@ -1,23 +1,20 @@
 <script lang="ts">
   import { goto } from '$app/navigation';
   import { onMount } from 'svelte';
-  import { fetchHealth, getStoredAdminToken, loginAdmin, setStoredAdminToken, type HealthResponse } from '$lib/api';
+  import { fetchHealth, getStoredAdminToken, loginAdmin, setStoredAdminToken } from '$lib/api';
   import { applyThemeMode, getStoredThemeMode, setStoredThemeMode, type ThemeMode } from '$lib/theme';
-  import { ShieldCheck } from 'lucide-svelte';
 
   let password = '';
   let loading = false;
   let error = '';
-  let backendHealth: HealthResponse | null = null;
   let healthError = '';
   let themeMode: ThemeMode = 'system';
 
   async function refreshHealth() {
     healthError = '';
     try {
-      backendHealth = await fetchHealth();
+      await fetchHealth();
     } catch (nextError) {
-      backendHealth = null;
       healthError = nextError instanceof Error ? nextError.message : 'Health check failed';
     }
   }
@@ -60,10 +57,10 @@
 </script>
 
 <svelte:head>
-  <title>Console access</title>
+  <title>LLMBridge</title>
   <meta
     name="description"
-    content="Enter the admin console for the local LLM gateway and key rotator."
+    content="LLMBridge local gateway console."
   />
 </svelte:head>
 
@@ -80,17 +77,14 @@
 
   <section class="auth-card">
     <div class="auth-copy">
-      <div style="display: flex; gap: 0.75rem; align-items: center; margin-bottom: 1rem;">
-        <ShieldCheck size={32} color="var(--accent)" />
+      <div class="brand-lockup">
+        <div class="brand-rule"></div>
+        <h1>LLMBridge</h1>
       </div>
-      <h1>Console access</h1>
-      <p>Local operator sign-in.</p>
+      <p>Local gateway control, without the clutter.</p>
     </div>
 
     <div class="auth-panel">
-      <div class="health-row">
-        <strong>{backendHealth ? backendHealth.status : 'Unknown'}</strong>
-      </div>
       {#if healthError}
         <div class="inline-note error">{healthError}</div>
       {/if}
@@ -110,7 +104,6 @@
         </button>
       </form>
 
-      <p class="fineprint">Local only.</p>
     </div>
   </section>
 </main>
