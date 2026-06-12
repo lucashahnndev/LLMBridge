@@ -1,6 +1,6 @@
 # Data Model Stat
 
-Last update date: 2026-06-07
+Last update date: 2026-06-11
 
 ## Current state
 
@@ -10,11 +10,17 @@ Last update date: 2026-06-07
 - the public schema rules for masking and controlled reveal are now explicit;
 - the Pydantic schema layer is now scaffolded in code;
 - the first CRUD API routes for the data model now exist in code.
+- the architectural contract now requires explicit separation between provider/model priority state and key/provider/model operational availability state.
+- the legacy `ProviderKeyModelCooldown` table is now considered deprecated compatibility storage, while `provider_key_route_states` is the operational source of truth.
 
 ## Pending items
 
 - define migrations when implementation begins;
 - validate the final field names against the first real endpoints.
+- decide the final persistent shape for:
+  - provider/model rank inputs;
+  - key/provider/model cooldown and disable state;
+  - balancing metadata such as `in_flight_count`, `last_used_at`, and optional reservation timestamps.
 
 ## Evidence / validation
 
@@ -40,6 +46,7 @@ Last update date: 2026-06-07
 - dashboard summary payloads may later need to be split if reporting grows;
 - usage-log cardinality could become large and may require indexing decisions later;
 - the API routes now exist, but they still need real authentication, validation, and business rules layered on top.
+- the current first-pass schema does not yet express the full redesigned split between rank state and key availability state.
 
 ## Related
 

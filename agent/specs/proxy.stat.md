@@ -1,6 +1,6 @@
 # Proxy Stat
 
-Last update date: 2026-06-09
+Last update date: 2026-06-11
 
 ## Current state
 
@@ -22,6 +22,12 @@ Last update date: 2026-06-09
 - streaming chat-completions requests are proxied as `text/event-stream`;
 - the route format keeps `provider/model-name` as the real provider route while `queue/{queue-name}` acts as an orchestration alias;
 - Anthropic-compatible public routing is now available and maps into the same internal route resolver.
+- the architectural redesign for queue routing is now specified:
+  - availability at `key/provider/model`;
+  - rank at `provider/model`;
+  - preventive balance at `key`;
+- the proxy contract now also requires a post-request background classifier to refresh cooldown, disable state, latency inputs, error inputs, and balancing metadata outside the request hot path.
+- the new operational source of truth is `provider_key_route_states`; the legacy `ProviderKeyModelCooldown` table remains only for compatibility during migration.
 
 ## Pending items
 
@@ -32,6 +38,11 @@ Last update date: 2026-06-09
 - decide whether canonical IR cleanup policies should become configurable per route or per app token;
 - decide whether trace capture should eventually support per-route retention windows or sampling knobs;
 - tune retry/backoff defaults against real provider behavior.
+- implement the new queue and direct-route execution flow against the redesigned contract;
+- introduce materialized candidate preparation so the executor consumes prefiltered and preordered lists;
+- wire provider-specific retry parsing into `cooldown_until` updates at `key/provider/model`;
+- split route-level rank data from key-level operational availability data;
+- define how direct `provider/model` routes expose structural exhaustion versus temporary cooldown exhaustion.
 
 ## Evidence / validation
 
@@ -62,6 +73,7 @@ Last update date: 2026-06-09
 - streaming responses are enabled as a raw pass-through scaffold, but they still need integration validation.
 - queue aliases are implemented in the backend, but the admin UI still needs a dedicated queue editor before operators can manage them comfortably.
 - the Anthropic adapter is implemented and the protocol-aware telemetry fields are now stored on UsageLog records.
+- the current implementation still mixes queue-candidate scoring, key eligibility, and cooldown behavior more tightly than the redesigned contract allows.
 
 ## Related
 

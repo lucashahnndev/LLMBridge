@@ -1,18 +1,38 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Callable
 
 from sqlalchemy import inspect, insert, select, text
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 from backend.app.core.version import SCHEMA_BASE_VERSION, SCHEMA_VERSION, compare_semver
-from backend.app.database.models import AlertSettings, ModelQueue, ModelQueueCandidate, QueueStrategy, SchemaVersion
+from backend.app.database.models import (
+    AlertSettings,
+    ModelQueue,
+    ModelQueueCandidate,
+    ProviderKey,
+    ProviderKeyRouteState,
+    QueueStrategy,
+    SchemaVersion,
+)
 from backend.app.core.config import get_settings
 from backend.app.services.crypto import encrypt_text
 
 
 SchemaUpgrade = Callable[[object], None]
+
+
+def _coerce_datetime(value: object) -> datetime | None:
+    if value is None or isinstance(value, datetime):
+        return value
+    if isinstance(value, str):
+        try:
+            return datetime.fromisoformat(value.strip().replace("Z", "+00:00"))
+        except ValueError:
+            return None
+    return None
 
 
 @dataclass(frozen=True)
@@ -40,6 +60,36 @@ def _ensure_usage_log_telemetry_columns(sync_conn) -> None:
 
     for column_name, column_def in additions:
         sync_conn.execute(text(f"ALTER TABLE usage_logs ADD COLUMN {column_name} {column_def}"))
+
+
+def _ensure_model_queue_rank_columns(sync_conn) -> None:
+    inspector = inspect(sync_conn)
+    if "model_queue_candidates" not in inspector.get_table_names():
+        return
+
+    existing_columns = {column["name"] for column in inspector.get_columns("model_queue_candidates")}
+    additions: list[tuple[str, str]] = []
+    if "base_degradation" not in existing_columns:
+        additions.append(("base_degradation", "FLOAT NOT NULL DEFAULT 0"))
+    if "latency_score" not in existing_columns:
+        additions.append(("latency_score", "FLOAT NOT NULL DEFAULT 0"))
+    if "error_score" not in existing_columns:
+        additions.append(("error_score", "FLOAT NOT NULL DEFAULT 0"))
+    if "final_rank" not in existing_columns:
+        additions.append(("final_rank", "FLOAT NOT NULL DEFAULT 0"))
+
+    for column_name, column_def in additions:
+        sync_conn.execute(text(f"ALTER TABLE model_queue_candidates ADD COLUMN {column_name} {column_def}"))
+
+    sync_conn.execute(
+        text(
+            """
+            UPDATE model_queue_candidates
+            SET final_rank = score
+            WHERE final_rank IS NULL OR final_rank = 0
+            """
+        )
+    )
 
 
 def _ensure_tables(sync_conn, *tables) -> None:
@@ -137,6 +187,69 @@ def _upgrade_alert_settings(sync_conn) -> None:
     _seed_default_alert_settings(sync_conn)
 
 
+def _upgrade_provider_key_route_states(sync_conn) -> None:
+    _ensure_tables(sync_conn, ProviderKeyRouteState.__table__)
+
+    inspector = inspect(sync_conn)
+    if "provider_key_model_cooldowns" not in inspector.get_table_names():
+        return
+
+    existing_rows = sync_conn.execute(
+        select(
+            ProviderKeyRouteState.__table__.c.provider_key_id,
+            ProviderKeyRouteState.__table__.c.provider,
+            ProviderKeyRouteState.__table__.c.model_name,
+        )
+    ).fetchall()
+    existing_keys = {(row[0], row[1], row[2]) for row in existing_rows}
+
+    legacy_rows = sync_conn.execute(
+        text(
+            """
+            SELECT
+                pkmc.provider_key_id,
+                pk.provider,
+                pkmc.model_name,
+                pkmc.blocked_until,
+                pkmc.created_at,
+                pkmc.updated_at
+            FROM provider_key_model_cooldowns pkmc
+            JOIN provider_keys pk ON pk.id = pkmc.provider_key_id
+            """
+        )
+    ).fetchall()
+
+    inserts: list[dict[str, object]] = []
+    for row in legacy_rows:
+        composite_key = (row[0], row[1], row[2])
+        if composite_key in existing_keys:
+            continue
+        inserts.append(
+            {
+                "provider_key_id": row[0],
+                "provider": row[1],
+                "model_name": row[2],
+                "cooldown_until": _coerce_datetime(row[3]),
+                "blocked_until": None,
+                "disabled": False,
+                "disabled_reason": None,
+                "last_used_at": None,
+                "in_flight_count": 0,
+                "soft_reserved_until": None,
+                "next_available_at": None,
+                "created_at": _coerce_datetime(row[4]),
+                "updated_at": _coerce_datetime(row[5]),
+            }
+        )
+
+    if inserts:
+        sync_conn.execute(insert(ProviderKeyRouteState.__table__), inserts)
+
+
+def _upgrade_model_queue_rank_fields(sync_conn) -> None:
+    _ensure_model_queue_rank_columns(sync_conn)
+
+
 def _read_schema_version(sync_conn) -> str:
     version = sync_conn.execute(
         select(SchemaVersion.version).where(SchemaVersion.key == "schema")
@@ -158,9 +271,19 @@ def _write_schema_version(sync_conn, version: str) -> None:
 
 MIGRATION_STEPS: tuple[MigrationStep, ...] = (
     MigrationStep(
-        version=SCHEMA_VERSION,
+        version="0.3.0",
         description="Add telemetry columns, seed Gemini queue, and initialize alert settings",
         upgrade=_upgrade_alert_settings,
+    ),
+    MigrationStep(
+        version="0.3.1",
+        description="Add provider-key route operational state for key/provider/model availability",
+        upgrade=_upgrade_provider_key_route_states,
+    ),
+    MigrationStep(
+        version=SCHEMA_VERSION,
+        description="Add provider/model rank fields for queue candidates",
+        upgrade=_upgrade_model_queue_rank_fields,
     ),
 )
 

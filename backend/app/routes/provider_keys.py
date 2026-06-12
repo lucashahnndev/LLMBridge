@@ -21,6 +21,7 @@ from backend.app.services.records import provider_key_response
 from backend.app.services.alerts import AlertChannel, send_telegram_alert
 from backend.app.services.metrics import format_key_status_alert, format_provider_pool_alert
 from backend.app.services.records import ensure_utc_datetime
+from backend.app.services.route_materializer import schedule_route_materializer_refresh_all
 
 
 router = APIRouter(prefix="/provider-keys", tags=["provider-keys"], dependencies=[Depends(require_admin)])
@@ -46,6 +47,7 @@ async def create_provider_key(payload: ProviderKeyCreate, session: SessionDep) -
     session.add(provider_key)
     await session.commit()
     await session.refresh(provider_key)
+    schedule_route_materializer_refresh_all()
     return provider_key_response(provider_key)
 
 
@@ -95,6 +97,7 @@ async def update_provider_key(
 
     await session.commit()
     await session.refresh(provider_key)
+    schedule_route_materializer_refresh_all()
 
     if provider_key.status != previous_status and provider_key.status in {
         KeyStatus.COOLDOWN,
@@ -136,6 +139,7 @@ async def delete_provider_key(provider_key_id: int, session: SessionDep) -> Resp
     provider_key = await get_provider_key_or_404(session, provider_key_id)
     await session.delete(provider_key)
     await session.commit()
+    schedule_route_materializer_refresh_all()
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 

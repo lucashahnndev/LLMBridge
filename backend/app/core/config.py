@@ -31,6 +31,7 @@ class Settings(BaseSettings):
     key_cooldown_seconds: int = Field(default=300)
     provider_model_not_found_cooldown_seconds: int = Field(default=3600)
     provider_transient_failure_cooldown_seconds: int = Field(default=30)
+    legacy_cooldown_mirror_enabled: bool = Field(default=True)
     log_file_enabled: bool = Field(default=False)
     log_level: str = Field(default="INFO")
     log_file_path: str = Field(default="logs/backend.log")

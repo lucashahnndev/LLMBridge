@@ -29,6 +29,7 @@ from backend.app.routes.proxy import router as proxy_router
 from backend.app.routes.provider_keys import router as provider_keys_router
 from backend.app.routes.usage_logs import router as usage_logs_router
 from backend.app.database.session import get_sessionmaker
+from backend.app.services.route_materializer import warmup_route_materializer
 from backend.app.services.telegram_bot import create_telegram_bot_worker
 
 
@@ -44,6 +45,7 @@ async def lifespan(app: FastAPI):
     http_client = httpx.AsyncClient(timeout=timeout, limits=limits)
     telegram_bot_worker = create_telegram_bot_worker(get_sessionmaker())
     await telegram_bot_worker.start()
+    await warmup_route_materializer()
     app.state.http_client = http_client
     app.state.telegram_bot_worker = telegram_bot_worker
     yield

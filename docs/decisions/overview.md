@@ -11,3 +11,4 @@ Approved and closed decisions.
 
 - [../overview.md](../overview.md)
 - [../../agent/specs/overview.md](../../agent/specs/overview.md)
+- [queue-cooldown-ranking-redesign.md](./queue-cooldown-ranking-redesign.md)

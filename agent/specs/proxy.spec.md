@@ -30,6 +30,41 @@ This spec defines the request-routing and translation contract for the unified L
 - queue-level fallback must advance to the next candidate when the current candidate fails for a retryable upstream reason or exhausts its quota;
 - queue routing must not replace the provider/model contract; it wraps it.
 - public adapters must preserve telemetry fields that identify the source protocol, sink protocol, selected route kind, resolved route, queue name, and tool-calling behavior.
+- queue orchestration must separate three different decisions:
+  - availability is decided at `key/provider/model`;
+  - priority is decided at `provider/model`;
+  - key distribution is decided at `key`;
+- the request executor must not recalculate queue ranking, key eligibility, or balancing rules during the hot path; it must consume an already prepared ordered candidate list;
+- when the public route targets `queue/{queue-name}`, the system must:
+  - resolve candidate `provider/model` routes configured on the queue;
+  - discard `key/provider/model` combinations that are disabled, blocked, or cooling down;
+  - sort `provider/model` routes by rank;
+  - balance eligible keys inside each `provider/model`;
+  - deliver a flat ordered fallback list to the executor;
+- when the public route targets a direct `provider/model`, the system must not rank across models, but it must still balance eligible keys for that exact route;
+- `cooldown_until` is a reactive availability field at `key/provider/model` and must be derived from explicit upstream retry signals such as `Retry-After` headers or provider-specific `Please retry in ...` messages;
+- cooldown must never participate in the rank formula;
+- upstream `429` with explicit retry must update `cooldown_until` at `key/provider/model` rather than permanently degrading the route;
+- upstream `401` and `403` must disable or block `key/provider/model` without degrading the parent `provider/model` rank, because those failures usually describe authentication, permission, billing, or model-access problems tied to the key;
+- upstream `404` that clearly indicates model absence or unsupported capability may degrade or disable `provider/model`, while `404` caused by key-specific access restrictions may disable only `key/provider/model`;
+- upstream `400` caused by payload incompatibility must not automatically degrade `provider/model`; it must be classified as adapter or request compatibility failure until proven otherwise;
+- recurrent `5xx` or similar upstream transient failures may temporarily degrade `provider/model` rank, but that degradation is separate from cooldown and must decay independently;
+- rank at `provider/model` must be a normalized decimal composition that may consider latency, transient error pressure, and manual base degradation;
+- keys inside a given `provider/model` must be distributed preventively by balanced selection, such as least-used, `in_flight_count` ascending, `last_used_at` ascending, round-robin, or an equivalent deterministic strategy that avoids repeatedly selecting the same key first;
+- key balancing and cooldown serve different goals:
+  - cooldown is reactive after the provider already refused a request;
+  - key balancing is preventive and aims to reduce avoidable `429` concentration;
+- if all otherwise valid candidates for a route are cooling down, the proxy must return `429` and compute `Retry-After` from the smallest recoverable `cooldown_until` across the unavailable candidates;
+- if all candidates are disabled or blocked without known temporal recovery, the proxy must return a structural route-unavailable style error instead of `429`;
+- after each request completes, the proxy must emit a post-request classification event that updates operational state outside the hot path;
+- the post-request classifier may run in background after the client response is sent, but it must still be responsible for refreshing:
+  - `cooldown_until`;
+  - disabled or blocked flags;
+  - provider/model latency and error rank inputs;
+  - per-key balancing metadata such as `last_used_at`, `in_flight_count`, and optional soft reservation state;
+- the next request must consume a materialized queue snapshot produced from the latest committed operational state rather than recalculating the whole decision tree during execution;
+- the request path should read the materialized snapshot cache and avoid rebuilding the full candidate order unless a cold-miss bootstrap fallback is unavoidable.
+- `ProviderKeyModelCooldown` may still exist for compatibility during migration, but the proxy hot path must treat `provider_key_route_states` as the source of truth for availability and exhaustion decisions.
 
 ## Scope notes
 

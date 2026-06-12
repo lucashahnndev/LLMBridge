@@ -55,6 +55,10 @@ class ProviderKey(Base):
     )
 
     logs: Mapped[List["UsageLog"]] = relationship(back_populates="provider_key")
+    route_states: Mapped[List["ProviderKeyRouteState"]] = relationship(
+        back_populates="provider_key",
+        cascade="all, delete-orphan",
+    )
 
 
 class ModelQueue(Base):
@@ -191,6 +195,8 @@ class AlertSettings(Base):
 
 
 class ProviderKeyModelCooldown(Base):
+    # Deprecated compatibility table. The operational source of truth for
+    # route availability is ProviderKeyRouteState.
     __tablename__ = "provider_key_model_cooldowns"
     __table_args__ = (
         Index(
@@ -222,6 +228,53 @@ class ProviderKeyModelCooldown(Base):
     )
 
 
+class ProviderKeyRouteState(Base):
+    __tablename__ = "provider_key_route_states"
+    __table_args__ = (
+        Index(
+            "ix_provider_key_route_states_provider_key_provider_model",
+            "provider_key_id",
+            "provider",
+            "model_name",
+            unique=True,
+        ),
+        Index(
+            "ix_provider_key_route_states_provider_model",
+            "provider",
+            "model_name",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    provider_key_id: Mapped[int] = mapped_column(
+        ForeignKey("provider_keys.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    provider: Mapped[str] = mapped_column(String(50), nullable=False)
+    model_name: Mapped[str] = mapped_column(String(120), nullable=False)
+    cooldown_until: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    blocked_until: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    disabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    disabled_reason: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    last_used_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    in_flight_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    soft_reserved_until: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    next_available_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.current_timestamp(),
+        nullable=False,
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.current_timestamp(),
+        onupdate=func.current_timestamp(),
+        nullable=False,
+    )
+
+    provider_key: Mapped["ProviderKey"] = relationship(back_populates="route_states")
+
+
 class ModelQueueCandidate(Base):
     __tablename__ = "model_queue_candidates"
     __table_args__ = (
@@ -245,6 +298,10 @@ class ModelQueueCandidate(Base):
     model_name: Mapped[str] = mapped_column(String(120), nullable=False)
     position: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    base_degradation: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
+    latency_score: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
+    error_score: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
+    final_rank: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
     score: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
     failure_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     success_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)

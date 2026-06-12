@@ -1,4 +1,5 @@
 import unittest
+from datetime import datetime, timezone
 
 import httpx
 from fastapi import HTTPException
@@ -65,6 +66,11 @@ class ProxyHelperTest(unittest.TestCase):
     def test_parse_retry_after_seconds_reads_numeric_header(self) -> None:
         headers = httpx.Headers({"retry-after": "12"})
         self.assertEqual(parse_retry_after_seconds(headers), 12)
+
+    def test_parse_retry_after_seconds_reads_http_date_header(self) -> None:
+        now = datetime(2026, 6, 11, 12, 0, 0, tzinfo=timezone.utc)
+        headers = httpx.Headers({"retry-after": "Thu, 11 Jun 2026 12:00:05 GMT"})
+        self.assertEqual(parse_retry_after_seconds(headers, now=now), 5)
 
 
 if __name__ == "__main__":

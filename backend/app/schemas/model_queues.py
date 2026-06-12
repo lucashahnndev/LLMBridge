@@ -29,6 +29,10 @@ class ModelQueueCandidateUpdate(BaseModel):
 class ModelQueueCandidateResponse(ORMModel, ModelQueueCandidateBase):
     id: int
     queue_id: int
+    base_degradation: float = Field(default=0.0)
+    latency_score: float = Field(default=0.0)
+    error_score: float = Field(default=0.0)
+    final_rank: float = Field(default=0.0)
     score: float = Field(default=0.0)
     failure_count: int = Field(default=0, ge=0)
     success_count: int = Field(default=0, ge=0)
@@ -63,4 +67,3 @@ class ModelQueueResponse(ORMModel, ModelQueueBase):
     created_at: datetime
     updated_at: datetime
     candidates: list[ModelQueueCandidateResponse] = Field(default_factory=list)
-

@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 import json
+import logging
 import time
 from dataclasses import asdict
 from datetime import datetime, timedelta, timezone
-from email.utils import parsedate_to_datetime
 from typing import Annotated
 
 import httpx
@@ -24,6 +24,8 @@ from backend.app.services.canonical import (
     chat_completion_body_to_canonical_response,
     openai_request_to_canonical,
 )
+from backend.app.services.classifier import RouteClassificationEvent, dispatch_route_classification_event
+from backend.app.services.availability import list_balanced_provider_keys_for_route, summarize_provider_route_availability
 from backend.app.services.alerts import (
     AlertChannel,
     format_provider_pool_exhausted_alert,
@@ -36,13 +38,16 @@ from backend.app.services.queues import (
     ResolvedRouteCandidate,
     is_queue_route,
     parse_queue_name,
-    resolve_model_routes,
     update_queue_candidate_on_failure,
     update_queue_candidate_on_success,
 )
 from backend.app.services.trace import ProxyTraceRecorder
 from backend.app.services.records import ensure_utc_datetime
+from backend.app.services.retry_parser import parse_retry_after_seconds
+from backend.app.services.route_materializer import ensure_materialized_route_snapshot
 
+
+logger = logging.getLogger(__name__)
 
 security = HTTPBearer(auto_error=False)
 
@@ -82,87 +87,16 @@ def parse_model_identifier(model: str) -> tuple[str, str]:
     return provider, model_name
 
 
-def parse_retry_after_seconds(headers: httpx.Headers) -> int | None:
-    retry_after = headers.get("retry-after")
-    if retry_after:
-        retry_after = retry_after.strip()
-        if retry_after.isdigit():
-            return max(0, int(retry_after))
-        try:
-            retry_at = parsedate_to_datetime(retry_after)
-            if retry_at.tzinfo is None:
-                retry_at = retry_at.replace(tzinfo=timezone.utc)
-            seconds = int((retry_at.astimezone(timezone.utc) - datetime.now(timezone.utc)).total_seconds())
-            return max(0, seconds)
-        except (TypeError, ValueError, IndexError):
-            pass
-
-    reset_after = headers.get("x-ratelimit-reset-after")
-    if reset_after:
-        try:
-            return max(0, int(float(reset_after)))
-        except ValueError:
-            pass
-
-    reset_at = headers.get("x-ratelimit-reset")
-    if reset_at:
-        try:
-            reset_dt = datetime.fromtimestamp(float(reset_at), tz=timezone.utc)
-            seconds = int((reset_dt - datetime.now(timezone.utc)).total_seconds())
-            return max(0, seconds)
-        except ValueError:
-            pass
-
-    return None
-
-
 async def get_eligible_provider_keys(
     session: AsyncSession,
     provider: str,
     model_name: str,
 ) -> list[ProviderKey]:
-    now = datetime.now(timezone.utc)
-    provider_result = await session.execute(
-        select(ProviderKey).where(
-            ProviderKey.provider == provider,
-            ~ProviderKey.status.in_([KeyStatus.INVALID, KeyStatus.SUSPENDED_BILLING]),
-        )
+    return await list_balanced_provider_keys_for_route(
+        session,
+        provider=provider,
+        model_name=model_name,
     )
-    provider_keys = list(provider_result.scalars().all())
-    if not provider_keys:
-        return []
-
-    cooldown_result = await session.execute(
-        select(ProviderKeyModelCooldown).where(
-            ProviderKeyModelCooldown.model_name == model_name,
-            ProviderKeyModelCooldown.provider_key_id.in_([provider_key.id for provider_key in provider_keys]),
-        )
-    )
-    cooldown_by_key_id = {row.provider_key_id: row for row in cooldown_result.scalars().all()}
-
-    eligible: list[tuple[int, int, datetime, datetime, int, ProviderKey]] = []
-    for provider_key in provider_keys:
-        cooldown = cooldown_by_key_id.get(provider_key.id)
-        blocked_until = ensure_utc_datetime(cooldown.blocked_until) if cooldown else None
-        if blocked_until is not None and blocked_until > now:
-            continue
-        model_penalty = (cooldown.failure_count * 100) if cooldown else 0
-        model_updated_at = ensure_utc_datetime(cooldown.updated_at) if cooldown else None
-        eligible.append(
-            (
-                model_penalty,
-                provider_key.failure_count,
-                model_updated_at or datetime.min.replace(tzinfo=timezone.utc),
-                ensure_utc_datetime(provider_key.updated_at) or datetime.min.replace(tzinfo=timezone.utc),
-                provider_key.id,
-                provider_key,
-            )
-        )
-
-    eligible.sort(
-        key=lambda item: (item[0], item[1], item[2], item[3], item[4])
-    )
-    return [provider_key for *_, provider_key in eligible]
 
 
 def extract_usage_metrics(response_json: dict[str, object]) -> tuple[int, int, int]:
@@ -369,6 +303,69 @@ async def mark_provider_key_success(session: AsyncSession, provider_key: Provide
         await session.commit()
 
 
+async def mirror_provider_key_model_cooldown_legacy(
+    session: AsyncSession,
+    provider_key: ProviderKey,
+    model_name: str,
+    *,
+    blocked_until: datetime | None = None,
+    failure_count_delta: int = 0,
+    clear: bool = False,
+) -> None:
+    # Deprecated compatibility mirror.
+    # Operational availability is stored in provider_key_route_states.
+    settings = get_settings()
+    if not settings.legacy_cooldown_mirror_enabled:
+        return
+
+    try:
+        existing = await session.execute(
+            select(ProviderKeyModelCooldown).where(
+                ProviderKeyModelCooldown.provider_key_id == provider_key.id,
+                ProviderKeyModelCooldown.model_name == model_name,
+            )
+        )
+        cooldown = existing.scalar_one_or_none()
+        if clear:
+            if cooldown is None:
+                return
+            if cooldown.failure_count <= 1:
+                await session.delete(cooldown)
+            else:
+                cooldown.failure_count = cooldown.failure_count - 1
+            await session.commit()
+            return
+
+        if failure_count_delta <= 0 and blocked_until is None:
+            return
+
+        next_failure_count = max(1, failure_count_delta if cooldown is None else cooldown.failure_count + max(1, failure_count_delta))
+        next_blocked_until = blocked_until
+        if cooldown is None:
+            cooldown = ProviderKeyModelCooldown(
+                provider_key_id=provider_key.id,
+                model_name=model_name,
+                blocked_until=next_blocked_until,
+                failure_count=next_failure_count,
+            )
+            session.add(cooldown)
+        else:
+            if next_blocked_until is not None:
+                current_blocked_until = ensure_utc_datetime(cooldown.blocked_until)
+                cooldown.blocked_until = max(current_blocked_until or next_blocked_until, next_blocked_until)
+            cooldown.failure_count = next_failure_count
+        await session.commit()
+    except Exception:
+        logger.exception(
+            "Legacy ProviderKeyModelCooldown mirror failed",
+            extra={
+                "provider_key_id": provider_key.id,
+                "provider": provider_key.provider,
+                "model_name": model_name,
+            },
+        )
+
+
 async def mark_provider_key_model_failure(
     session: AsyncSession,
     provider_key: ProviderKey,
@@ -376,27 +373,30 @@ async def mark_provider_key_model_failure(
     retry_after_seconds: int | None = None,
 ) -> None:
     now = datetime.now(timezone.utc)
-    existing = await session.execute(
-        select(ProviderKeyModelCooldown).where(
-            ProviderKeyModelCooldown.provider_key_id == provider_key.id,
-            ProviderKeyModelCooldown.model_name == model_name,
-        )
-    )
-    cooldown = existing.scalar_one_or_none()
     blocked_until = now + timedelta(seconds=max(1, retry_after_seconds)) if retry_after_seconds is not None else now
-    if cooldown is None:
-        cooldown = ProviderKeyModelCooldown(
-            provider_key_id=provider_key.id,
+    await dispatch_route_classification_event(
+        session,
+        RouteClassificationEvent(
+            provider=provider_key.provider,
             model_name=model_name,
-            blocked_until=blocked_until,
-            failure_count=1,
-        )
-        session.add(cooldown)
-    else:
-        if retry_after_seconds is not None:
-            cooldown.blocked_until = blocked_until
-        cooldown.failure_count = cooldown.failure_count + 1
-    await session.commit()
+            key_id=provider_key.id,
+            success=False,
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            latency_ms=0.0,
+            started_at=now,
+            finished_at=now,
+            retry_hint_seconds=retry_after_seconds,
+            error_message="rate limit",
+        ),
+        swallow_errors=True,
+    )
+    await mirror_provider_key_model_cooldown_legacy(
+        session,
+        provider_key,
+        model_name,
+        blocked_until=blocked_until,
+        failure_count_delta=1,
+    )
 
 
 async def mark_provider_key_model_success(
@@ -404,24 +404,27 @@ async def mark_provider_key_model_success(
     provider_key: ProviderKey,
     model_name: str,
 ) -> None:
-    existing = await session.execute(
-        select(ProviderKeyModelCooldown).where(
-            ProviderKeyModelCooldown.provider_key_id == provider_key.id,
-            ProviderKeyModelCooldown.model_name == model_name,
-        )
+    now = datetime.now(timezone.utc)
+    await dispatch_route_classification_event(
+        session,
+        RouteClassificationEvent(
+            provider=provider_key.provider,
+            model_name=model_name,
+            key_id=provider_key.id,
+            success=True,
+            status_code=200,
+            latency_ms=0.0,
+            started_at=now,
+            finished_at=now,
+        ),
+        swallow_errors=True,
     )
-    cooldown = existing.scalar_one_or_none()
-    if cooldown is None:
-        return
-    if cooldown.failure_count <= 1:
-        await session.delete(cooldown)
-    else:
-        cooldown.failure_count = cooldown.failure_count - 1
-        if cooldown.failure_count <= 0 and ensure_utc_datetime(cooldown.blocked_until) <= datetime.now(timezone.utc):
-            await session.delete(cooldown)
-            await session.commit()
-            return
-    await session.commit()
+    await mirror_provider_key_model_cooldown_legacy(
+        session,
+        provider_key,
+        model_name,
+        clear=True,
+    )
 
 
 async def mark_provider_key_model_soft_failure(
@@ -431,40 +434,55 @@ async def mark_provider_key_model_soft_failure(
     cooldown_seconds: int | None = None,
 ) -> None:
     now = datetime.now(timezone.utc)
-    existing = await session.execute(
-        select(ProviderKeyModelCooldown).where(
-            ProviderKeyModelCooldown.provider_key_id == provider_key.id,
-            ProviderKeyModelCooldown.model_name == model_name,
-        )
-    )
-    cooldown = existing.scalar_one_or_none()
     blocked_until = now + timedelta(seconds=max(1, cooldown_seconds)) if cooldown_seconds is not None else now
-    if cooldown is None:
-        cooldown = ProviderKeyModelCooldown(
-            provider_key_id=provider_key.id,
+    await dispatch_route_classification_event(
+        session,
+        RouteClassificationEvent(
+            provider=provider_key.provider,
             model_name=model_name,
-            blocked_until=blocked_until,
-            failure_count=1,
-        )
-        session.add(cooldown)
-    else:
-        cooldown.failure_count = cooldown.failure_count + 1
-        cooldown.blocked_until = max(ensure_utc_datetime(cooldown.blocked_until) or blocked_until, blocked_until)
-    await session.commit()
+            key_id=provider_key.id,
+            success=False,
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            latency_ms=0.0,
+            started_at=now,
+            finished_at=now,
+            retry_hint_seconds=cooldown_seconds,
+            error_message="provider request failed",
+        ),
+        swallow_errors=True,
+    )
+    await mirror_provider_key_model_cooldown_legacy(
+        session,
+        provider_key,
+        model_name,
+        blocked_until=blocked_until,
+        failure_count_delta=1,
+    )
 
 
-async def mark_provider_key_auth_failed(session: AsyncSession, provider_key: ProviderKey, status_code: int, error_text: str) -> None:
-    provider_key.failure_count = provider_key.failure_count + 1
-    provider_key.blocked_until = None
-    if status_code == status.HTTP_401_UNAUTHORIZED:
-        provider_key.status = KeyStatus.INVALID
-    elif status_code == status.HTTP_403_FORBIDDEN:
-        lowered = error_text.lower()
-        if any(keyword in lowered for keyword in ("billing", "payment", "quota", "plan")):
-            provider_key.status = KeyStatus.SUSPENDED_BILLING
-        else:
-            provider_key.status = KeyStatus.INVALID
-    await session.commit()
+async def mark_provider_key_auth_failed(
+    session: AsyncSession,
+    provider_key: ProviderKey,
+    model_name: str,
+    status_code: int,
+    error_text: str,
+) -> None:
+    now = datetime.now(timezone.utc)
+    await dispatch_route_classification_event(
+        session,
+        RouteClassificationEvent(
+            provider=provider_key.provider,
+            model_name=model_name,
+            key_id=provider_key.id,
+            success=False,
+            status_code=status_code,
+            latency_ms=0.0,
+            started_at=now,
+            finished_at=now,
+            error_message=error_text,
+        ),
+        swallow_errors=True,
+    )
 
 
 def format_rate_limit_message(provider: str) -> str:
@@ -497,29 +515,22 @@ def format_provider_pool_exhausted_message(
 
 
 async def build_provider_pool_exhausted_message(session: AsyncSession, provider: str, model_name: str) -> str:
-    key_stmt = select(ProviderKey.status).where(ProviderKey.provider == provider)
-    key_result = await session.execute(key_stmt)
-    key_rows = key_result.all()
-    total = len(key_rows)
-    invalid = sum(1 for (status_value,) in key_rows if status_value in {KeyStatus.INVALID, KeyStatus.SUSPENDED_BILLING})
-    valid = total - invalid
-
-    cooldown_stmt = select(ProviderKeyModelCooldown.blocked_until).join(
-        ProviderKey,
-        ProviderKey.id == ProviderKeyModelCooldown.provider_key_id,
-    ).where(
-        ProviderKey.provider == provider,
-        ProviderKeyModelCooldown.model_name == model_name,
+    availability = await summarize_provider_route_availability(
+        session,
+        provider=provider,
+        model_name=model_name,
     )
-    cooldown_result = await session.execute(cooldown_stmt)
-    now = datetime.now(timezone.utc)
-    cooldown_until_values = [
-        ensure_utc_datetime(blocked_until)
-        for (blocked_until,) in cooldown_result.all()
-        if ensure_utc_datetime(blocked_until) is not None and ensure_utc_datetime(blocked_until) > now
-    ]
-    model_cooldown_count = len(cooldown_until_values)
-    next_retry_at = min(cooldown_until_values) if cooldown_until_values else None
+    summary = availability.summary
+    total = (
+        int(summary["eligible_count"])
+        + int(summary["cooldown_count"])
+        + int(summary["disabled_count"])
+        + int(summary["blocked_count"])
+    )
+    invalid = int(summary["disabled_count"])
+    model_cooldown_count = int(summary["cooldown_count"])
+    next_retry_at = summary["smallest_cooldown_until"]
+    valid = total - invalid - int(summary["blocked_count"])
     if total == 0:
         return format_provider_pool_exhausted_message(
             provider,
@@ -538,7 +549,7 @@ async def build_provider_pool_exhausted_message(session: AsyncSession, provider:
     return format_provider_pool_exhausted_message(
         provider,
         total=total,
-        active=valid - model_cooldown_count,
+        active=max(0, int(summary["eligible_count"])),
         cooldown=model_cooldown_count,
         invalid=invalid,
         next_retry_at=next_retry_at,
@@ -625,6 +636,7 @@ async def _proxy_chat_completion_for_route(
     *,
     requested_model: str | None = None,
     queue_name: str | None = None,
+    provider_key_id: int | None = None,
     protocol_in: str = "openai",
     protocol_out: str = "openai",
     trace: ProxyTraceRecorder | None = None,
@@ -640,7 +652,11 @@ async def _proxy_chat_completion_for_route(
     resolved_route_model = f"{provider}/{resolved_model_name}"
 
     settings = get_settings()
-    provider_keys = await get_eligible_provider_keys(session, provider, resolved_model_name)
+    if provider_key_id is not None:
+        selected_provider_key = await session.get(ProviderKey, provider_key_id)
+        provider_keys = [selected_provider_key] if selected_provider_key is not None else []
+    else:
+        provider_keys = await get_eligible_provider_keys(session, provider, resolved_model_name)
     if not provider_keys:
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
@@ -766,7 +782,7 @@ async def _proxy_chat_completion_for_route(
             body,
             "Provider request failed",
         )
-        retry_after_seconds = parse_retry_after_seconds(response.headers)
+        retry_after_seconds = parse_retry_after_seconds(response.headers, body=body, provider=provider)
         failure_cooldown_seconds = classify_model_failure_cooldown_seconds(
             status_code=response.status_code,
             failure_message=failure_message,
@@ -814,7 +830,7 @@ async def _proxy_chat_completion_for_route(
                 status.HTTP_401_UNAUTHORIZED,
                 status.HTTP_403_FORBIDDEN,
             }:
-                await mark_provider_key_auth_failed(session, provider_key, response.status_code, failure_message)
+                await mark_provider_key_auth_failed(session, provider_key, resolved_model_name, response.status_code, failure_message)
             else:
                 await mark_provider_key_model_soft_failure(
                     session,
@@ -863,143 +879,157 @@ async def proxy_chat_completion(
     session: AsyncSession,
     app_token: AppToken,
     payload: ChatCompletionRequest,
-    client: httpx.AsyncClient,
+    client: httpx.AsyncClient | None = None,
     *,
     protocol_in: str = "openai",
     protocol_out: str = "openai",
     trace: ProxyTraceRecorder | None = None,
 ) -> tuple[int, dict[str, object] | list[object] | str]:
     settings = get_settings()
+    owns_client = client is None
+    if client is None:
+        client = httpx.AsyncClient(timeout=settings.proxy_timeout_seconds)
     trace = trace or ProxyTraceRecorder.from_settings(settings)
-    if trace.enabled:
-        trace.start(protocol_in=protocol_in, request_payload=payload, app_token_name=app_token.name)
-    route_kind = "queue" if is_queue_route(payload.model) else "provider"
-    queue_name = parse_queue_name(payload.model) if route_kind == "queue" else None
     try:
-        routes = await resolve_model_routes(session, payload.model)
-    except HTTPException as exc:
         if trace.enabled:
-            trace.record_error(
-                message=str(exc.detail) if exc.detail is not None else "Route resolution failed",
-                stage="route_resolution",
-                status_code=exc.status_code,
-            )
-        if exc.status_code in {status.HTTP_409_CONFLICT, status.HTTP_502_BAD_GATEWAY}:
-            error_text = exc.detail if isinstance(exc.detail, (dict, list)) else str(exc.detail)
-            if route_kind == "queue" and queue_name:
-                await _best_effort_send_alert(
-                    session,
-                    format_queue_exhausted_alert(
-                        app_token_name=app_token.name,
-                        queue_name=queue_name,
-                        requested_model=payload.model,
-                        protocol_in=protocol_in,
-                        protocol_out=protocol_out,
-                        error=error_text,
-                    ),
-                    channel=AlertChannel.QUEUE_EXHAUSTED,
-                )
-            else:
-                provider = payload.model.split("/", 1)[0] if "/" in payload.model else "unknown"
-                await _best_effort_send_alert(
-                    session,
-                    format_provider_pool_exhausted_alert(
-                        app_token_name=app_token.name,
-                        provider=provider,
-                        requested_model=payload.model,
-                        protocol_in=protocol_in,
-                        protocol_out=protocol_out,
-                        error=error_text,
-                    ),
-                    channel=AlertChannel.PROVIDER_POOL_EXHAUSTED,
-                )
-        if trace.enabled:
-            trace.write()
-        raise
-    if trace.enabled:
-        trace.record_route(
-            route_kind=route_kind,
-            requested_model=payload.model,
-            resolved_routes=[route.route for route in routes],
-            queue_name=queue_name,
-        )
-    last_status_code = status.HTTP_502_BAD_GATEWAY
-    last_body: dict[str, object] | list[object] | str = {"detail": "Proxy request failed"}
-
-    for attempt_index, route in enumerate(routes):
-        route_payload = payload.model_copy(update={"model": route.route})
-        if trace.enabled:
-            trace.record_resolution(
-                route=asdict(route),
-                candidate_index=attempt_index,
-            )
+            trace.start(protocol_in=protocol_in, request_payload=payload, app_token_name=app_token.name)
+        route_kind = "queue" if is_queue_route(payload.model) else "provider"
+        queue_name = parse_queue_name(payload.model) if route_kind == "queue" else None
         try:
-            status_code, body, latency_ms = await _proxy_chat_completion_for_route(
-                session,
-                app_token,
-                route_payload,
-                route.route,
-                client,
+            snapshot = await ensure_materialized_route_snapshot(session, payload.model)
+            routes = snapshot.routes
+        except HTTPException as exc:
+            if trace.enabled:
+                trace.record_error(
+                    message=str(exc.detail) if exc.detail is not None else "Route resolution failed",
+                    stage="route_resolution",
+                    status_code=exc.status_code,
+                )
+            if exc.status_code in {
+                status.HTTP_409_CONFLICT,
+                status.HTTP_429_TOO_MANY_REQUESTS,
+                status.HTTP_502_BAD_GATEWAY,
+                status.HTTP_503_SERVICE_UNAVAILABLE,
+            }:
+                error_text = exc.detail if isinstance(exc.detail, (dict, list)) else str(exc.detail)
+                if route_kind == "queue" and queue_name:
+                    await _best_effort_send_alert(
+                        session,
+                        format_queue_exhausted_alert(
+                            app_token_name=app_token.name,
+                            queue_name=queue_name,
+                            requested_model=payload.model,
+                            protocol_in=protocol_in,
+                            protocol_out=protocol_out,
+                            error=error_text,
+                        ),
+                        channel=AlertChannel.QUEUE_EXHAUSTED,
+                    )
+                else:
+                    provider = payload.model.split("/", 1)[0] if "/" in payload.model else "unknown"
+                    await _best_effort_send_alert(
+                        session,
+                        format_provider_pool_exhausted_alert(
+                            app_token_name=app_token.name,
+                            provider=provider,
+                            requested_model=payload.model,
+                            protocol_in=protocol_in,
+                            protocol_out=protocol_out,
+                            error=error_text,
+                        ),
+                        channel=AlertChannel.PROVIDER_POOL_EXHAUSTED,
+                    )
+            if trace.enabled:
+                trace.write()
+            raise
+        if trace.enabled:
+            trace.record_route(
+                route_kind=route_kind,
                 requested_model=payload.model,
-                queue_name=route.queue_name,
+                resolved_routes=[route.route for route in routes],
+                queue_name=queue_name,
+            )
+        last_status_code = status.HTTP_502_BAD_GATEWAY
+        last_body: dict[str, object] | list[object] | str = {"detail": "Proxy request failed"}
+
+        for attempt_index, route in enumerate(routes):
+            route_payload = payload.model_copy(update={"model": route.route})
+            if trace.enabled:
+                trace.record_resolution(
+                    route=asdict(route),
+                    candidate_index=attempt_index,
+                )
+            try:
+                status_code, body, latency_ms = await _proxy_chat_completion_for_route(
+                    session,
+                    app_token,
+                    route_payload,
+                    route.route,
+                    client,
+                    requested_model=payload.model,
+                    queue_name=route.queue_name,
+                    provider_key_id=route.provider_key_id,
+                    protocol_in=protocol_in,
+                    protocol_out=protocol_out,
+                    trace=trace,
+                )
+            except HTTPException as exc:
+                status_code = exc.status_code
+                detail = exc.detail if isinstance(exc.detail, (dict, list)) else {"detail": str(exc.detail)}
+                body = detail
+                latency_ms = 0.0
+
+            if route.queue_name and route.candidate_id is not None:
+                candidate = await session.get(ModelQueueCandidate, route.candidate_id)
+                if candidate is not None:
+                    if 200 <= status_code < 300:
+                        await update_queue_candidate_on_success(session, candidate, latency_ms)
+                    else:
+                        error_text = extract_failure_message(body, "Provider request failed")
+                        await update_queue_candidate_on_failure(
+                            session,
+                            candidate,
+                            status_code,
+                            latency_ms,
+                            error_message=error_text,
+                        )
+
+            if 200 <= status_code < 300:
+                if trace.enabled:
+                    trace.record_final_response(status_code=status_code, body=body)
+                    trace.write()
+                return status_code, body
+
+            last_status_code = status_code
+            last_body = body
+
+            if attempt_index + 1 < len(routes):
+                continue
+
+        if last_status_code >= 400:
+            await _send_resolution_alert(
+                session,
+                app_token=app_token,
+                requested_model=payload.model,
+                route_kind=route_kind,
+                queue_name=queue_name,
                 protocol_in=protocol_in,
                 protocol_out=protocol_out,
-                trace=trace,
+                status_code=last_status_code,
+                attempts=len(routes),
+                rotated=len(routes) > 1,
+                tool_calling=is_tool_calling_payload(payload.model_dump(exclude_none=True, exclude={"model"})),
+                final_route=routes[-1].route if routes else None,
+                error=_extract_error_text(last_body),
             )
-        except HTTPException as exc:
-            status_code = exc.status_code
-            detail = exc.detail if isinstance(exc.detail, (dict, list)) else {"detail": str(exc.detail)}
-            body = detail
-            latency_ms = 0.0
 
-        if route.queue_name and route.candidate_id is not None:
-            candidate = await session.get(ModelQueueCandidate, route.candidate_id)
-            if candidate is not None:
-                if 200 <= status_code < 300:
-                    await update_queue_candidate_on_success(session, candidate, latency_ms)
-                else:
-                    error_text = extract_failure_message(body, "Provider request failed")
-                    await update_queue_candidate_on_failure(
-                        session,
-                        candidate,
-                        status_code,
-                        latency_ms,
-                        error_message=error_text,
-                    )
-
-        if 200 <= status_code < 300:
-            if trace.enabled:
-                trace.record_final_response(status_code=status_code, body=body)
-                trace.write()
-            return status_code, body
-
-        last_status_code = status_code
-        last_body = body
-
-        if attempt_index + 1 < len(routes):
-            continue
-
-    if last_status_code >= 400:
-        await _send_resolution_alert(
-            session,
-            app_token=app_token,
-            requested_model=payload.model,
-            route_kind=route_kind,
-            queue_name=queue_name,
-            protocol_in=protocol_in,
-            protocol_out=protocol_out,
-            status_code=last_status_code,
-            attempts=len(routes),
-            rotated=len(routes) > 1,
-            tool_calling=is_tool_calling_payload(payload.model_dump(exclude_none=True, exclude={"model"})),
-            final_route=routes[-1].route if routes else None,
-            error=_extract_error_text(last_body),
-        )
-
-    if trace.enabled:
-        trace.record_final_response(status_code=last_status_code, body=last_body)
-        trace.write()
-    return last_status_code, last_body
+        if trace.enabled:
+            trace.record_final_response(status_code=last_status_code, body=last_body)
+            trace.write()
+        return last_status_code, last_body
+    finally:
+        if owns_client:
+            await client.aclose()
 
 
 async def proxy_chat_completion_stream(
@@ -1019,7 +1049,8 @@ async def proxy_chat_completion_stream(
     route_kind = "queue" if is_queue_route(payload.model) else "provider"
     queue_name = parse_queue_name(payload.model) if route_kind == "queue" else None
     try:
-        routes = await resolve_model_routes(session, payload.model)
+        snapshot = await ensure_materialized_route_snapshot(session, payload.model)
+        routes = snapshot.routes
     except HTTPException as exc:
         if trace.enabled:
             trace.record_error(
@@ -1027,7 +1058,12 @@ async def proxy_chat_completion_stream(
                 stage="route_resolution",
                 status_code=exc.status_code,
             )
-        if exc.status_code in {status.HTTP_409_CONFLICT, status.HTTP_502_BAD_GATEWAY}:
+        if exc.status_code in {
+            status.HTTP_409_CONFLICT,
+            status.HTTP_429_TOO_MANY_REQUESTS,
+            status.HTTP_502_BAD_GATEWAY,
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+        }:
             error_text = exc.detail if isinstance(exc.detail, (dict, list)) else str(exc.detail)
             if route_kind == "queue" and queue_name:
                 await _best_effort_send_alert(
@@ -1086,6 +1122,7 @@ async def proxy_chat_completion_stream(
                 client,
                 requested_model=payload.model,
                 queue_name=route.queue_name,
+                provider_key_id=route.provider_key_id,
                 protocol_in=protocol_in,
                 protocol_out=protocol_out,
                 trace=trace,
@@ -1129,6 +1166,7 @@ async def _proxy_chat_completion_stream_for_route(
     *,
     requested_model: str | None = None,
     queue_name: str | None = None,
+    provider_key_id: int | None = None,
     protocol_in: str = "openai",
     protocol_out: str = "openai",
     trace: ProxyTraceRecorder | None = None,
@@ -1144,7 +1182,11 @@ async def _proxy_chat_completion_stream_for_route(
     resolved_route_model = f"{provider}/{resolved_model_name}"
 
     settings = get_settings()
-    provider_keys = await get_eligible_provider_keys(session, provider, resolved_model_name)
+    if provider_key_id is not None:
+        selected_provider_key = await session.get(ProviderKey, provider_key_id)
+        provider_keys = [selected_provider_key] if selected_provider_key is not None else []
+    else:
+        provider_keys = await get_eligible_provider_keys(session, provider, resolved_model_name)
     if not provider_keys:
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
@@ -1244,7 +1286,7 @@ async def _proxy_chat_completion_stream_for_route(
 
             body = coerce_response_body(response)
             failure_message = extract_failure_message(body, "Upstream provider error")
-            retry_after_seconds = parse_retry_after_seconds(response.headers)
+            retry_after_seconds = parse_retry_after_seconds(response.headers, body=body, provider=provider)
             failure_cooldown_seconds = classify_model_failure_cooldown_seconds(
                 status_code=response.status_code,
                 failure_message=failure_message,
@@ -1256,7 +1298,7 @@ async def _proxy_chat_completion_stream_for_route(
                     retry_after_seconds = retry_after_seconds or settings.key_cooldown_seconds
                     await mark_provider_key_model_failure(session, provider_key, resolved_model_name, retry_after_seconds)
                 elif response.status_code in {status.HTTP_401_UNAUTHORIZED, status.HTTP_403_FORBIDDEN}:
-                    await mark_provider_key_auth_failed(session, provider_key, response.status_code, failure_message)
+                    await mark_provider_key_auth_failed(session, provider_key, resolved_model_name, response.status_code, failure_message)
                 else:
                     await mark_provider_key_model_soft_failure(
                         session,
@@ -1264,25 +1306,6 @@ async def _proxy_chat_completion_stream_for_route(
                         resolved_model_name,
                         cooldown_seconds=failure_cooldown_seconds,
                     )
-
-            await log_usage(
-                session,
-                app_token_id=app_token.id,
-                provider_key_id=provider_key.id,
-                protocol_in=protocol_in,
-                protocol_out=protocol_out,
-                route_kind=route_kind,
-                queue_name=queue_name,
-                model_requested=requested_model,
-                provider_used=provider,
-                resolved_model=resolved_route_model,
-                latency_ms=(time.perf_counter() - start_time) * 1000.0,
-                status_code=response.status_code,
-                was_rotated=attempt_index > 0,
-                tool_calling=request_tool_calling or is_tool_calling_response(body),
-                response_json=body,
-                error_message=failure_message[:500] if failure_message else None,
-            )
 
             if trace is not None and trace.enabled:
                 trace.record_provider_response(
@@ -1293,6 +1316,24 @@ async def _proxy_chat_completion_stream_for_route(
                 )
 
             if response.status_code != status.HTTP_200_OK:
+                await log_usage(
+                    session,
+                    app_token_id=app_token.id,
+                    provider_key_id=provider_key.id,
+                    protocol_in=protocol_in,
+                    protocol_out=protocol_out,
+                    route_kind=route_kind,
+                    queue_name=queue_name,
+                    model_requested=requested_model,
+                    provider_used=provider,
+                    resolved_model=resolved_route_model,
+                    latency_ms=(time.perf_counter() - start_time) * 1000.0,
+                    status_code=response.status_code,
+                    was_rotated=attempt_index > 0,
+                    tool_calling=request_tool_calling or is_tool_calling_response(body),
+                    response_json=body,
+                    error_message=failure_message[:500] if failure_message else None,
+                )
                 if attempt_index + 1 < len(provider_keys):
                     continue
                 raise HTTPException(status_code=response.status_code, detail=failure_message)
@@ -1405,7 +1446,7 @@ async def _proxy_chat_completion_stream_for_route(
                 body_text = await response.aread()
                 await response.aclose()
                 failure_message = body_text.decode("utf-8", errors="ignore") or "Upstream provider error"
-                retry_after_seconds = parse_retry_after_seconds(response.headers)
+                retry_after_seconds = parse_retry_after_seconds(response.headers, body=failure_message, provider=provider)
                 if trace is not None and trace.enabled:
                     trace.record_provider_response(
                         status_code=response.status_code,
@@ -1415,10 +1456,13 @@ async def _proxy_chat_completion_stream_for_route(
                     )
                 if response.status_code == status.HTTP_429_TOO_MANY_REQUESTS:
                     failure_message = failure_message or format_rate_limit_message(provider)
-                    retry_after_seconds = parse_retry_after_seconds(response.headers) or settings.key_cooldown_seconds
+                    retry_after_seconds = (
+                        parse_retry_after_seconds(response.headers, body=failure_message, provider=provider)
+                        or settings.key_cooldown_seconds
+                    )
                     await mark_provider_key_model_failure(session, provider_key, resolved_model_name, retry_after_seconds)
                 elif response.status_code in {status.HTTP_401_UNAUTHORIZED, status.HTTP_403_FORBIDDEN}:
-                    await mark_provider_key_auth_failed(session, provider_key, response.status_code, failure_message)
+                    await mark_provider_key_auth_failed(session, provider_key, resolved_model_name, response.status_code, failure_message)
                 else:
                     failure_cooldown_seconds = classify_model_failure_cooldown_seconds(
                         status_code=response.status_code,

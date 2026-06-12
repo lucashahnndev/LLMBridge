@@ -16,6 +16,7 @@ from backend.app.schemas.model_queues import (
 )
 from backend.app.services.auth import require_admin
 from backend.app.services.records import model_queue_candidate_response, model_queue_response
+from backend.app.services.route_materializer import schedule_route_materializer_refresh_all
 
 
 router = APIRouter(prefix="/model-queues", tags=["model-queues"], dependencies=[Depends(require_admin)])
@@ -47,6 +48,7 @@ async def create_model_queue(payload: ModelQueueCreate, session: SessionDep) -> 
     session.add(queue)
     await session.commit()
     await session.refresh(queue)
+    schedule_route_materializer_refresh_all()
     return model_queue_response(queue)
 
 
@@ -82,6 +84,7 @@ async def update_model_queue(
     await session.commit()
     await session.refresh(queue)
     await session.refresh(queue, attribute_names=["candidates"])
+    schedule_route_materializer_refresh_all()
     return model_queue_response(queue)
 
 
@@ -110,6 +113,7 @@ async def create_model_queue_candidate(
     session.add(candidate)
     await session.commit()
     await session.refresh(candidate)
+    schedule_route_materializer_refresh_all()
     return model_queue_candidate_response(candidate)
 
 
@@ -125,6 +129,7 @@ async def update_model_queue_candidate(
         setattr(candidate, field, value)
     await session.commit()
     await session.refresh(candidate)
+    schedule_route_materializer_refresh_all()
     return model_queue_candidate_response(candidate)
 
 
@@ -133,4 +138,5 @@ async def delete_model_queue_candidate(candidate_id: int, session: SessionDep) -
     candidate = await get_model_queue_candidate_or_404(session, candidate_id)
     await session.delete(candidate)
     await session.commit()
+    schedule_route_materializer_refresh_all()
     return Response(status_code=status.HTTP_204_NO_CONTENT)

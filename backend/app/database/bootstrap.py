@@ -8,7 +8,8 @@ from backend.app.database.models import (  # noqa: F401
     ModelQueue,
     ModelQueueCandidate,
     ProviderKey,
-    ProviderKeyModelCooldown,
+    ProviderKeyModelCooldown,  # Deprecated compatibility table.
+    ProviderKeyRouteState,
     SchemaVersion,
     UsageLog,
 )
