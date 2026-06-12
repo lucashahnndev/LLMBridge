@@ -50,12 +50,13 @@ It helps you:
 Linux:
 
 ```bash
-mkdir -p "$HOME/apps" && git clone https://github.com/lucashahnndev/LLMKeyRotator.git "$HOME/apps/LLMBridge" && cd "$HOME/apps/LLMBridge" && bash bootstrap.sh
+rm -rf "$HOME/apps/LLMBridge" && mkdir -p "$HOME/apps" && git clone https://github.com/lucashahnndev/LLMKeyRotator.git "$HOME/apps/LLMBridge" && cd "$HOME/apps/LLMBridge" && bash bootstrap.sh
 ```
 
 Windows PowerShell:
 
 ```powershell
+if (Test-Path "$HOME\apps\LLMBridge") { Remove-Item "$HOME\apps\LLMBridge" -Recurse -Force }
 mkdir "$HOME\apps" -Force
 Set-Location "$HOME\apps"
 git clone https://github.com/lucashahnndev/LLMKeyRotator.git LLMBridge
@@ -64,6 +65,7 @@ Set-Location .\LLMBridge
 ```
 
 Run PowerShell as Administrator on Windows before starting the bootstrap.
+These commands always start from a clean clone, so rerunning them pulls a fresh copy of the repository.
 
 If you want to launch the scripts manually:
 
