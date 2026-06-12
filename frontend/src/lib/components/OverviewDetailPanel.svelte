@@ -225,464 +225,187 @@
   } satisfies ChartOptions<'bar'>;
 </script>
 
-<section class="overview-page">
-  <header class="overview-page-header">
-    <div class="overview-header-copy">
-      <a class="overview-back-link" href={backHref}>← Back</a>
-      <p class="overview-eyebrow">{formatContextType(detail?.context_type)}</p>
-      <h1>{title}</h1>
-      <p class="overview-label">{detail?.context_label ?? fallbackLabel}</p>
-    </div>
-
-    <div class="overview-header-tools">
-      <div class="range-switch compact">
-        <button type="button" class:active={range === '1h'} on:click={() => onRangeChange('1h')}>1h</button>
-        <button type="button" class:active={range === '24h'} on:click={() => onRangeChange('24h')}>24h</button>
-        <button type="button" class:active={range === '7d'} on:click={() => onRangeChange('7d')}>7d</button>
-        <button type="button" class:active={range === '30d'} on:click={() => onRangeChange('30d')}>30d</button>
+<section class="section-block" style="padding: 1.25rem 1.25rem 2rem;">
+  <div class="section-title">
+    <div style="display: flex; flex-direction: column; gap: 0.15rem;">
+      <div style="display: flex; align-items: center; gap: 0.5rem; font-size: 0.75rem; color: var(--muted);">
+        <a href={backHref} class="ghost-btn" style="color: var(--accent); text-decoration: none; display: inline-flex; align-items: center; gap: 0.25rem;">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg>
+          Back
+        </a>
+        <span style="opacity: 0.4;">/</span>
+        <span style="text-transform: uppercase; letter-spacing: 0.05em;">{title}</span>
       </div>
+      <h2 style="font-size: 1.25rem; font-weight: 600; color: var(--text); margin-top: 0.25rem;">
+        {detail?.context_label ?? fallbackLabel}
+      </h2>
     </div>
-  </header>
 
-  <div class="overview-scope-bar">
-    <div>
-      <span>Scope</span>
-      <strong>{formatContextScope(detail)}</strong>
-    </div>
-    <div>
-      <span>Window</span>
-      <strong>{range}</strong>
-    </div>
-    <div>
-      <span>Granularity</span>
-      <strong>{detail?.timeseries.granularity ?? 'n/a'}</strong>
-    </div>
-    <div>
-      <span>Requests</span>
-      <strong>{detail?.summary.total_requests ?? 0}</strong>
-    </div>
-  </div>
-
-  <div class="overview-telemetry-grid">
-    <div class="overview-telemetry-card">
-      <span>Scope</span>
-      <strong>{formatContextType(detail?.context_type)}</strong>
-    </div>
-    <div class="overview-telemetry-card">
-      <span>Target</span>
-      <strong>{detail?.context_label ?? 'None'}</strong>
-    </div>
-    <div class="overview-telemetry-card">
-      <span>Top model</span>
-      <strong>{topModelEntry ? `${topModelEntry.model_name} ${topModelEntry.requests_count}` : 'None'}</strong>
-    </div>
-    <div class="overview-telemetry-card">
-      <span>Requests</span>
-      <strong>{detail?.summary.total_requests ?? 0}</strong>
+    <div class="activity-filters" role="tablist">
+      <button type="button" class="ghost" class:active={range === '1h'} on:click={() => onRangeChange('1h')}>1h</button>
+      <button type="button" class="ghost" class:active={range === '24h'} on:click={() => onRangeChange('24h')}>24h</button>
+      <button type="button" class="ghost" class:active={range === '7d'} on:click={() => onRangeChange('7d')}>7d</button>
+      <button type="button" class="ghost" class:active={range === '30d'} on:click={() => onRangeChange('30d')}>30d</button>
     </div>
   </div>
 
   {#if loading}
-    <div class="overview-state">
+    <div class="smart-empty">
       <strong>Loading overview…</strong>
       <p>Fetching metrics, timeseries and model breakdown.</p>
     </div>
   {:else if error}
-    <div class="overview-state error">{error}</div>
+    <div class="smart-empty" style="border-color: rgba(239, 68, 68, 0.2); background: rgba(239, 68, 68, 0.01);">
+      <strong style="color: var(--bad);">Error loading overview</strong>
+      <p style="color: var(--bad); opacity: 0.8;">{error}</p>
+    </div>
   {:else if detail}
-    {#if detail.summary.total_requests === 0}
-      <div class="overview-state">
-        <strong>No traffic in this scope.</strong>
-        <p>The selected app, provider, or queue has no usage in the chosen window.</p>
+    <div class="metric-grid">
+      <div class="metric-card">
+        <span>Scope</span>
+        <strong>{formatContextScope(detail)}</strong>
       </div>
-    {/if}
-    <div class="overview-summary-grid">
-      <div class="overview-summary-card">
-        <span>Requests</span>
+      <div class="metric-card">
+        <span>Granularity</span>
+        <strong>{detail.timeseries.granularity ? `${range} / ${detail.timeseries.granularity}` : range}</strong>
+      </div>
+      <div class="metric-card">
+        <span>Total requests</span>
         <strong>{formatMetric(detail.summary.total_requests)}</strong>
       </div>
-      <div class="overview-summary-card">
+      <div class="metric-card">
         <span>Success rate</span>
         <strong>{formatMetric(detail.summary.success_rate, 1)}%</strong>
       </div>
-      <div class="overview-summary-card">
-        <span>Latency</span>
+      <div class="metric-card">
+        <span>Avg Latency</span>
         <strong>{detail.summary.avg_latency_ms.toFixed(1)}ms</strong>
       </div>
-      <div class="overview-summary-card">
-        <span>Tokens</span>
+      <div class="metric-card">
+        <span>Total tokens</span>
         <strong>{formatMetric(detail.summary.total_tokens_consumed)}</strong>
       </div>
-      <div class="overview-summary-card">
+      <div class="metric-card">
         <span>Rotations</span>
         <strong>{formatMetric(detail.summary.total_rotations_triggered)}</strong>
       </div>
-    </div>
-
-    <div class="overview-charts">
-      <div class="overview-panel">
-        <div class="overview-panel-header">
-          <h3>Activity</h3>
-          <span>requests</span>
-        </div>
-        <div class="overview-chart">
-          {#if buckets.length}
-            <Line data={lineData} options={lineOptions} />
-          {:else}
-            <div class="overview-empty">No data</div>
-          {/if}
-        </div>
-        <div class="overview-axis">
-          <span>{buckets[0] ? formatChartBucketLabel(buckets[0].bucket_start, detail.timeseries.granularity) : ''}</span>
-          <span>{buckets[buckets.length - 1] ? formatChartBucketLabel(buckets[buckets.length - 1].bucket_end, detail.timeseries.granularity) : ''}</span>
-        </div>
-      </div>
-
-      <div class="overview-panel">
-        <div class="overview-panel-header">
-          <h3>Models used</h3>
-          <span>top 8</span>
-        </div>
-        <div class="overview-chart">
-          {#if topModels.length}
-            <Bar data={modelsData} options={barOptions} />
-          {:else}
-            <div class="overview-empty">No models yet</div>
-          {/if}
-        </div>
+      <div class="metric-card">
+        <span>Error rate</span>
+        <strong>{(100 - detail.summary.success_rate).toFixed(1)}%</strong>
       </div>
     </div>
 
-    <div class="overview-models">
-      <div class="overview-panel-header">
-        <h3>Models used</h3>
-        <span>{detail.models.length} total</span>
+    {#if detail.summary.total_requests === 0}
+      <div class="smart-empty">
+        <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2" style="opacity: 0.4;"><rect width="20" height="20" x="2" y="2" rx="5" ry="5"/><path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z"/><line x1="17.5" x2="17.51" y1="6.5" y2="6.5"/></svg>
+        <strong>No traffic in this scope</strong>
+        <p>The selected item has no usage in the chosen window.</p>
       </div>
-      <div class="overview-model-list">
-        {#if detail.models.length}
-          {#each detail.models as model}
-            <div class="overview-model-row">
-              <div>
-                <strong>{model.model_name}</strong>
-                <p>{model.requests_count} requests · {model.success_count} success · {model.error_count} errors</p>
+    {/if}
+
+    <div class="dashboard-row cols-2">
+      <!-- Activity / Usage over time -->
+      <div class="dashboard-card">
+        <div class="card-header">
+          <div class="card-header-row">
+            <h3>Activity</h3>
+            <span class="chart-legend">requests</span>
+          </div>
+        </div>
+        <div class="card-body" style="display: flex; flex-direction: column; gap: 0.5rem;">
+          <div class="chart-panel" style="height: 240px; position: relative;">
+            {#if buckets.length}
+              <Line data={lineData} options={lineOptions} />
+            {:else}
+              <div class="chart-empty">No data</div>
+            {/if}
+          </div>
+          <div class="chart-axis" style="margin-top: 0.25rem;">
+            <span>{buckets[0] ? formatChartBucketLabel(buckets[0].bucket_start, detail.timeseries.granularity) : ''}</span>
+            <span>{buckets[buckets.length - 1] ? formatChartBucketLabel(buckets[buckets.length - 1].bucket_end, detail.timeseries.granularity) : ''}</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Models Used Breakdown -->
+      <div class="dashboard-card">
+        <div class="card-header">
+          <div class="card-header-row">
+            <h3>Models Used</h3>
+            <span class="chart-legend">top 8</span>
+          </div>
+        </div>
+        <div class="card-body">
+          <div class="chart-panel" style="height: 240px; position: relative;">
+            {#if topModels.length}
+              <Bar data={modelsData} options={barOptions} />
+            {:else}
+              <div class="chart-empty">No models yet</div>
+            {/if}
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Models List Table Card -->
+    <div class="dashboard-card" style="margin-top: 0.25rem;">
+      <div class="card-header">
+        <div class="card-header-row">
+          <h3>Models Breakdown</h3>
+          <span class="chart-legend accent">{detail.models.length} total</span>
+        </div>
+      </div>
+      <div class="card-body" style="padding: 0;">
+        <div class="control-table" style="border: none; border-radius: 0; box-shadow: none;">
+          <div class="control-table-head grid-overview-models">
+            <div class="control-table-cell">Model Name</div>
+            <div class="control-table-cell">Requests</div>
+            <div class="control-table-cell">Success</div>
+            <div class="control-table-cell">Errors</div>
+            <div class="control-table-cell">Avg Latency</div>
+            <div class="control-table-cell">Tokens</div>
+          </div>
+          {#if detail.models.length}
+            {#each detail.models as model}
+              <div class="control-table-row grid-overview-models">
+                <div class="control-table-cell" style="font-weight: 600; color: var(--text);">{model.model_name}</div>
+                <div class="control-table-cell">{formatMetric(model.requests_count)}</div>
+                <div class="control-table-cell" style="color: var(--good);">{formatMetric(model.success_count)}</div>
+                <div class="control-table-cell" style="color: {model.error_count > 0 ? 'var(--bad)' : 'var(--muted)'};">
+                  {formatMetric(model.error_count)}
+                </div>
+                <div class="control-table-cell">{model.avg_latency_ms.toFixed(1)} ms</div>
+                <div class="control-table-cell" style="font-variant-numeric: tabular-nums;">{formatMetric(model.total_tokens_consumed)}</div>
               </div>
-              <div class="overview-model-meta">
-                <span>{formatMetric(model.total_tokens_consumed)} tokens</span>
-                <span>{model.avg_latency_ms.toFixed(1)} ms</span>
-              </div>
+            {/each}
+          {:else}
+            <div class="smart-empty" style="margin: 1.5rem; border: 1px dashed var(--border);">
+              No model usage yet for this scope.
             </div>
-          {/each}
-        {:else}
-          <p class="overview-empty-text">No model usage yet for this scope.</p>
-        {/if}
+          {/if}
+        </div>
       </div>
     </div>
   {/if}
 </section>
 
 <style>
-  .overview-page {
-    display: flex;
-    flex-direction: column;
-    gap: 1rem;
-    padding: 1.25rem 1.25rem 2rem;
+  .grid-overview-models {
+    grid-template-columns: minmax(180px, 2.5fr) minmax(80px, 1fr) minmax(80px, 1fr) minmax(80px, 1fr) minmax(90px, 1fr) minmax(110px, 1.2fr);
   }
 
-  .overview-page-header {
-    display: flex;
-    align-items: flex-start;
-    justify-content: space-between;
-    gap: 1rem;
-    padding: 1rem 1.1rem;
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    background: rgba(16, 19, 24, 0.9);
-    backdrop-filter: blur(18px);
-  }
-
-  .overview-header-copy {
-    display: flex;
-    flex-direction: column;
-    gap: 0.35rem;
-    min-width: 0;
-  }
-
-  .overview-back-link {
-    color: var(--accent);
-    text-decoration: none;
-    font-size: 0.84rem;
-    width: fit-content;
-  }
-
-  .overview-eyebrow {
-    margin: 0;
-    text-transform: uppercase;
-    letter-spacing: 0.18em;
-    font-size: 0.72rem;
-    color: var(--muted);
-  }
-
-  .overview-page-header h1 {
-    margin: 0;
-    font-size: clamp(1.5rem, 2vw, 2rem);
-    line-height: 1.1;
-  }
-
-  .overview-label {
-    margin: 0;
-    color: var(--muted);
-    font-size: 0.92rem;
-  }
-
-  .overview-header-tools {
-    display: flex;
-    align-items: center;
-    gap: 0.75rem;
-  }
-
-  .overview-scope-bar {
-    display: grid;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
-    gap: 0.75rem;
-    padding: 0.9rem 1rem;
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    background: rgba(16, 19, 24, 0.72);
-    backdrop-filter: blur(16px);
-  }
-
-  .overview-scope-bar > div {
-    display: flex;
-    flex-direction: column;
-    gap: 0.2rem;
-    min-width: 0;
-  }
-
-  .overview-scope-bar span {
-    text-transform: uppercase;
-    letter-spacing: 0.12em;
-    font-size: 0.68rem;
-    color: var(--muted);
-  }
-
-  .overview-scope-bar strong {
-    font-size: 0.92rem;
-    color: var(--text);
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  .overview-summary-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
-    gap: 0.75rem;
-  }
-
-  .overview-telemetry-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
-    gap: 0.75rem;
-    margin-top: 0.75rem;
-  }
-
-  .overview-summary-card,
-  .overview-telemetry-card,
-  .overview-panel,
-  .overview-models,
-  .overview-state {
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    background: rgba(16, 19, 24, 0.88);
-    backdrop-filter: blur(16px);
-  }
-
-  .overview-summary-card {
-    padding: 0.9rem 1rem;
-  }
-
-  .overview-summary-card span {
-    display: block;
-    font-size: 0.72rem;
-    text-transform: uppercase;
-    letter-spacing: 0.12em;
-    color: var(--muted);
-    margin-bottom: 0.35rem;
-  }
-
-  .overview-summary-card strong {
-    font-size: 1.65rem;
-    line-height: 1.1;
-  }
-
-  .overview-telemetry-card {
-    padding: 0.85rem 0.95rem;
-  }
-
-  .overview-telemetry-card span {
-    display: block;
-    font-size: 0.72rem;
-    text-transform: uppercase;
-    letter-spacing: 0.12em;
-    color: var(--muted);
-    margin-bottom: 0.35rem;
-  }
-
-  .overview-telemetry-card strong {
-    font-size: 0.95rem;
-    line-height: 1.35;
-  }
-
-  .overview-charts {
-    display: grid;
-    grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
-    gap: 0.75rem;
-  }
-
-  .overview-panel {
-    padding: 0.9rem 1rem;
-  }
-
-  .overview-panel-header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 0.5rem;
-    margin-bottom: 0.8rem;
-  }
-
-  .overview-panel-header h3 {
-    margin: 0;
-    font-size: 0.98rem;
-  }
-
-  .overview-panel-header span {
-    font-size: 0.75rem;
-    color: var(--muted);
-    text-transform: uppercase;
-    letter-spacing: 0.12em;
-  }
-
-  .overview-chart {
-    height: 240px;
+  .chart-panel {
     position: relative;
+    width: 100%;
   }
 
-  .overview-axis {
+  .chart-axis {
     display: flex;
     justify-content: space-between;
-    gap: 0.5rem;
-    margin-top: 0.65rem;
+    gap: 0.75rem;
     color: var(--muted);
-    font-size: 0.75rem;
-  }
-
-  .overview-models {
-    padding: 0.9rem 1rem;
-  }
-
-  .overview-model-list {
-    display: flex;
-    flex-direction: column;
-    gap: 0.6rem;
-  }
-
-  .overview-model-row {
-    display: flex;
-    align-items: flex-start;
-    justify-content: space-between;
-    gap: 1rem;
-    padding: 0.8rem 0;
-    border-top: 1px solid var(--border);
-  }
-
-  .overview-model-row:first-child {
-    border-top: 0;
-    padding-top: 0;
-  }
-
-  .overview-model-row strong {
-    display: block;
-    margin-bottom: 0.2rem;
-  }
-
-  .overview-model-row p,
-  .overview-empty-text {
-    margin: 0;
-    color: var(--muted);
-    font-size: 0.88rem;
-  }
-
-  .overview-model-meta {
-    display: flex;
-    flex-direction: column;
-    gap: 0.2rem;
-    align-items: flex-end;
-    color: var(--muted);
-    font-size: 0.82rem;
-    white-space: nowrap;
-  }
-
-  .overview-state {
-    padding: 1rem;
-    color: var(--muted);
-    display: flex;
-    flex-direction: column;
-    gap: 0.35rem;
-  }
-
-  .overview-state strong {
-    color: var(--text);
-  }
-
-  .overview-state.error {
-    color: #ffb4b4;
-  }
-
-  .overview-empty {
-    height: 100%;
-    display: grid;
-    place-items: center;
-    color: var(--muted);
-    font-style: italic;
-    border: 1px dashed var(--border);
-    border-radius: 8px;
-  }
-
-  @media (max-width: 1024px) {
-    .overview-charts {
-      grid-template-columns: 1fr;
-    }
-
-    .overview-scope-bar {
-      grid-template-columns: repeat(2, minmax(0, 1fr));
-    }
-  }
-
-  @media (max-width: 720px) {
-    .overview-page {
-      padding: 0.9rem;
-    }
-
-    .overview-page-header {
-      flex-direction: column;
-      align-items: stretch;
-    }
-
-    .overview-header-tools {
-      justify-content: flex-start;
-    }
-
-    .overview-scope-bar {
-      grid-template-columns: 1fr;
-    }
-
-    .overview-model-row {
-      flex-direction: column;
-    }
-
-    .overview-model-meta {
-      align-items: flex-start;
-    }
+    font-size: 0.68rem;
+    font-variant-numeric: tabular-nums;
+    font-weight: 500;
   }
 </style>

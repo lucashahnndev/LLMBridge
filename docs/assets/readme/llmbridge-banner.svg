@@ -8,13 +8,15 @@
       font-size: 24px;
       font-weight: 700;
       letter-spacing: 0;
-      text-anchor: middle;
+      white-space: pre;
     }
   </style>
   <rect width="1400" height="240" fill="transparent" />
-  <text class="banner" x="700" y="52" xml:space="preserve">█     █     █   █ ████  ████  ███ ████   ███  █████</text>
-  <text class="banner" x="700" y="94" xml:space="preserve">█     █     ██ ██ █   █ █   █  █  █   █ █     █</text>
-  <text class="banner" x="700" y="136" xml:space="preserve">█     █     █ █ █ ████  ████   █  █   █ █  ██ ████</text>
-  <text class="banner" x="700" y="178" xml:space="preserve">█     █     █   █ █   █ █  █   █  █   █ █   █ █</text>
-  <text class="banner" x="700" y="220" xml:space="preserve">█████ █████ █   █ ████  █   █ ███ ████   ███  █████</text>
+  <g transform="translate(265 0)">
+    <text class="banner" x="0" y="52" xml:space="preserve">█     █     █   █ ████  ████  ███ ████   ███  █████</text>
+    <text class="banner" x="0" y="94" xml:space="preserve">█     █     ██ ██ █   █ █   █  █  █   █ █     █</text>
+    <text class="banner" x="0" y="136" xml:space="preserve">█     █     █ █ █ ████  ████   █  █   █ █  ██ ████</text>
+    <text class="banner" x="0" y="178" xml:space="preserve">█     █     █   █ █   █ █  █   █  █   █ █   █ █</text>
+    <text class="banner" x="0" y="220" xml:space="preserve">█████ █████ █   █ ████  █   █ ███ ████   ███  █████</text>
+  </g>
 </svg>

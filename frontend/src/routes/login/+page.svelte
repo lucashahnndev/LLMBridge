@@ -60,7 +60,7 @@
 </script>
 
 <svelte:head>
-  <title>LLMBridge Login</title>
+  <title>Console access</title>
   <meta
     name="description"
     content="Enter the admin console for the local LLM gateway and key rotator."
@@ -89,7 +89,7 @@
 
     <div class="auth-panel">
       <div class="health-row">
-        <strong>{backendHealth ? `${backendHealth.service} ${backendHealth.status}` : 'Unknown'}</strong>
+        <strong>{backendHealth ? backendHealth.status : 'Unknown'}</strong>
       </div>
       {#if healthError}
         <div class="inline-note error">{healthError}</div>

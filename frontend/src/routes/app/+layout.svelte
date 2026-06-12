@@ -20,6 +20,7 @@
   let token = '';
   let themeMode: ThemeMode = 'system';
   let isMounted = false;
+  let hideBrandWordmark = false;
 
   const sections: Array<{ key: SectionKey; label: string; icon: typeof LayoutDashboard }> = [
     { key: 'overview', label: 'Overview', icon: LayoutDashboard },
@@ -61,6 +62,8 @@
     }
   }
 
+  $: hideBrandWordmark = $page.url.pathname.startsWith('/app/playground');
+
   onMount(() => {
     const savedToken = getStoredAdminToken();
     if (!savedToken) {
@@ -81,7 +84,9 @@
         {#if $sidebarCollapsed}
           <div class="brand-icon">LB</div>
         {:else}
-          <div class="eyebrow">LLMBridge</div>
+          {#if !hideBrandWordmark}
+            <div class="eyebrow">LLMBridge</div>
+          {/if}
           <h1>Control plane</h1>
         {/if}
       </div>

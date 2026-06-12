@@ -8,6 +8,7 @@
     fetchProviderKeys,
     fetchRuntimeConfig,
     fetchUsageLogs,
+    peekAppToken,
     getStoredAdminToken,
     type AppToken,
     type ModelQueue,
@@ -63,6 +64,8 @@
   let usageLogs: UsageLog[] = [];
 
   let appTokenValue = '';
+  let selectedAppTokenId = '';
+  let selectedAppToken: AppToken | null = null;
   let protocol: Protocol = 'anthropic';
   let targetMode: TargetMode = 'queue';
   let provider = DEFAULT_PROVIDER;
@@ -435,6 +438,41 @@ console.log(data);`;
     customModel = nextTarget;
   }
 
+  async function loadSelectedAppToken(tokenId = selectedAppTokenId) {
+    const normalizedTokenId = tokenId.trim();
+    if (!normalizedTokenId) {
+      selectedAppTokenId = '';
+      selectedAppToken = null;
+      appTokenValue = '';
+      return;
+    }
+
+    const chosenToken = appTokens.find((token) => String(token.id) === normalizedTokenId);
+    if (!chosenToken) {
+      selectedAppTokenId = '';
+      selectedAppToken = null;
+      appTokenValue = '';
+      requestError = 'Select a valid app token.';
+      return;
+    }
+
+    selectedAppTokenId = String(chosenToken.id);
+    selectedAppToken = chosenToken;
+    requestError = '';
+
+    try {
+      const tokenDetails = await peekAppToken(adminToken, chosenToken.id);
+      if (selectedAppTokenId === String(chosenToken.id)) {
+        appTokenValue = tokenDetails.token;
+      }
+    } catch (error) {
+      if (selectedAppTokenId === String(chosenToken.id)) {
+        appTokenValue = '';
+        requestError = error instanceof Error ? error.message : 'Failed to load the selected app token';
+      }
+    }
+  }
+
   function copyText(text: string) {
     if (typeof navigator === 'undefined' || !navigator.clipboard) {
       return;
@@ -487,6 +525,15 @@ console.log(data);`;
         targetMode = 'queue';
         queueName = queues[0]?.name ?? DEFAULT_QUEUE;
       }
+
+      const preferredToken = apps.find((token) => token.is_active) ?? apps[0] ?? null;
+      if (preferredToken) {
+        await loadSelectedAppToken(String(preferredToken.id));
+      } else {
+        selectedAppTokenId = '';
+        selectedAppToken = null;
+        appTokenValue = '';
+      }
     } catch (error) {
       catalogError = error instanceof Error ? error.message : 'Failed to load playground catalog';
       healthStatus = '';
@@ -503,7 +550,7 @@ console.log(data);`;
     }
 
     if (!appTokenValue.trim()) {
-      requestError = 'Paste a valid app token first.';
+      requestError = 'Select a valid app token first.';
       return;
     }
 
@@ -577,7 +624,6 @@ console.log(data);`;
     protocol = 'anthropic';
     targetMode = 'queue';
     queueName = 'gemini';
-    appTokenValue = 'lk-key-your-app-token-here';
     systemPrompt = DEFAULT_SYSTEM_PROMPT;
     userPrompt = 'Use the configured queue and explain which target would be tried first.';
     temperature = 0.2;
@@ -626,7 +672,7 @@ console.log(data);`;
     adminToken = savedToken;
     void loadCatalog();
   });
-</script>
+  </script>
 
 <svelte:head>
   <title>Playground - LLMBridge</title>
@@ -749,8 +795,22 @@ console.log(data);`;
     <div class="sidebar-section">
       <label>
         <span>App Token</span>
-        <input bind:value={appTokenValue} type="password" placeholder="lk-key-..." autocomplete="off" spellcheck="false" />
+        <select bind:value={selectedAppTokenId} on:change={() => void loadSelectedAppToken()}>
+          <option value="" disabled>Select an app token</option>
+          {#each appTokens as token}
+            <option value={String(token.id)}>
+              {token.name} · {token.masked_token} · {token.environment}
+            </option>
+          {/each}
+        </select>
       </label>
+      <p class="field-help">
+        {#if selectedAppToken}
+          {selectedAppToken.is_active ? 'Selected token is active.' : 'Selected token is inactive.'}
+        {:else}
+          Choose one of the app tokens already registered in the system.
+        {/if}
+      </p>
     </div>
 
     <!-- Parameters Collapsible -->
