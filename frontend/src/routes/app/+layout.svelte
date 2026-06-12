@@ -2,7 +2,7 @@
   import { onMount } from 'svelte';
   import { goto } from '$app/navigation';
   import { page } from '$app/stores';
-  import { getStoredAdminToken, logoutAdmin } from '$lib/api';
+  import { clearStoredAdminToken, getStoredAdminToken, logoutAdmin } from '$lib/api';
   import { applyThemeMode, getStoredThemeMode, setStoredThemeMode, type ThemeMode } from '$lib/theme';
   import { activeSection, topbarTitle, refreshTrigger, sidebarCollapsed, type SectionKey } from '$lib/stores';
   import {
@@ -30,8 +30,18 @@
     { key: 'runtime', label: 'Runtime', icon: Settings }
   ];
 
-  function handleLogout() {
-    logoutAdmin();
+  async function handleLogout() {
+    if (token) {
+      try {
+        await logoutAdmin(token);
+      } catch {
+        // If the backend is already unavailable or the token expired,
+        // we still end the local session.
+      }
+    }
+
+    clearStoredAdminToken();
+    token = '';
     void goto('/login');
   }
 
