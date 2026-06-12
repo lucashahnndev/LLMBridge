@@ -182,6 +182,7 @@
   let selectedQueueCandidateModelName = '';
   let selectedQueueCandidatePosition = 0;
   let selectedQueueCandidateIsActive = true;
+  let showQueueCandidateModal = false;
 
   let usageAppTokenFilter = '';
   let usageProviderKeyFilter = '';
@@ -194,6 +195,7 @@
   let usagePage = 1;
   let usageLogPage: UsageLogPage | null = null;
   let selectedUsageLog: UsageLog | null = null;
+  let showUsageFilters = false;
   let overviewRange: '1h' | '24h' | '7d' | '30d' = '24h';
 
   let lastCreatedAppToken: AppTokenCreateResult | null = null;
@@ -281,15 +283,34 @@
   $: usageTotalPages = usageLogPage ? Math.max(1, Math.ceil(usageLogPage.total / usageLogPage.limit)) : 1;
   $: usageStartIndex = usageLogPage && usageLogPage.total > 0 ? usageLogPage.offset + 1 : 0;
   $: usageEndIndex = usageLogPage ? Math.min(usageLogPage.offset + usageLogPage.items.length, usageLogPage.total) : 0;
-  $: usageProtocolInCounts = usageLogs.reduce<Record<string, number>>((counts, log) => {
-    counts[log.protocol_in] = (counts[log.protocol_in] ?? 0) + 1;
+  $: usageAppTokenCounts = usageLogs.reduce<Record<string, number>>((counts, log) => {
+    const key = log.app_token_name ?? 'Unknown app';
+    counts[key] = (counts[key] ?? 0) + 1;
     return counts;
   }, {});
-  $: usageProtocolOutCounts = usageLogs.reduce<Record<string, number>>((counts, log) => {
-    counts[log.protocol_out] = (counts[log.protocol_out] ?? 0) + 1;
+  $: usageProviderKeyCounts = usageLogs.reduce<Record<string, number>>((counts, log) => {
+    const key = log.provider_key_name ?? 'Unknown key';
+    counts[key] = (counts[key] ?? 0) + 1;
     return counts;
   }, {});
-  $: usageToolCallingCount = usageLogs.filter((log) => log.tool_calling).length;
+  $: usageProviderCounts = usageLogs.reduce<Record<string, number>>((counts, log) => {
+    counts[log.provider_used] = (counts[log.provider_used] ?? 0) + 1;
+    return counts;
+  }, {});
+  $: usageModelCounts = usageLogs.reduce<Record<string, number>>((counts, log) => {
+    const key = log.resolved_model ?? log.model_requested;
+    counts[key] = (counts[key] ?? 0) + 1;
+    return counts;
+  }, {});
+
+  function formatTopMetric(counts: Record<string, number>) {
+    const entries = Object.entries(counts).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+    if (!entries.length) {
+      return 'None';
+    }
+    const [name, count] = entries[0];
+    return `${name} ${count}`;
+  }
 
   $: filteredActivityLog = activityFilter === 'all'
     ? activityLog
@@ -361,7 +382,7 @@
     scales: { 
       x: { display: true, grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: 'rgba(255,255,255,0.5)' } }, 
       y: { type: 'linear', display: true, position: 'left', min: 0, grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: 'rgba(255,255,255,0.5)' } },
-      y1: { type: 'linear', display: true, position: 'right', min: 0, grid: { drawOnChartArea: false }, ticks: { color: 'rgba(216,184,88,0.5)' } }
+      y1: { type: 'linear', display: true, position: 'right', min: 0, grid: { drawOnChartArea: false }, ticks: { color: 'rgba(245, 158, 11, 0.5)' } }
     },
     elements: { point: { radius: 0, hitRadius: 10, hoverRadius: 4 } },
     interaction: { mode: 'nearest', axis: 'x', intersect: false }
@@ -374,7 +395,7 @@
         label: 'Requests',
         data: overviewRequestsSeries,
         borderColor: '#d8b858',
-        backgroundColor: 'rgba(216,184,88,0.15)',
+        backgroundColor: 'rgba(216, 184, 88, 0.15)',
         yAxisID: 'y',
         fill: true,
         tension: 0.3
@@ -382,8 +403,8 @@
       {
         label: 'Errors',
         data: overviewErrorsSeries,
-        borderColor: '#c87575',
-        backgroundColor: 'rgba(200,117,117,0.15)',
+        borderColor: '#ef4444',
+        backgroundColor: 'rgba(239, 68, 68, 0.15)',
         yAxisID: 'y',
         fill: true,
         tension: 0.3
@@ -391,7 +412,7 @@
       {
         label: 'Latency (ms)',
         data: overviewLatencySeries,
-        borderColor: '#a18a40',
+        borderColor: '#f59e0b',
         backgroundColor: 'transparent',
         yAxisID: 'y1',
         borderDash: [5, 5],
@@ -437,8 +458,8 @@
     labels: projectMetrics.map((p) => p.app_name),
     datasets: [{
       data: projectMetrics.map((p) => p.requests_count),
-      backgroundColor: ['#d8b858', '#c87575', '#a18a40', '#6496c8', '#a4c982', '#ebd492'],
-      borderColor: 'rgba(20,20,20,1)',
+      backgroundColor: ['#d8b858', '#ef4444', '#f59e0b', '#3b82f6', '#10b981', '#a8a29e'],
+      borderColor: 'rgba(17,24,39,1)',
       borderWidth: 2
     }]
   };
@@ -448,7 +469,7 @@
     datasets: [{
       label: 'Tokens Consumed',
       data: projectMetrics.map((p) => p.total_tokens_consumed),
-      backgroundColor: '#6496c8',
+      backgroundColor: '#d8b858',
       borderRadius: 4
     }]
   };
@@ -458,7 +479,7 @@
     datasets: [{
       label: 'Avg Latency (ms)',
       data: projectMetrics.map((p) => p.avg_latency_ms),
-      backgroundColor: '#a4c982',
+      backgroundColor: '#f59e0b',
       borderRadius: 4
     }]
   };
@@ -544,6 +565,7 @@
     selectedQueueCandidateModelName = candidate.model_name;
     selectedQueueCandidatePosition = candidate.position;
     selectedQueueCandidateIsActive = candidate.is_active;
+    showQueueCandidateModal = true;
   }
 
   async function loadDashboard(jwt: string) {
@@ -1155,6 +1177,7 @@
       });
       await loadDashboard(token);
       pushNotice('success', 'Queue candidate added', `${selectedQueueCandidateModelName} added to queue.`);
+      showQueueCandidateModal = false;
     } catch (error) {
       metricsError = error instanceof Error ? error.message : 'Failed to add queue candidate';
       pushNotice('error', 'Queue candidate add failed', metricsError);
@@ -1179,6 +1202,7 @@
       });
       await loadDashboard(token);
       pushNotice('success', 'Queue candidate saved', 'Candidate updated successfully.');
+      showQueueCandidateModal = false;
     } catch (error) {
       metricsError = error instanceof Error ? error.message : 'Failed to update queue candidate';
       pushNotice('error', 'Queue candidate save failed', metricsError);
@@ -2051,68 +2075,60 @@
               </div>
             </div>
 
-            <div class="stack">
+            <div class="control-table">
+              <div class="control-table-head grid-provider-keys">
+                <div class="control-table-cell"></div>
+                <div class="control-table-cell">Key Name</div>
+                <div class="control-table-cell">Provider</div>
+                <div class="control-table-cell">Status</div>
+                <div class="control-table-cell">Masked Key</div>
+                <div class="control-table-cell">Failures</div>
+                <div class="control-table-cell actions">Actions</div>
+              </div>
+
               {#each filteredProviderKeys as providerKey}
-                <div
-                  class="item-card selectable"
-                  class:selected={selectedProviderKeyId === providerKey.id}
-                  role="button"
-                  tabindex="0"
-                  on:click={() => selectProviderKey(providerKey)}
-                  on:keydown={(event) => handleCardKeydown(event, () => selectProviderKey(providerKey))}
-                >
-                  <div class="item-main">
-                    <div>
-                      <div class="row-title">
-                        <label class="select-check">
-                          <input
-                            type="checkbox"
-                            checked={isProviderKeySelected(providerKey.id)}
-                            on:click|stopPropagation
-                            on:change={() => toggleProviderKeySelection(providerKey.id)}
-                          />
-                        </label>
-                        <strong>{providerKey.name}</strong>
-                      </div>
-                      <p>{providerKey.provider} · <span class="badge {providerKey.status === 'ACTIVE' ? 'badge-good' : providerKey.status === 'INVALID' ? 'badge-bad' : 'badge-warn'}">{formatStatus(providerKey.status)}</span></p>
-                    </div>
-                    <div class="item-meta">
-                      <span>{providerKey.masked_token}</span>
-                      <span>Failures: {providerKey.failure_count}</span>
-                    </div>
+                <div class="control-table-row grid-provider-keys">
+                  <div class="control-table-cell">
+                    <label class="select-check" style="margin: 0; display: inline-flex; align-items: center;">
+                      <input
+                        type="checkbox"
+                        checked={isProviderKeySelected(providerKey.id)}
+                        on:change={() => toggleProviderKeySelection(providerKey.id)}
+                      />
+                    </label>
                   </div>
-                  <div class="item-actions">
+                  <div class="control-table-cell">
+                    <strong>{providerKey.name}</strong>
+                  </div>
+                  <div class="control-table-cell">
+                    <span style="text-transform: capitalize;">{providerKey.provider}</span>
+                  </div>
+                  <div class="control-table-cell">
+                    <span class="badge {providerKey.status === 'ACTIVE' ? 'badge-good' : providerKey.status === 'INVALID' ? 'badge-bad' : 'badge-warn'}">
+                      {formatStatus(providerKey.status)}
+                    </span>
+                  </div>
+                  <div class="control-table-cell" style="font-family: monospace; opacity: 0.8;">
+                    {providerKey.masked_token}
+                  </div>
+                  <div class="control-table-cell">
+                    {providerKey.failure_count}
+                  </div>
+                  <div class="control-table-cell actions">
                     <button type="button" class="ghost icon-only" title="Open overview" aria-label={`Open overview for ${providerKey.name}`} on:click|stopPropagation={() => openProviderOverview(providerKey)} disabled={actionBusy}>
                       <BarChart2 size={16} />
                     </button>
-                    <button type="button" class="ghost" on:click={() => requestPeekProviderKey(providerKey)} disabled={actionBusy}>
-                      Peek token
+                    <button type="button" class="ghost" on:click|stopPropagation={() => selectProviderKey(providerKey)} disabled={actionBusy}>
+                      Edit
                     </button>
-                    <button type="button" class="ghost" on:click={() => handleSetProviderKeyStatus(providerKey, 'COOLDOWN')} disabled={actionBusy}>
-                      Cooldown
-                    </button>
-                    <button type="button" class="ghost" on:click={() => handleSetProviderKeyStatus(providerKey, 'INVALID')} disabled={actionBusy}>
-                      Invalidate
-                    </button>
-                    <button
-                      type="button"
-                      class="ghost"
-                      on:click={() => handleSetProviderKeyStatus(providerKey, 'SUSPENDED_BILLING')}
-                      disabled={actionBusy}
-                    >
-                      Suspend billing
-                    </button>
-                    <button type="button" class="ghost" on:click={() => handleSetProviderKeyStatus(providerKey, 'ACTIVE')} disabled={actionBusy}>
-                      Reactivate
-                    </button>
-                    <button type="button" class="ghost" on:click={() => handleDeleteProviderKey(providerKey.id)} disabled={actionBusy}>
+                    <button type="button" class="btn-danger" on:click|stopPropagation={() => handleDeleteProviderKey(providerKey.id)} disabled={actionBusy}>
                       Delete
                     </button>
                   </div>
                 </div>
               {/each}
               {#if !filteredProviderKeys.length}
-                <p class="muted">No provider keys yet.</p>
+                <p class="muted" style="padding: 1rem; text-align: center; margin: 0;">No provider keys yet.</p>
               {/if}
             </div>
                      {#if selectedProviderKeyId !== null}
@@ -2146,25 +2162,53 @@
                           <code style="background: transparent; border: 0; padding: 0;">{selectedProviderKey.masked_token}</code>
                         </div>
                       </div>
+                      <div class="form-grid" style="margin-top: 1.5rem;">
+                        <label>
+                          Name
+                          <input bind:value={selectedProviderKeyName} type="text" />
+                        </label>
+                        <label>
+                          Provider
+                          <select bind:value={selectedProviderKeyProvider}>
+                            <option value="openai">openai</option>
+                            <option value="google">google</option>
+                            <option value="openrouter">openrouter</option>
+                          </select>
+                        </label>
+                        <label class="wide">
+                          Description
+                          <input bind:value={selectedProviderKeyDescription} type="text" />
+                        </label>
+                      </div>
+                      <div class="modal-section-actions">
+                        <span>Key Operations</span>
+                        <div class="action-buttons-group">
+                          <button type="button" class="ghost" on:click={() => requestPeekProviderKey(selectedProviderKey)} disabled={actionBusy}>
+                            Peek Secret
+                          </button>
+                          {#if selectedProviderKey.status !== 'COOLDOWN'}
+                            <button type="button" class="ghost" on:click={() => handleSetProviderKeyStatus(selectedProviderKey, 'COOLDOWN')} disabled={actionBusy}>
+                              Cooldown
+                            </button>
+                          {/if}
+                          {#if selectedProviderKey.status !== 'INVALID'}
+                            <button type="button" class="ghost" on:click={() => handleSetProviderKeyStatus(selectedProviderKey, 'INVALID')} disabled={actionBusy}>
+                              Invalidate
+                            </button>
+                          {/if}
+                          {#if selectedProviderKey.status !== 'SUSPENDED_BILLING'}
+                            <button type="button" class="ghost" on:click={() => handleSetProviderKeyStatus(selectedProviderKey, 'SUSPENDED_BILLING')} disabled={actionBusy}>
+                              Suspend Billing
+                            </button>
+                          {/if}
+                          {#if selectedProviderKey.status !== 'ACTIVE'}
+                            <button type="button" class="ghost" on:click={() => handleSetProviderKeyStatus(selectedProviderKey, 'ACTIVE')} disabled={actionBusy}>
+                              Reactivate
+                            </button>
+                          {/if}
+                        </div>
+                      </div>
                     {/if}
-                    <div class="form-grid" style="margin-top: 1.5rem;">
-                      <label>
-                        Name
-                        <input bind:value={selectedProviderKeyName} type="text" />
-                      </label>
-                      <label>
-                        Provider
-                        <select bind:value={selectedProviderKeyProvider}>
-                          <option value="openai">openai</option>
-                          <option value="google">google</option>
-                          <option value="openrouter">openrouter</option>
-                        </select>
-                      </label>
-                      <label class="wide">
-                        Description
-                        <input bind:value={selectedProviderKeyDescription} type="text" />
-                      </label>
-                    </div>
                   </div>
                   <div class="modal-footer">
                     <button type="button" class="ghost" on:click={() => (selectedProviderKeyId = null)}>Cancel</button>
@@ -2324,39 +2368,51 @@
               </div>
             </div>
 
-            <div class="stack">
+            <div class="control-table">
+              <div class="control-table-head grid-app-tokens">
+                <div class="control-table-cell"></div>
+                <div class="control-table-cell">Token Name</div>
+                <div class="control-table-cell">Environment</div>
+                <div class="control-table-cell">Status</div>
+                <div class="control-table-cell">Masked Token</div>
+                <div class="control-table-cell">Rate Limit</div>
+                <div class="control-table-cell actions">Actions</div>
+              </div>
+
               {#each filteredAppTokens as appToken}
-                <div
-                  class="item-card selectable"
-                  class:selected={selectedAppTokenId === appToken.id}
-                  role="button"
-                  tabindex="0"
-                  on:click={() => selectAppToken(appToken)}
-                  on:keydown={(event) => handleCardKeydown(event, () => selectAppToken(appToken))}
-                >
-                  <div class="item-main">
-                    <div>
-                      <div class="row-title">
-                        <label class="select-check">
-                          <input
-                            type="checkbox"
-                            checked={isAppTokenSelected(appToken.id)}
-                            on:click|stopPropagation
-                            on:change={() => toggleAppTokenSelection(appToken.id)}
-                          />
-                        </label>
-                        <strong>{appToken.name}</strong>
-                      </div>
-                      <p>{appToken.environment} · <span class="badge {appToken.is_active ? 'badge-good' : 'badge-warn'}">{appToken.is_active ? 'active' : 'disabled'}</span></p>
-                    </div>
-                    <div class="item-meta">
-                      <span>{appToken.masked_token}</span>
-                      <span>{appToken.rpm_limit ? `${appToken.rpm_limit} rpm` : 'No limit'}</span>
-                    </div>
+                <div class="control-table-row grid-app-tokens">
+                  <div class="control-table-cell">
+                    <label class="select-check" style="margin: 0; display: inline-flex; align-items: center;">
+                      <input
+                        type="checkbox"
+                        checked={isAppTokenSelected(appToken.id)}
+                        on:change={() => toggleAppTokenSelection(appToken.id)}
+                      />
+                    </label>
                   </div>
-                  <div class="item-actions">
+                  <div class="control-table-cell">
+                    <strong>{appToken.name}</strong>
+                  </div>
+                  <div class="control-table-cell">
+                    <span style="text-transform: capitalize;">{appToken.environment}</span>
+                  </div>
+                  <div class="control-table-cell">
+                    <span class="badge {appToken.is_active ? 'badge-good' : 'badge-warn'}">
+                      {appToken.is_active ? 'active' : 'disabled'}
+                    </span>
+                  </div>
+                  <div class="control-table-cell" style="font-family: monospace; opacity: 0.8;">
+                    {appToken.masked_token}
+                  </div>
+                  <div class="control-table-cell">
+                    {appToken.rpm_limit ? `${appToken.rpm_limit} rpm` : 'No limit'}
+                  </div>
+                  <div class="control-table-cell actions">
                     <button type="button" class="ghost icon-only" title="Open overview" aria-label={`Open overview for ${appToken.name}`} on:click|stopPropagation={() => openAppTokenOverview(appToken)} disabled={actionBusy}>
                       <BarChart2 size={16} />
+                    </button>
+                    <button type="button" class="ghost" on:click|stopPropagation={() => selectAppToken(appToken)} disabled={actionBusy}>
+                      Edit
                     </button>
                     <button type="button" class="ghost" on:click={() => handleToggleAppToken(appToken)} disabled={actionBusy}>
                       {appToken.is_active ? 'Disable' : 'Enable'}
@@ -2368,7 +2424,7 @@
                 </div>
               {/each}
               {#if !filteredAppTokens.length}
-                <p class="muted">No app tokens yet.</p>
+                <p class="muted" style="padding: 1rem; text-align: center; margin: 0;">No app tokens yet.</p>
               {/if}
             </div>
           </div>
@@ -2492,11 +2548,11 @@
           </div>
 
           {#if showModelQueueModal}
-            <div class="modal-backdrop" on:click={() => (showModelQueueModal = false)} on:keydown={(e) => e.key === 'Escape' && (showModelQueueModal = false)} tabindex="0" role="button">
+            <div class="modal-backdrop" on:click={() => { showModelQueueModal = false; showQueueCandidateModal = false; }} on:keydown={(e) => e.key === 'Escape' && ((showModelQueueModal = false), (showQueueCandidateModal = false))} tabindex="0" role="button">
               <div class="modal-content" style={queueModalMode === 'edit' ? 'max-width: 800px; max-height: 90vh; overflow-y: auto;' : ''} on:click|stopPropagation on:keydown|stopPropagation tabindex="-1" role="dialog" aria-modal="true">
                 <div class="modal-header">
                   <h3>{queueModalMode === 'create' ? 'Add Queue' : 'Edit Queue'}</h3>
-                  <button type="button" class="ghost" on:click={() => (showModelQueueModal = false)}>Close</button>
+                  <button type="button" class="ghost" on:click={() => { showModelQueueModal = false; showQueueCandidateModal = false; }}>Close</button>
                 </div>
                 <div class="modal-body">
                   <div class="form-grid">
@@ -2519,96 +2575,77 @@
                   </div>
 
                   {#if queueModalMode === 'edit' && selectedQueue}
-                    <div class="section-title" style="margin-top: 2rem;">
+                    <div class="section-title" style="margin-top: 2rem; display: flex; align-items: center; justify-content: space-between;">
                       <h2>Candidates</h2>
-                    </div>
-
-                    <div class="stack">
-                      {#each selectedQueue.candidates as candidate}
-                        <div
-                          class="item-card selectable"
-                          class:selected={selectedQueueCandidateId === candidate.id}
-                          role="button"
-                          tabindex="0"
-                          on:click={() => selectQueueCandidate(candidate)}
-                          on:keydown={(event) => handleCardKeydown(event, () => selectQueueCandidate(candidate))}
-                        >
-                          <div class="item-main">
-                            <div>
-                              <strong>{candidate.provider}/{candidate.model_name}</strong>
-                              <p>Position {candidate.position} · <span class="badge {candidate.is_active ? 'badge-good' : 'badge-warn'}">{candidate.is_active ? 'active' : 'disabled'}</span></p>
-                            </div>
-                            <div class="item-meta">
-                              <span>Score {candidate.score.toFixed(2)}</span>
-                              <span>{candidate.failure_count} errors</span>
-                              <span>{candidate.avg_latency_ms ? `${candidate.avg_latency_ms.toFixed(1)}ms` : '0ms'}</span>
-                            </div>
-                          </div>
-                          <div class="item-actions">
-                            <button type="button" class="ghost" on:click={() => selectQueueCandidate(candidate)} disabled={actionBusy}>
-                              Edit
-                            </button>
-                            <button type="button" class="btn-danger" on:click={() => handleDeleteQueueCandidate(candidate.id)} disabled={actionBusy}>
-                              Delete
-                            </button>
-                          </div>
-                        </div>
-                      {/each}
-                      {#if !selectedQueue.candidates.length}
-                        <p class="muted">No candidates yet.</p>
-                      {/if}
-                    </div>
-
-                    <div class="section-title" style="margin-top: 1.2rem;">
-                      <h2>{selectedQueueCandidateId === null ? 'Add candidate' : 'Edit candidate'}</h2>
-                    </div>
-
-                    <div class="form-grid">
-                      <label>
-                        Provider
-                        <select bind:value={selectedQueueCandidateProvider}>
-                          <option value="google">google</option>
-                          <option value="openai">openai</option>
-                          <option value="openrouter">openrouter</option>
-                        </select>
-                      </label>
-                      <label>
-                        Model
-                        <input bind:value={selectedQueueCandidateModelName} type="text" placeholder="gemini-3-flash-preview" />
-                      </label>
-                      <label>
-                        Position
-                        <input bind:value={selectedQueueCandidatePosition} type="number" min="0" />
-                      </label>
-                      <label class="wide checkbox-row">
-                        <input bind:checked={selectedQueueCandidateIsActive} type="checkbox" />
-                        <span>Candidate is active</span>
-                      </label>
-                    </div>
-                    <div class="section-toolbar-actions" style="margin-top: 1rem;">
                       <button type="button" class="ghost" on:click={() => {
                         selectedQueueCandidateId = null;
                         selectedQueueCandidateProvider = 'google';
                         selectedQueueCandidateModelName = '';
                         selectedQueueCandidatePosition = selectedQueue?.candidates.length ?? 0;
                         selectedQueueCandidateIsActive = true;
+                        showQueueCandidateModal = true;
                       }}>
-                        Reset
+                        Add candidate
                       </button>
-                      <button type="button" on:click={selectedQueueCandidateId === null ? handleAddQueueCandidate : handleSaveQueueCandidate} disabled={actionBusy}>
-                        {selectedQueueCandidateId === null ? 'Add candidate' : 'Save candidate'}
-                      </button>
+                    </div>
+
+                    <div class="control-table">
+                      <div class="control-table-head grid-queue-candidates">
+                        <div class="control-table-cell">Model Name</div>
+                        <div class="control-table-cell">Position</div>
+                        <div class="control-table-cell">Status</div>
+                        <div class="control-table-cell">Score</div>
+                        <div class="control-table-cell">Errors</div>
+                        <div class="control-table-cell">Latency</div>
+                        <div class="control-table-cell actions">Actions</div>
+                      </div>
+
+                      {#each selectedQueue.candidates as candidate}
+                        <div class="control-table-row grid-queue-candidates">
+                          <div class="control-table-cell">
+                            <strong>{candidate.provider}/{candidate.model_name}</strong>
+                          </div>
+                          <div class="control-table-cell">
+                            {candidate.position}
+                          </div>
+                          <div class="control-table-cell">
+                            <span class="badge {candidate.is_active ? 'badge-good' : 'badge-warn'}">
+                              {candidate.is_active ? 'active' : 'disabled'}
+                            </span>
+                          </div>
+                          <div class="control-table-cell">
+                            {candidate.score.toFixed(2)}
+                          </div>
+                          <div class="control-table-cell">
+                            {candidate.failure_count}
+                          </div>
+                          <div class="control-table-cell">
+                            {candidate.avg_latency_ms ? `${candidate.avg_latency_ms.toFixed(1)}ms` : '0ms'}
+                          </div>
+                          <div class="control-table-cell actions">
+                            <button type="button" class="ghost" on:click|stopPropagation={() => selectQueueCandidate(candidate)} disabled={actionBusy}>
+                              Edit
+                            </button>
+                            <button type="button" class="btn-danger" on:click|stopPropagation={() => handleDeleteQueueCandidate(candidate.id)} disabled={actionBusy}>
+                              Delete
+                            </button>
+                          </div>
+                        </div>
+                      {/each}
+                      {#if !selectedQueue.candidates.length}
+                        <p class="muted" style="padding: 1rem; text-align: center; margin: 0;">No candidates yet.</p>
+                      {/if}
                     </div>
                   {/if}
                 </div>
                 <div class="modal-footer">
-                  <button type="button" class="ghost" on:click={() => (showModelQueueModal = false)}>Cancel</button>
+                  <button type="button" class="ghost" on:click={() => { showModelQueueModal = false; showQueueCandidateModal = false; }}>Cancel</button>
                   <button
                     type="button"
                     class="primary"
                     on:click={queueModalMode === 'create'
-                      ? () => { handleCreateModelQueue(); showModelQueueModal = false; }
-                      : () => { handleSaveModelQueue(); showModelQueueModal = false; }}
+                      ? () => { handleCreateModelQueue(); showModelQueueModal = false; showQueueCandidateModal = false; }
+                      : () => { handleSaveModelQueue(); showModelQueueModal = false; showQueueCandidateModal = false; }}
                     disabled={actionBusy}
                   >
                     {queueModalMode === 'create' ? 'Create queue' : 'Save queue'}
@@ -2618,27 +2655,77 @@
             </div>
           {/if}
 
-          <div class="stack">
-            {#each filteredModelQueues as queue}
-              <div
-                class="item-card selectable"
-                class:selected={selectedQueueId === queue.id}
-                role="button"
-                tabindex="0"
-                on:click={() => selectQueue(queue)}
-                on:keydown={(event) => handleCardKeydown(event, () => selectQueue(queue))}
-              >
-                <div class="item-main">
-                  <div>
-                    <strong>{queue.name}</strong>
-                    <p>{queue.strategy} · <span class="badge {queue.is_active ? 'badge-good' : 'badge-warn'}">{queue.is_active ? 'active' : 'disabled'}</span></p>
-                  </div>
-                  <div class="item-meta">
-                    <span>{queue.candidates.length} candidates</span>
-                    <span>{queue.description ?? 'No description'}</span>
+          {#if showQueueCandidateModal}
+            <div class="modal-backdrop-nested" on:click={() => (showQueueCandidateModal = false)} on:keydown={(e) => e.key === 'Escape' && (showQueueCandidateModal = false)} tabindex="0" role="button">
+              <div class="modal-content-nested" on:click|stopPropagation on:keydown|stopPropagation tabindex="-1" role="dialog" aria-modal="true">
+                <div class="modal-header">
+                  <h3>{selectedQueueCandidateId === null ? 'Add Candidate' : 'Edit Candidate'}</h3>
+                  <button type="button" class="ghost" on:click={() => (showQueueCandidateModal = false)}>Close</button>
+                </div>
+                <div class="modal-body">
+                  <div class="form-grid">
+                    <label>
+                      Provider
+                      <select bind:value={selectedQueueCandidateProvider}>
+                        <option value="google">google</option>
+                        <option value="openai">openai</option>
+                        <option value="openrouter">openrouter</option>
+                      </select>
+                    </label>
+                    <label>
+                      Model Name
+                      <input bind:value={selectedQueueCandidateModelName} type="text" placeholder="gemini-3-flash-preview" />
+                    </label>
+                    <label>
+                      Position
+                      <input bind:value={selectedQueueCandidatePosition} type="number" min="0" />
+                    </label>
+                    <label class="wide checkbox-row">
+                      <input bind:checked={selectedQueueCandidateIsActive} type="checkbox" />
+                      <span>Candidate is active</span>
+                    </label>
                   </div>
                 </div>
-                <div class="item-actions">
+                <div class="modal-footer">
+                  <button type="button" class="ghost" on:click={() => (showQueueCandidateModal = false)}>Cancel</button>
+                  <button type="button" class="primary" on:click={selectedQueueCandidateId === null ? handleAddQueueCandidate : handleSaveQueueCandidate} disabled={actionBusy}>
+                    {selectedQueueCandidateId === null ? 'Add candidate' : 'Save candidate'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          {/if}
+
+          <div class="control-table">
+            <div class="control-table-head grid-model-queues">
+              <div class="control-table-cell">Queue Name</div>
+              <div class="control-table-cell">Strategy</div>
+              <div class="control-table-cell">Status</div>
+              <div class="control-table-cell">Candidates</div>
+              <div class="control-table-cell">Description</div>
+              <div class="control-table-cell actions">Actions</div>
+            </div>
+
+            {#each filteredModelQueues as queue}
+              <div class="control-table-row grid-model-queues">
+                <div class="control-table-cell">
+                  <strong>{queue.name}</strong>
+                </div>
+                <div class="control-table-cell">
+                  <span style="text-transform: capitalize;">{queue.strategy}</span>
+                </div>
+                <div class="control-table-cell">
+                  <span class="badge {queue.is_active ? 'badge-good' : 'badge-warn'}">
+                    {queue.is_active ? 'active' : 'disabled'}
+                  </span>
+                </div>
+                <div class="control-table-cell">
+                  {queue.candidates.length} candidates
+                </div>
+                <div class="control-table-cell" style="opacity: 0.8;">
+                  {queue.description ?? 'No description'}
+                </div>
+                <div class="control-table-cell actions">
                   <button type="button" class="ghost icon-only" title="Open overview" aria-label={`Open overview for ${queue.name}`} on:click|stopPropagation={() => openQueueOverview(queue)} disabled={actionBusy}>
                     <BarChart2 size={16} />
                   </button>
@@ -2652,7 +2739,7 @@
               </div>
             {/each}
             {#if !filteredModelQueues.length}
-              <p class="muted">No model queues yet.</p>
+              <p class="muted" style="padding: 1rem; text-align: center; margin: 0;">No model queues yet.</p>
             {/if}
           </div>
         </section>
@@ -2660,90 +2747,120 @@
 
       {#if activeSection === 'usage'}
         <section class="section-block">
-        <div class="section-title">
-          <button type="button" on:click={handleApplyFilters} disabled={loading}>
-            Refresh Logs
-          </button>
-        </div>
+        <div class="section-shell">
+          <div class="section-column">
+            <div class="section-toolbar">
+              <button
+                type="button"
+                class="ghost"
+                on:click={() => (showUsageFilters = !showUsageFilters)}
+                style="display: inline-flex; align-items: center; gap: 0.4rem;"
+              >
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  width="14"
+                  height="14"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  style="opacity: 0.7;"
+                >
+                  <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3" />
+                </svg>
+                {showUsageFilters ? 'Hide Filters' : 'Show Filters'}
+              </button>
+              <button type="button" on:click={handleApplyFilters} disabled={loading} style="margin-left: auto;">
+                Refresh Logs
+              </button>
+            </div>
 
-        <div class="filter-grid">
-          <label>
-            App token
-            <select bind:value={usageAppTokenFilter} on:change={handleApplyFilters}>
-              <option value="">All apps</option>
-              {#each appTokens as appToken}
-                <option value={String(appToken.id)}>{appToken.name}</option>
-              {/each}
-            </select>
-          </label>
-          <label>
-            Provider key
-            <select bind:value={usageProviderKeyFilter} on:change={handleApplyFilters}>
-              <option value="">All keys</option>
-              {#each providerKeys as providerKey}
-                <option value={String(providerKey.id)}>{providerKey.name}</option>
-              {/each}
-            </select>
-          </label>
-          <label>
-            Queue
-            <select bind:value={usageQueueFilter} on:change={handleApplyFilters}>
-              <option value="">All queues</option>
-              {#each modelQueues as queue}
-                <option value={queue.name}>{queue.name}</option>
-              {/each}
-            </select>
-          </label>
-          <label>
-            Protocol in
-            <select bind:value={usageProtocolInFilter} on:change={handleApplyFilters}>
-              <option value="">All inputs</option>
-              <option value="openai">OpenAI</option>
-              <option value="anthropic">Anthropic</option>
-            </select>
-          </label>
-          <label>
-            Protocol out
-            <select bind:value={usageProtocolOutFilter} on:change={handleApplyFilters}>
-              <option value="">All outputs</option>
-              <option value="openai">OpenAI</option>
-              <option value="anthropic">Anthropic</option>
-            </select>
-          </label>
-          <label>
-            Route kind
-            <select bind:value={usageRouteKindFilter} on:change={handleApplyFilters}>
-              <option value="">All routes</option>
-              <option value="provider">Provider</option>
-              <option value="queue">Queue</option>
-            </select>
-          </label>
-          <label>
-            Tool calling
-            <select bind:value={usageToolCallingFilter} on:change={handleApplyFilters}>
-              <option value="">All</option>
-              <option value="true">Yes</option>
-              <option value="false">No</option>
-            </select>
-          </label>
-          <label>
-            Page size
-            <input bind:value={usageLimit} type="number" min="1" max="500" on:change={handleApplyFilters} />
-          </label>
-        </div>
+            {#if showUsageFilters}
+              <div class="filter-grid" style="margin-top: 0.75rem; margin-bottom: 0.75rem;">
+                <label>
+                  App token
+                  <select bind:value={usageAppTokenFilter} on:change={handleApplyFilters}>
+                    <option value="">All apps</option>
+                    {#each appTokens as appToken}
+                      <option value={String(appToken.id)}>{appToken.name}</option>
+                    {/each}
+                  </select>
+                </label>
+                <label>
+                  Provider key
+                  <select bind:value={usageProviderKeyFilter} on:change={handleApplyFilters}>
+                    <option value="">All keys</option>
+                    {#each providerKeys as providerKey}
+                      <option value={String(providerKey.id)}>{providerKey.name}</option>
+                    {/each}
+                  </select>
+                </label>
+                <label>
+                  Queue
+                  <select bind:value={usageQueueFilter} on:change={handleApplyFilters}>
+                    <option value="">All queues</option>
+                    {#each modelQueues as queue}
+                      <option value={queue.name}>{queue.name}</option>
+                    {/each}
+                  </select>
+                </label>
+                <label>
+                  Protocol in
+                  <select bind:value={usageProtocolInFilter} on:change={handleApplyFilters}>
+                    <option value="">All inputs</option>
+                    <option value="openai">OpenAI</option>
+                    <option value="anthropic">Anthropic</option>
+                  </select>
+                </label>
+                <label>
+                  Protocol out
+                  <select bind:value={usageProtocolOutFilter} on:change={handleApplyFilters}>
+                    <option value="">All outputs</option>
+                    <option value="openai">OpenAI</option>
+                    <option value="anthropic">Anthropic</option>
+                  </select>
+                </label>
+                <label>
+                  Route kind
+                  <select bind:value={usageRouteKindFilter} on:change={handleApplyFilters}>
+                    <option value="">All routes</option>
+                    <option value="provider">Provider</option>
+                    <option value="queue">Queue</option>
+                  </select>
+                </label>
+                <label>
+                  Tool calling
+                  <select bind:value={usageToolCallingFilter} on:change={handleApplyFilters}>
+                    <option value="">All</option>
+                    <option value="true">Yes</option>
+                    <option value="false">No</option>
+                  </select>
+                </label>
+                <label>
+                  Page size
+                  <input bind:value={usageLimit} type="number" min="1" max="500" on:change={handleApplyFilters} />
+                </label>
+              </div>
+            {/if}
 
         <div class="metric-strip compact">
           <div class="metric-card">
-            <span>Input protocol</span>
-            <strong>{Object.entries(usageProtocolInCounts).map(([name, count]) => `${name} ${count}`).join(' · ') || 'None'}</strong>
+            <span>App token</span>
+            <strong>{formatTopMetric(usageAppTokenCounts)}</strong>
           </div>
           <div class="metric-card">
-            <span>Output protocol</span>
-            <strong>{Object.entries(usageProtocolOutCounts).map(([name, count]) => `${name} ${count}`).join(' · ') || 'None'}</strong>
+            <span>Provider key</span>
+            <strong>{formatTopMetric(usageProviderKeyCounts)}</strong>
           </div>
           <div class="metric-card">
-            <span>Tool calling</span>
-            <strong>{usageToolCallingCount} of {usageLogs.length}</strong>
+            <span>Provider</span>
+            <strong>{formatTopMetric(usageProviderCounts)}</strong>
+          </div>
+          <div class="metric-card">
+            <span>Model</span>
+            <strong>{formatTopMetric(usageModelCounts)}</strong>
           </div>
         </div>
 
@@ -2778,30 +2895,25 @@
         <div class="stack">
           {#each usageLogs as log}
             <div
-              class="item-card usage"
+              class="item-card usage selectable"
               role="button"
               tabindex="0"
               on:click={() => openUsageLog(log)}
               on:keydown={(event) => handleCardKeydown(event, () => openUsageLog(log))}
             >
-              <div class="item-main">
-                <div>
-                  <strong>{log.model_requested}</strong>
-                  <p>{log.provider_used} · {formatDate(log.created_at)}</p>
-                  <div class="usage-tags">
-                    {#if log.queue_name}
-                      <span class="usage-tag">Queue {log.queue_name}</span>
-                    {/if}
-                    <span class="usage-tag">App {log.app_token_name ?? 'Unknown app'}</span>
-                    <span class="usage-tag">Key {log.provider_key_name ?? 'Unknown key'}</span>
-                    <span class="usage-tag">In {log.protocol_in}</span>
-                    <span class="usage-tag">Out {log.protocol_out}</span>
-                    <span class="usage-tag">Route {log.route_kind}</span>
-                    {#if log.tool_calling}
-                      <span class="usage-tag">Tool calling</span>
-                    {/if}
-                  </div>
+              <div class="usage-summary">
+                <div class="usage-topline">
+                  <strong>{log.provider_used} / {log.resolved_model ?? log.model_requested}</strong>
+                  <p>{formatDate(log.created_at)}</p>
                 </div>
+                <div class="usage-identifiers">
+                  <span class="usage-tag usage-tag-strong">App token {log.app_token_name ?? 'Unknown app'}</span>
+                  <span class="usage-tag usage-tag-strong">Provider key {log.provider_key_name ?? 'Unknown key'}</span>
+                  <span class="usage-tag usage-tag-strong">Provider {log.provider_used}</span>
+                  <span class="usage-tag usage-tag-strong">Model {log.resolved_model ?? log.model_requested}</span>
+                </div>
+              </div>
+              <div class="item-main usage-main">
                 <div class="item-meta">
                   <span class="badge {log.status_code >= 400 ? 'badge-bad' : log.was_rotated ? 'badge-warn' : 'badge-good'}">{formatUsageStatus(log)}</span>
                   <span>{formatMetric(log.total_tokens)} tokens</span>
@@ -2816,6 +2928,8 @@
           {#if !usageLogs.length}
             <p class="muted">No usage logs yet.</p>
           {/if}
+        </div>
+          </div>
         </div>
 
         {#if selectedUsageLog}
@@ -2849,7 +2963,7 @@
                   </div>
                   <div>
                     <span>Model</span>
-                    <strong>{selectedUsageLog.model_requested}</strong>
+                    <strong>{selectedUsageLog.resolved_model ?? selectedUsageLog.model_requested}</strong>
                   </div>
                   <div>
                     <span>Provider</span>
@@ -2866,6 +2980,10 @@
                   <div>
                     <span>Tool calling</span>
                     <strong>{selectedUsageLog.tool_calling ? 'Yes' : 'No'}</strong>
+                  </div>
+                  <div>
+                    <span>Requested model</span>
+                    <strong>{selectedUsageLog.model_requested}</strong>
                   </div>
                   <div>
                     <span>Created</span>

@@ -37,18 +37,18 @@
 
   function formatContextType(value: string | undefined) {
     if (value === 'app_token') {
-      return 'app token';
+      return 'App token';
     }
     if (value === 'provider_key') {
-      return 'provider key';
+      return 'Provider key';
     }
     if (value === 'model-queue' || value === 'queue') {
-      return 'queue';
+      return 'Queue';
     }
     if (value === 'provider') {
-      return 'provider';
+      return 'Provider';
     }
-    return value ?? 'overview';
+    return value ?? 'Overview';
   }
 
   function formatContextScope(detail: OverviewDetail | null) {
@@ -113,10 +113,7 @@
   $: topModels = (detail?.models ?? []).slice(0, 8);
   $: modelLabels = topModels.map((model) => model.model_name);
   $: modelSeries = topModels.map((model) => model.requests_count);
-  $: protocolInEntries = Object.entries(detail?.telemetry.protocol_in_counts ?? {}).sort((left, right) => right[1] - left[1]);
-  $: protocolOutEntries = Object.entries(detail?.telemetry.protocol_out_counts ?? {}).sort((left, right) => right[1] - left[1]);
-  $: routeKindEntries = Object.entries(detail?.telemetry.route_kind_counts ?? {}).sort((left, right) => right[1] - left[1]);
-  $: toolCallingCount = detail?.telemetry.tool_calling_count ?? 0;
+  $: topModelEntry = topModels[0] ?? null;
 
   $: lineData = {
     labels,
@@ -124,24 +121,24 @@
       {
         label: 'Requests',
         data: requestsSeries,
-        borderColor: '#f0c36c',
-        backgroundColor: 'rgba(240, 195, 108, 0.1)',
+        borderColor: '#d8b858',
+        backgroundColor: 'rgba(216, 184, 88, 0.1)',
         tension: 0.35,
         fill: true
       },
       {
         label: 'Errors',
         data: errorsSeries,
-        borderColor: '#cc6b6b',
-        backgroundColor: 'rgba(204, 107, 107, 0.1)',
+        borderColor: '#ef4444',
+        backgroundColor: 'rgba(239, 68, 68, 0.1)',
         tension: 0.35,
         fill: true
       },
       {
         label: 'Latency',
         data: latencySeries,
-        borderColor: '#7f95b8',
-        backgroundColor: 'rgba(127, 149, 184, 0.1)',
+        borderColor: '#f59e0b',
+        backgroundColor: 'rgba(245, 158, 11, 0.1)',
         tension: 0.35,
         fill: true,
         yAxisID: 'latency'
@@ -155,8 +152,8 @@
       {
         label: 'Requests',
         data: modelSeries,
-        borderColor: '#f0c36c',
-        backgroundColor: 'rgba(240, 195, 108, 0.2)',
+        borderColor: '#d8b858',
+        backgroundColor: 'rgba(216, 184, 88, 0.2)',
         borderWidth: 1.2
       }
     ]
@@ -268,20 +265,20 @@
 
   <div class="overview-telemetry-grid">
     <div class="overview-telemetry-card">
-      <span>Input protocol</span>
-      <strong>{protocolInEntries.map(([name, count]) => `${name} ${count}`).join(' · ') || 'None'}</strong>
+      <span>Scope</span>
+      <strong>{formatContextType(detail?.context_type)}</strong>
     </div>
     <div class="overview-telemetry-card">
-      <span>Output protocol</span>
-      <strong>{protocolOutEntries.map(([name, count]) => `${name} ${count}`).join(' · ') || 'None'}</strong>
+      <span>Target</span>
+      <strong>{detail?.context_label ?? 'None'}</strong>
     </div>
     <div class="overview-telemetry-card">
-      <span>Route kind</span>
-      <strong>{routeKindEntries.map(([name, count]) => `${name} ${count}`).join(' · ') || 'None'}</strong>
+      <span>Top model</span>
+      <strong>{topModelEntry ? `${topModelEntry.model_name} ${topModelEntry.requests_count}` : 'None'}</strong>
     </div>
     <div class="overview-telemetry-card">
-      <span>Tool calling</span>
-      <strong>{toolCallingCount} of {detail?.summary.total_requests ?? 0}</strong>
+      <span>Requests</span>
+      <strong>{detail?.summary.total_requests ?? 0}</strong>
     </div>
   </div>
 

@@ -99,7 +99,7 @@
   .overview-route-shell {
     min-height: 100vh;
     background:
-      radial-gradient(circle at top, rgba(240, 195, 108, 0.07), transparent 32%),
-      linear-gradient(180deg, rgba(7, 9, 12, 0.94), rgba(10, 13, 18, 0.98));
+      radial-gradient(circle at top, rgba(216, 184, 88, 0.05), transparent 35%),
+      #0c0d0f;
   }
 </style>

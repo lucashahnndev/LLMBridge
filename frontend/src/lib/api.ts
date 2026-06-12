@@ -162,6 +162,7 @@ export type UsageLog = {
   queue_name?: string | null;
   model_requested: string;
   provider_used: string;
+  resolved_model?: string | null;
   prompt_tokens: number;
   completion_tokens: number;
   total_tokens: number;
