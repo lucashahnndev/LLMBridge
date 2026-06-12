@@ -65,10 +65,10 @@ class ModelQueueServiceTest(unittest.TestCase):
 
             self.assertEqual([route.route for route in routes], [
                 "google/first",
-                "google/first",
-                "google/second",
                 "google/second",
                 "openrouter/third",
+                "google/first",
+                "google/second",
             ])
 
     async def _run_smart_test(self) -> None:
@@ -95,7 +95,7 @@ class ModelQueueServiceTest(unittest.TestCase):
                 await session.commit()
 
                 routes = await resolve_model_routes(session, "queue/smart")
-                self.assertEqual([route.route for route in routes], ["google/low", "google/low", "google/high", "google/high"])
+                self.assertEqual([route.route for route in routes], ["google/low", "google/high", "google/low", "google/high"])
 
                 await update_queue_candidate_on_failure(session, high, 429, 100.0)
                 await update_queue_candidate_on_failure(session, high, 500, 120.0)
@@ -104,7 +104,7 @@ class ModelQueueServiceTest(unittest.TestCase):
 
             await engine.dispose()
 
-            self.assertEqual([route.route for route in routes_after], ["google/low", "google/low", "google/high", "google/high"])
+            self.assertEqual([route.route for route in routes_after], ["google/low", "google/high", "google/low", "google/high"])
 
     async def _run_skip_failed_candidate_test(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

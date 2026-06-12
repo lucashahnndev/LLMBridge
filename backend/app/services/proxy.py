@@ -15,7 +15,7 @@ from sqlalchemy import and_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.app.core.config import get_settings
-from backend.app.database.models import AppToken, KeyStatus, ModelQueueCandidate, ProviderKey, ProviderKeyModelCooldown, UsageLog
+from backend.app.database.models import AppToken, KeyStatus, ProviderKey, ProviderKeyModelCooldown, UsageLog
 from backend.app.database.session import get_session
 from backend.app.drivers import get_provider_driver
 from backend.app.schemas.proxy import ChatCompletionRequest
@@ -25,7 +25,12 @@ from backend.app.services.canonical import (
     openai_request_to_canonical,
 )
 from backend.app.services.classifier import RouteClassificationEvent, dispatch_route_classification_event
-from backend.app.services.availability import list_balanced_provider_keys_for_route, summarize_provider_route_availability
+from backend.app.services.availability import (
+    get_or_create_provider_key_route_state,
+    list_balanced_provider_keys_for_route,
+    mark_route_selected,
+    summarize_provider_route_availability,
+)
 from backend.app.services.alerts import (
     AlertChannel,
     format_provider_pool_exhausted_alert,
@@ -38,8 +43,6 @@ from backend.app.services.queues import (
     ResolvedRouteCandidate,
     is_queue_route,
     parse_queue_name,
-    update_queue_candidate_on_failure,
-    update_queue_candidate_on_success,
 )
 from backend.app.services.trace import ProxyTraceRecorder
 from backend.app.services.records import ensure_utc_datetime
@@ -371,6 +374,10 @@ async def mark_provider_key_model_failure(
     provider_key: ProviderKey,
     model_name: str,
     retry_after_seconds: int | None = None,
+    *,
+    candidate_id: int | None = None,
+    queue_name: str | None = None,
+    route_kind: str = "provider",
 ) -> None:
     now = datetime.now(timezone.utc)
     blocked_until = now + timedelta(seconds=max(1, retry_after_seconds)) if retry_after_seconds is not None else now
@@ -380,6 +387,7 @@ async def mark_provider_key_model_failure(
             provider=provider_key.provider,
             model_name=model_name,
             key_id=provider_key.id,
+            candidate_id=candidate_id,
             success=False,
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
             latency_ms=0.0,
@@ -387,6 +395,8 @@ async def mark_provider_key_model_failure(
             finished_at=now,
             retry_hint_seconds=retry_after_seconds,
             error_message="rate limit",
+            route_kind=route_kind,
+            queue_name=queue_name,
         ),
         swallow_errors=True,
     )
@@ -403,6 +413,11 @@ async def mark_provider_key_model_success(
     session: AsyncSession,
     provider_key: ProviderKey,
     model_name: str,
+    *,
+    candidate_id: int | None = None,
+    queue_name: str | None = None,
+    route_kind: str = "provider",
+    latency_ms: float = 0.0,
 ) -> None:
     now = datetime.now(timezone.utc)
     await dispatch_route_classification_event(
@@ -411,11 +426,14 @@ async def mark_provider_key_model_success(
             provider=provider_key.provider,
             model_name=model_name,
             key_id=provider_key.id,
+            candidate_id=candidate_id,
             success=True,
             status_code=200,
-            latency_ms=0.0,
+            latency_ms=latency_ms,
             started_at=now,
             finished_at=now,
+            route_kind=route_kind,
+            queue_name=queue_name,
         ),
         swallow_errors=True,
     )
@@ -432,6 +450,13 @@ async def mark_provider_key_model_soft_failure(
     provider_key: ProviderKey,
     model_name: str,
     cooldown_seconds: int | None = None,
+    *,
+    candidate_id: int | None = None,
+    queue_name: str | None = None,
+    route_kind: str = "provider",
+    status_code: int = status.HTTP_502_BAD_GATEWAY,
+    latency_ms: float = 0.0,
+    error_message: str = "provider request failed",
 ) -> None:
     now = datetime.now(timezone.utc)
     blocked_until = now + timedelta(seconds=max(1, cooldown_seconds)) if cooldown_seconds is not None else now
@@ -441,13 +466,16 @@ async def mark_provider_key_model_soft_failure(
             provider=provider_key.provider,
             model_name=model_name,
             key_id=provider_key.id,
+            candidate_id=candidate_id,
             success=False,
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            latency_ms=0.0,
+            status_code=status_code,
+            latency_ms=latency_ms,
             started_at=now,
             finished_at=now,
             retry_hint_seconds=cooldown_seconds,
-            error_message="provider request failed",
+            error_message=error_message,
+            route_kind=route_kind,
+            queue_name=queue_name,
         ),
         swallow_errors=True,
     )
@@ -466,6 +494,10 @@ async def mark_provider_key_auth_failed(
     model_name: str,
     status_code: int,
     error_text: str,
+    *,
+    candidate_id: int | None = None,
+    queue_name: str | None = None,
+    route_kind: str = "provider",
 ) -> None:
     now = datetime.now(timezone.utc)
     await dispatch_route_classification_event(
@@ -474,12 +506,15 @@ async def mark_provider_key_auth_failed(
             provider=provider_key.provider,
             model_name=model_name,
             key_id=provider_key.id,
+            candidate_id=candidate_id,
             success=False,
             status_code=status_code,
             latency_ms=0.0,
             started_at=now,
             finished_at=now,
             error_message=error_text,
+            route_kind=route_kind,
+            queue_name=queue_name,
         ),
         swallow_errors=True,
     )
@@ -637,6 +672,7 @@ async def _proxy_chat_completion_for_route(
     requested_model: str | None = None,
     queue_name: str | None = None,
     provider_key_id: int | None = None,
+    candidate_id: int | None = None,
     protocol_in: str = "openai",
     protocol_out: str = "openai",
     trace: ProxyTraceRecorder | None = None,
@@ -695,6 +731,17 @@ async def _proxy_chat_completion_for_route(
         provider_payload = driver.build_native_payload(canonical_request, resolved_model_name)
     for attempt_index, provider_key in enumerate(provider_keys):
         used_key = provider_key
+        route_state = await get_or_create_provider_key_route_state(
+            session,
+            provider_key=provider_key,
+            model_name=resolved_model_name,
+        )
+        mark_route_selected(
+            route_state,
+            soft_reservation_ms=settings.key_soft_reservation_ms,
+            next_available_delay_ms=settings.key_next_available_delay_ms,
+        )
+        await session.commit()
         if trace is not None:
             trace.record_provider_attempt(
                 attempt_index=attempt_index,
@@ -740,6 +787,12 @@ async def _proxy_chat_completion_for_route(
                 provider_key,
                 resolved_model_name,
                 cooldown_seconds=failure_cooldown_seconds,
+                candidate_id=candidate_id,
+                queue_name=queue_name,
+                route_kind=route_kind,
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                latency_ms=(time.perf_counter() - start_time) * 1000.0,
+                error_message=failure_message,
             )
             was_rotated = attempt_index > 0
             await log_usage(
@@ -791,9 +844,17 @@ async def _proxy_chat_completion_for_route(
         )
 
         if 200 <= response.status_code < 300:
-            await mark_provider_key_model_success(session, provider_key, resolved_model_name)
-            await mark_provider_key_success(session, provider_key)
             latency_ms = (time.perf_counter() - start_time) * 1000.0
+            await mark_provider_key_model_success(
+                session,
+                provider_key,
+                resolved_model_name,
+                candidate_id=candidate_id,
+                queue_name=queue_name,
+                route_kind=route_kind,
+                latency_ms=latency_ms,
+            )
+            await mark_provider_key_success(session, provider_key)
             body = driver.normalize_response_body(body, resolved_model_name)
             canonical_response = chat_completion_body_to_canonical_response(
                 body if isinstance(body, dict) else {"detail": "Non-JSON response"},
@@ -825,18 +886,41 @@ async def _proxy_chat_completion_for_route(
         if should_rotate_to_next_key(response.status_code, failure_message):
             if response.status_code == status.HTTP_429_TOO_MANY_REQUESTS:
                 retry_after_seconds = retry_after_seconds or settings.key_cooldown_seconds
-                await mark_provider_key_model_failure(session, provider_key, resolved_model_name, retry_after_seconds)
+                await mark_provider_key_model_failure(
+                    session,
+                    provider_key,
+                    resolved_model_name,
+                    retry_after_seconds,
+                    candidate_id=candidate_id,
+                    queue_name=queue_name,
+                    route_kind=route_kind,
+                )
             elif response.status_code in {
                 status.HTTP_401_UNAUTHORIZED,
                 status.HTTP_403_FORBIDDEN,
             }:
-                await mark_provider_key_auth_failed(session, provider_key, resolved_model_name, response.status_code, failure_message)
+                await mark_provider_key_auth_failed(
+                    session,
+                    provider_key,
+                    resolved_model_name,
+                    response.status_code,
+                    failure_message,
+                    candidate_id=candidate_id,
+                    queue_name=queue_name,
+                    route_kind=route_kind,
+                )
             else:
                 await mark_provider_key_model_soft_failure(
                     session,
                     provider_key,
                     resolved_model_name,
                     cooldown_seconds=failure_cooldown_seconds,
+                    candidate_id=candidate_id,
+                    queue_name=queue_name,
+                    route_kind=route_kind,
+                    status_code=response.status_code,
+                    latency_ms=(time.perf_counter() - start_time) * 1000.0,
+                    error_message=failure_message,
                 )
             if attempt_index + 1 < len(provider_keys):
                 was_rotated = True
@@ -866,6 +950,12 @@ async def _proxy_chat_completion_for_route(
             provider_key,
             resolved_model_name,
             cooldown_seconds=failure_cooldown_seconds,
+            candidate_id=candidate_id,
+            queue_name=queue_name,
+            route_kind=route_kind,
+            status_code=response.status_code,
+            latency_ms=(time.perf_counter() - start_time) * 1000.0,
+            error_message=failure_message or "Provider request failed",
         )
         if attempt_index + 1 < len(provider_keys):
             was_rotated = True
@@ -969,6 +1059,7 @@ async def proxy_chat_completion(
                     requested_model=payload.model,
                     queue_name=route.queue_name,
                     provider_key_id=route.provider_key_id,
+                    candidate_id=route.candidate_id,
                     protocol_in=protocol_in,
                     protocol_out=protocol_out,
                     trace=trace,
@@ -978,21 +1069,6 @@ async def proxy_chat_completion(
                 detail = exc.detail if isinstance(exc.detail, (dict, list)) else {"detail": str(exc.detail)}
                 body = detail
                 latency_ms = 0.0
-
-            if route.queue_name and route.candidate_id is not None:
-                candidate = await session.get(ModelQueueCandidate, route.candidate_id)
-                if candidate is not None:
-                    if 200 <= status_code < 300:
-                        await update_queue_candidate_on_success(session, candidate, latency_ms)
-                    else:
-                        error_text = extract_failure_message(body, "Provider request failed")
-                        await update_queue_candidate_on_failure(
-                            session,
-                            candidate,
-                            status_code,
-                            latency_ms,
-                            error_message=error_text,
-                        )
 
             if 200 <= status_code < 300:
                 if trace.enabled:
@@ -1123,6 +1199,7 @@ async def proxy_chat_completion_stream(
                 requested_model=payload.model,
                 queue_name=route.queue_name,
                 provider_key_id=route.provider_key_id,
+                candidate_id=route.candidate_id,
                 protocol_in=protocol_in,
                 protocol_out=protocol_out,
                 trace=trace,
@@ -1167,6 +1244,7 @@ async def _proxy_chat_completion_stream_for_route(
     requested_model: str | None = None,
     queue_name: str | None = None,
     provider_key_id: int | None = None,
+    candidate_id: int | None = None,
     protocol_in: str = "openai",
     protocol_out: str = "openai",
     trace: ProxyTraceRecorder | None = None,
@@ -1261,6 +1339,12 @@ async def _proxy_chat_completion_stream_for_route(
                     provider_key,
                     resolved_model_name,
                     cooldown_seconds=failure_cooldown_seconds,
+                    candidate_id=candidate_id,
+                    queue_name=queue_name,
+                    route_kind=route_kind,
+                    status_code=status.HTTP_502_BAD_GATEWAY,
+                    latency_ms=(time.perf_counter() - start_time) * 1000.0,
+                    error_message=failure_message,
                 )
                 await log_usage(
                     session,
@@ -1296,15 +1380,38 @@ async def _proxy_chat_completion_stream_for_route(
             if response.status_code != status.HTTP_200_OK:
                 if response.status_code == status.HTTP_429_TOO_MANY_REQUESTS:
                     retry_after_seconds = retry_after_seconds or settings.key_cooldown_seconds
-                    await mark_provider_key_model_failure(session, provider_key, resolved_model_name, retry_after_seconds)
+                    await mark_provider_key_model_failure(
+                        session,
+                        provider_key,
+                        resolved_model_name,
+                        retry_after_seconds,
+                        candidate_id=candidate_id,
+                        queue_name=queue_name,
+                        route_kind=route_kind,
+                    )
                 elif response.status_code in {status.HTTP_401_UNAUTHORIZED, status.HTTP_403_FORBIDDEN}:
-                    await mark_provider_key_auth_failed(session, provider_key, resolved_model_name, response.status_code, failure_message)
+                    await mark_provider_key_auth_failed(
+                        session,
+                        provider_key,
+                        resolved_model_name,
+                        response.status_code,
+                        failure_message,
+                        candidate_id=candidate_id,
+                        queue_name=queue_name,
+                        route_kind=route_kind,
+                    )
                 else:
                     await mark_provider_key_model_soft_failure(
                         session,
                         provider_key,
                         resolved_model_name,
                         cooldown_seconds=failure_cooldown_seconds,
+                        candidate_id=candidate_id,
+                        queue_name=queue_name,
+                        route_kind=route_kind,
+                        status_code=response.status_code,
+                        latency_ms=(time.perf_counter() - start_time) * 1000.0,
+                        error_message=failure_message,
                     )
 
             if trace is not None and trace.enabled:
@@ -1338,7 +1445,15 @@ async def _proxy_chat_completion_stream_for_route(
                     continue
                 raise HTTPException(status_code=response.status_code, detail=failure_message)
 
-            await mark_provider_key_model_success(session, provider_key, resolved_model_name)
+            await mark_provider_key_model_success(
+                session,
+                provider_key,
+                resolved_model_name,
+                candidate_id=candidate_id,
+                queue_name=queue_name,
+                route_kind=route_kind,
+                latency_ms=(time.perf_counter() - start_time) * 1000.0,
+            )
             await mark_provider_key_success(session, provider_key)
             normalized_body = driver.normalize_response_body(body, resolved_model_name)
             if not isinstance(normalized_body, dict):
@@ -1419,6 +1534,12 @@ async def _proxy_chat_completion_stream_for_route(
                     provider_key,
                     resolved_model_name,
                     cooldown_seconds=failure_cooldown_seconds,
+                    candidate_id=candidate_id,
+                    queue_name=queue_name,
+                    route_kind=route_kind,
+                    status_code=status.HTTP_502_BAD_GATEWAY,
+                    latency_ms=(time.perf_counter() - start_time) * 1000.0,
+                    error_message=failure_message,
                 )
                 await log_usage(
                     session,
@@ -1460,9 +1581,26 @@ async def _proxy_chat_completion_stream_for_route(
                         parse_retry_after_seconds(response.headers, body=failure_message, provider=provider)
                         or settings.key_cooldown_seconds
                     )
-                    await mark_provider_key_model_failure(session, provider_key, resolved_model_name, retry_after_seconds)
+                    await mark_provider_key_model_failure(
+                        session,
+                        provider_key,
+                        resolved_model_name,
+                        retry_after_seconds,
+                        candidate_id=candidate_id,
+                        queue_name=queue_name,
+                        route_kind=route_kind,
+                    )
                 elif response.status_code in {status.HTTP_401_UNAUTHORIZED, status.HTTP_403_FORBIDDEN}:
-                    await mark_provider_key_auth_failed(session, provider_key, resolved_model_name, response.status_code, failure_message)
+                    await mark_provider_key_auth_failed(
+                        session,
+                        provider_key,
+                        resolved_model_name,
+                        response.status_code,
+                        failure_message,
+                        candidate_id=candidate_id,
+                        queue_name=queue_name,
+                        route_kind=route_kind,
+                    )
                 else:
                     failure_cooldown_seconds = classify_model_failure_cooldown_seconds(
                         status_code=response.status_code,
@@ -1475,6 +1613,12 @@ async def _proxy_chat_completion_stream_for_route(
                         provider_key,
                         resolved_model_name,
                         cooldown_seconds=failure_cooldown_seconds,
+                        candidate_id=candidate_id,
+                        queue_name=queue_name,
+                        route_kind=route_kind,
+                        status_code=response.status_code,
+                        latency_ms=(time.perf_counter() - start_time) * 1000.0,
+                        error_message=failure_message,
                     )
 
                 await log_usage(
@@ -1499,7 +1643,15 @@ async def _proxy_chat_completion_stream_for_route(
                     continue
                 raise HTTPException(status_code=response.status_code, detail=failure_message)
 
-            await mark_provider_key_model_success(session, provider_key, resolved_model_name)
+            await mark_provider_key_model_success(
+                session,
+                provider_key,
+                resolved_model_name,
+                candidate_id=candidate_id,
+                queue_name=queue_name,
+                route_kind=route_kind,
+                latency_ms=(time.perf_counter() - start_time) * 1000.0,
+            )
             await mark_provider_key_success(session, provider_key)
 
             async def stream_generator() -> object:

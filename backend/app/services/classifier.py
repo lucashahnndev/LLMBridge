@@ -15,12 +15,44 @@ from backend.app.services.availability import (
     get_or_create_provider_key_route_state,
     mark_route_finished,
 )
-from backend.app.services.route_materializer import schedule_route_materializer_refresh_all
+from backend.app.services.route_materializer import (
+    apply_materialized_route_unavailability,
+    schedule_route_materializer_refresh_models,
+)
 from backend.app.services.records import ensure_utc_datetime
 from backend.app.services.retry_parser import parse_retry_cooldown
 
 
 logger = logging.getLogger(__name__)
+
+MODEL_NOT_FOUND_ERROR_WEIGHT = 0.85
+TRANSIENT_UPSTREAM_ERROR_WEIGHT = 0.35
+SUCCESS_RECOVERY_FLOOR = 0.03
+SUCCESS_RECOVERY_CEILING = 0.18
+
+
+def _schedule_event_snapshot_refresh(event: RouteClassificationEvent) -> None:
+    targets = [f"{event.provider}/{event.model_name}"]
+    if event.route_kind == "queue" and event.queue_name:
+        targets.append(f"queue/{event.queue_name}")
+    schedule_route_materializer_refresh_models(targets)
+
+
+def _patch_event_snapshots_for_unavailability(
+    event: RouteClassificationEvent,
+    *,
+    reason: str,
+    cooldown_until: datetime | None = None,
+) -> None:
+    if reason not in {"cooldown", "blocked", "disabled"}:
+        return
+    apply_materialized_route_unavailability(
+        provider=event.provider,
+        model_name=event.model_name,
+        provider_key_id=event.key_id,
+        reason=reason,
+        cooldown_until=cooldown_until,
+    )
 
 
 @dataclass(frozen=True)
@@ -57,9 +89,9 @@ def _provider_model_failure_weight(event: RouteClassificationEvent) -> float:
         keyword in lowered
         for keyword in ("not found", "not supported", "unsupported", "unknown model", "model unavailable")
     ):
-        return 18.0
+        return MODEL_NOT_FOUND_ERROR_WEIGHT
     if event.status_code >= 500:
-        return 4.0
+        return TRANSIENT_UPSTREAM_ERROR_WEIGHT
     return 0.0
 
 
@@ -90,7 +122,8 @@ async def _update_candidate_for_success(session: AsyncSession, candidate: ModelQ
         else ((candidate.avg_latency_ms * (candidate.success_count - 1)) + latency_ms) / candidate.success_count
     )
     candidate.latency_score = _latency_score(candidate.avg_latency_ms)
-    candidate.error_score = max(0.0, candidate.error_score - max(0.1, min(1.0, 1.0 - (latency_ms / 5000.0))))
+    recovery = max(SUCCESS_RECOVERY_FLOOR, min(SUCCESS_RECOVERY_CEILING, 0.18 - (latency_ms / 10000.0)))
+    candidate.error_score = max(0.0, candidate.error_score - recovery)
     candidate.final_rank = candidate.base_degradation + candidate.latency_score + candidate.error_score
     candidate.score = candidate.final_rank
     await session.flush()
@@ -154,7 +187,11 @@ async def classify_route_classification_event(session: AsyncSession, event: Rout
             provider_key=provider_key,
             model_name=event.model_name,
         )
-        mark_route_finished(route_state, now=finished_at)
+        mark_route_finished(
+            route_state,
+            now=finished_at,
+            next_available_delay_ms=settings.key_next_available_delay_ms,
+        )
 
     candidate = await session.get(ModelQueueCandidate, event.candidate_id) if event.candidate_id is not None else None
 
@@ -171,7 +208,7 @@ async def classify_route_classification_event(session: AsyncSession, event: Rout
         if candidate is not None:
             await _update_candidate_for_success(session, candidate, event.latency_ms, finished_at)
         await session.commit()
-        schedule_route_materializer_refresh_all()
+        _schedule_event_snapshot_refresh(event)
         return
 
     retry_result = _parse_event_retry(event)
@@ -185,7 +222,12 @@ async def classify_route_classification_event(session: AsyncSession, event: Rout
             )
             apply_route_cooldown(route_state, delay_seconds=delay, now=finished_at)
         await session.commit()
-        schedule_route_materializer_refresh_all()
+        _patch_event_snapshots_for_unavailability(
+            event,
+            reason="cooldown",
+            cooldown_until=ensure_utc_datetime(route_state.cooldown_until) if route_state is not None else None,
+        )
+        _schedule_event_snapshot_refresh(event)
         return
 
     if event.status_code in {401, 403} and provider_key is not None and route_state is not None:
@@ -202,20 +244,22 @@ async def classify_route_classification_event(session: AsyncSession, event: Rout
                 provider_key.status = KeyStatus.INVALID
                 apply_route_block(route_state, disabled=True, disabled_reason="forbidden")
         await session.commit()
-        schedule_route_materializer_refresh_all()
+        _patch_event_snapshots_for_unavailability(event, reason="disabled")
+        _schedule_event_snapshot_refresh(event)
         return
 
     if _is_route_access_404(event) and route_state is not None:
         apply_route_block(route_state, disabled=True, disabled_reason="not_found")
         await session.commit()
-        schedule_route_materializer_refresh_all()
+        _patch_event_snapshots_for_unavailability(event, reason="disabled")
+        _schedule_event_snapshot_refresh(event)
         return
 
     if event.status_code == 400:
         if route_state is not None:
             route_state.last_used_at = finished_at
         await session.commit()
-        schedule_route_materializer_refresh_all()
+        _schedule_event_snapshot_refresh(event)
         return
 
     if event.status_code >= 500 and route_state is not None and retry_result is not None:
@@ -225,7 +269,13 @@ async def classify_route_classification_event(session: AsyncSession, event: Rout
         await _update_candidate_for_failure(session, candidate, event)
 
     await session.commit()
-    schedule_route_materializer_refresh_all()
+    if event.status_code >= 500 and route_state is not None and retry_result is not None:
+        _patch_event_snapshots_for_unavailability(
+            event,
+            reason="cooldown",
+            cooldown_until=ensure_utc_datetime(route_state.cooldown_until),
+        )
+    _schedule_event_snapshot_refresh(event)
 
 
 async def dispatch_route_classification_event(

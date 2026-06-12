@@ -6,13 +6,20 @@ Status: approved architectural direction, pending implementation
 
 The routing core must stop treating availability, priority, and key selection as the same concern.
 
-The redesign separates the system into three distinct decision layers:
+The redesign separates the system into four distinct decision layers:
 
-- availability is decided by `key/provider/model`;
-- priority is decided by `provider/model`;
+- gateway provider selection is decided by the first path segment;
+- downstream dialect/model selection is decided by the remainder of the path;
+- availability is decided by `key/gateway-provider/downstream-target`;
 - key distribution is decided by `key`.
 
 This split exists to make rate-limit handling precise, ranking stable, and request execution cheap.
+
+## Routed model contract
+
+The structured route contract is defined in [`agent/specs/proxy.spec.md`](../../agent/specs/proxy.spec.md) and reflected in [`agent/specs/proxy.stat.md`](../../agent/specs/proxy.stat.md).
+
+This decision records the architectural reason for the split, not the routing grammar itself.
 
 ## Operational source of truth
 
@@ -51,9 +58,9 @@ Availability is operational and reactive.
 
 It answers:
 
-- can this exact `key/provider/model` be used now?
+- can this exact `key/gateway-provider/downstream-target` be used now?
 
-Availability belongs to `key/provider/model` because rate-limit, permission, billing, and model-access failures frequently affect only one key in one route context.
+Availability belongs to `key/gateway-provider/downstream-target` because rate-limit, permission, billing, and model-access failures frequently affect only one key in one route context.
 
 The minimum availability fields are:
 
@@ -76,9 +83,9 @@ Priority is logical and comparative.
 
 It answers:
 
-- if several routes are available, which `provider/model` should appear first in the fallback order?
+- if several routes are available, which downstream target should appear first in the fallback order?
 
-Priority belongs to `provider/model`, not to the key.
+Priority belongs to the downstream target, not to the key.
 
 The rank must be a normalized decimal composition, for example:
 
@@ -109,7 +116,7 @@ Key distribution is preventive.
 
 It answers:
 
-- inside one `provider/model`, which eligible key should receive the next request?
+- inside one `gateway-provider/downstream-target`, which eligible key should receive the next request?
 
 Distribution belongs to keys because repeated selection of the first available key creates avoidable RPM concentration.
 
@@ -128,13 +135,13 @@ ORDER BY
   last_used_at ASC NULLS FIRST
 ```
 
-The purpose is not to change the preferred `provider/model`; it is to spread load across keys within the chosen route.
+The purpose is not to change the preferred downstream target; it is to spread load across keys within the chosen route.
 
 ## Cooldown
 
 Cooldown is not score.
 
-Cooldown is an upstream-imposed temporary unavailability window at `key/provider/model`.
+Cooldown is an upstream-imposed temporary unavailability window at `key/gateway-provider/downstream-target`.
 
 When the provider returns a recoverable retry signal, such as:
 
@@ -154,7 +161,7 @@ cooldown_until = now + retry_delay
 This avoids trying to infer whether the provider used RPM, RPD, TPM, or another hidden window. The only operational truth we need is:
 
 ```txt
-this key/provider/model is unavailable until cooldown_until
+this key/gateway-provider/downstream-target is unavailable until cooldown_until
 ```
 
 ### Why cooldown never enters rank
@@ -167,7 +174,7 @@ If cooldown affected rank, a model could be pushed down permanently for a short 
 
 ### 401 and 403
 
-`401` and `403` must not degrade `provider/model`.
+`401` and `403` must not degrade the downstream target.
 
 They normally indicate:
 
@@ -177,7 +184,7 @@ They normally indicate:
 - blocked project
 - no access to that model on that key
 
-So they must disable or block `key/provider/model`, for example:
+So they must disable or block `key/gateway-provider/downstream-target`, for example:
 
 ```txt
 disabled = true
@@ -194,8 +201,8 @@ blocked_until = timestamp
 
 `404` must be classified by context:
 
-- if the error means the model truly does not exist or the capability is unsupported upstream, it may degrade or disable `provider/model`;
-- if the error means one key lacks access to that model, it should disable only `key/provider/model`.
+- if the error means the downstream model truly does not exist or the capability is unsupported upstream, it may degrade or disable the downstream target;
+- if the error means one key lacks access to that downstream target, it should disable only `key/gateway-provider/downstream-target`.
 
 ### 400
 
@@ -233,6 +240,22 @@ The request path should read a materialized route snapshot from cache whenever p
 - background classification and refresh jobs update the cache for the next request;
 - cold-miss fallback may exist only as a bootstrap safety net, not as the normal decision path.
 
+### Immediate cache patching
+
+When a `key/provider/model` becomes unavailable after a request result is classified, the materialized snapshot cache should be patched immediately before the full refresh completes.
+
+That means:
+
+- the affected route is removed from cached candidate lists right away;
+- cached exhaustion semantics can react immediately if that removal empties the route;
+- a targeted refresh still runs afterward to rebuild the exact next order from persisted state.
+
+This preserves the intended contract:
+
+- the current request consumes a prepared list;
+- the next request should not keep trying a route that was just marked cooldown/blocked/disabled;
+- the hot path still avoids recomputing the full queue on every attempt.
+
 ## Background classifier
 
 After the client response is completed, the proxy must emit a post-request classification event to a background classifier.
@@ -245,8 +268,8 @@ The classifier updates:
 - `blocked_until`
 - `disabled`
 - `disabled_reason`
-- provider/model latency inputs
-- provider/model error inputs
+- downstream-target latency inputs
+- downstream-target error inputs
 - `last_used_at`
 - `in_flight_count`
 - optional balancing hints like `soft_reserved_until` or `next_available_at`
@@ -258,15 +281,43 @@ This means:
 - the background classifier updates state;
 - request `N+1` sees the new order.
 
+### Single event per route attempt
+
+Each route attempt should emit one operational classification event carrying both dimensions of the result:
+
+- `key/provider/model` availability information;
+- `provider/model` candidate ranking information when a queue candidate is involved.
+
+This avoids split-brain updates where one request attempt writes route state and queue candidate state in separate passes.
+
+### Current implemented preventive spacing
+
+The current implementation now uses lightweight preventive key spacing:
+
+- the selected `key/gateway-provider/downstream-target` receives a short `soft_reserved_until`;
+- request completion sets `next_available_at` with a short local delay;
+- eligibility filtering already respects both fields.
+
+This is not the full final smart scoring model yet, but it already reduces avoidable key concentration and helps the next request prefer less recently touched keys.
+
+### Current implemented rank boundary
+
+The current smart ordering now treats `final_rank` as the primary downstream-target priority signal.
+
+- `429` and retry-driven quota/cooldown events update only `key/gateway-provider/downstream-target` availability;
+- those events do not add downstream-target degradation score;
+- structural upstream failures like unsupported model `404` and transient `5xx` still feed downstream-target rank inputs;
+- queue sorting no longer adds extra smart bias from `failure_count` or `last_error_at` outside `final_rank`.
+
 ## Queue route behavior
 
 For `queue/{queue_name}`:
 
-1. load the queue's logical `provider/model` candidates;
-2. expand each candidate into available `key/provider/model` combinations;
+1. load the queue's logical downstream targets;
+2. expand each candidate into available `key/gateway-provider/downstream-target` combinations;
 3. discard disabled, blocked, and cooling-down combinations;
-4. sort logical `provider/model` candidates by rank;
-5. within each `provider/model`, distribute keys by balance strategy;
+4. sort logical downstream targets by rank;
+5. within each downstream target, distribute keys by balance strategy;
 6. flatten the result into a final ordered fallback list;
 7. deliver only the clean list to the executor.
 
@@ -274,9 +325,9 @@ Internal expanded view:
 
 ```js
 [
-  { key: "key1", provider: "google", model: "model1", cooldown_until: null, rank: 0.10 },
-  { key: "key2", provider: "google", model: "model1", cooldown_until: null, rank: 0.10 },
-  { key: "key3", provider: "google", model: "model1", cooldown_until: "2026-06-11T22:10:00Z", rank: 0.10 }
+  { key: "key1", provider: "github", target: "openai/gpt-4.1", cooldown_until: null, rank: 0.10 },
+  { key: "key2", provider: "github", target: "openai/gpt-4.1", cooldown_until: null, rank: 0.10 },
+  { key: "key3", provider: "github", target: "openai/gpt-4.1", cooldown_until: "2026-06-11T22:10:00Z", rank: 0.10 }
 ]
 ```
 
@@ -284,21 +335,22 @@ Executor view:
 
 ```js
 [
-  { key: "key1", provider: "google", model: "model1" },
-  { key: "key2", provider: "google", model: "model1" }
+  { key: "key1", provider: "github", target: "openai/gpt-4.1" },
+  { key: "key2", provider: "github", target: "openai/gpt-4.1" }
 ]
 ```
 
-## Direct provider/model route behavior
+## Direct route behavior
 
-For direct `provider/model` routes:
+For direct routes:
 
 1. do not rank across models, because the route was chosen explicitly;
-2. load available keys for that exact route;
-3. remove disabled, blocked, or cooling-down keys;
-4. balance eligible keys;
-5. execute;
-6. emit the result to the background classifier.
+2. resolve the downstream target inside the provider driver;
+3. load available keys for that exact route;
+4. remove disabled, blocked, or cooling-down keys;
+5. balance eligible keys;
+6. execute;
+7. emit the result to the background classifier.
 
 Direct routes must still distribute across keys and must not pin all traffic to the first key forever.
 
@@ -311,7 +363,7 @@ If every otherwise valid candidate is in cooldown:
 - return `HTTP 429`
 - compute `Retry-After` from the smallest recoverable `cooldown_until`
 
-This tells the client the earliest time at which at least one usable `key/provider/model` should exist again.
+This tells the client the earliest time at which at least one usable `key/gateway-provider/downstream-target` should exist again.
 
 ### All candidates disabled or blocked
 
@@ -331,8 +383,8 @@ The implementation must preserve these invariants:
 
 - cooldown never enters rank
 - rank is never stored per key
-- `401/403` never degrade `provider/model` directly
-- direct `provider/model` routes always balance keys
+- `401/403` never degrade the downstream target directly
+- direct routes always balance keys
 - named queues always deliver an already filtered and ordered list
 - all-cooldown exhaustion returns `429` with the smallest recoverable `Retry-After`
 - all-disabled or blocked exhaustion does not return `429`

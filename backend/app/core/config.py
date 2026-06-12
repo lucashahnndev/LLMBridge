@@ -28,9 +28,14 @@ class Settings(BaseSettings):
     telegram_chat_id: str = Field(default="")
     proxy_max_attempts: int = Field(default=3)
     proxy_timeout_seconds: int = Field(default=90)
+    key_soft_reservation_ms: int = Field(default=250)
+    key_next_available_delay_ms: int = Field(default=150)
     key_cooldown_seconds: int = Field(default=300)
     provider_model_not_found_cooldown_seconds: int = Field(default=3600)
     provider_transient_failure_cooldown_seconds: int = Field(default=30)
+    smart_queue_latency_weight: float = Field(default=0.55)
+    smart_queue_error_weight: float = Field(default=0.30)
+    smart_queue_base_weight: float = Field(default=0.15)
     legacy_cooldown_mirror_enabled: bool = Field(default=True)
     log_file_enabled: bool = Field(default=False)
     log_level: str = Field(default="INFO")
@@ -42,6 +47,8 @@ class Settings(BaseSettings):
     openai_api_base: str = Field(default="https://api.openai.com/v1")
     openrouter_api_base: str = Field(default="https://openrouter.ai/api/v1")
     google_api_base: str = Field(default="https://generativelanguage.googleapis.com/v1beta/openai")
+    github_models_api_base: str = Field(default="https://models.github.ai/inference")
+    github_models_api_version: str = Field(default="2022-11-28")
 
 
 @lru_cache

@@ -147,9 +147,6 @@ def _apply_queue_sort(strategy: QueueStrategy, candidates: list[ModelQueueCandid
             active_candidates,
             key=lambda candidate: (
                 _candidate_rank_value(candidate),
-                candidate.failure_count,
-                candidate.last_error_at or datetime.min.replace(tzinfo=timezone.utc),
-                candidate.avg_latency_ms,
                 candidate.position,
                 candidate.id,
             ),
@@ -163,6 +160,21 @@ def _apply_queue_sort(strategy: QueueStrategy, candidates: list[ModelQueueCandid
             candidate.id,
         ),
     )
+
+
+def _interleave_queue_routes(
+    route_groups: list[list[ResolvedRouteCandidate]],
+) -> list[ResolvedRouteCandidate]:
+    if not route_groups:
+        return []
+
+    max_group_size = max((len(group) for group in route_groups), default=0)
+    interleaved: list[ResolvedRouteCandidate] = []
+    for item_index in range(max_group_size):
+        for group in route_groups:
+            if item_index < len(group):
+                interleaved.append(group[item_index])
+    return interleaved
 
 
 async def resolve_model_routes(session: AsyncSession, model: str) -> list[ResolvedRouteCandidate]:
@@ -215,7 +227,7 @@ def _raise_for_exhausted_snapshot(snapshot: ResolvedRouteSnapshot) -> None:
     )
 
 
-async def resolve_model_route_snapshot(session: AsyncSession, model: str) -> ResolvedRouteSnapshot:
+async def materialize_model_route_snapshot(session: AsyncSession, model: str) -> ResolvedRouteSnapshot:
     if not is_queue_route(model):
         if "/" not in model:
             raise HTTPException(
@@ -250,8 +262,6 @@ async def resolve_model_route_snapshot(session: AsyncSession, model: str) -> Res
             requested_model=model,
             queue_name=None,
         )
-        if not routes:
-            _raise_for_exhausted_snapshot(snapshot)
         return snapshot
 
     queue_name = parse_queue_name(model)
@@ -264,7 +274,7 @@ async def resolve_model_route_snapshot(session: AsyncSession, model: str) -> Res
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=f"Queue '{queue_name}' has no active candidates")
 
     summary = RouteMaterializationSummary()
-    resolved_routes: list[ResolvedRouteCandidate] = []
+    resolved_route_groups: list[list[ResolvedRouteCandidate]] = []
     for candidate in sorted_candidates:
         availability = await summarize_provider_route_availability(
             session,
@@ -273,7 +283,7 @@ async def resolve_model_route_snapshot(session: AsyncSession, model: str) -> Res
         )
         summary.merge(RouteMaterializationSummary(**availability.summary))
         if availability.eligible_keys:
-            resolved_routes.extend(
+            resolved_route_groups.append(
                 [
                     ResolvedRouteCandidate(
                         provider=candidate.provider,
@@ -289,6 +299,8 @@ async def resolve_model_route_snapshot(session: AsyncSession, model: str) -> Res
             )
             continue
 
+    resolved_routes = _interleave_queue_routes(resolved_route_groups)
+
     snapshot = ResolvedRouteSnapshot(
         routes=resolved_routes,
         summary=summary,
@@ -296,7 +308,12 @@ async def resolve_model_route_snapshot(session: AsyncSession, model: str) -> Res
         requested_model=model,
         queue_name=queue.name,
     )
-    if not resolved_routes:
+    return snapshot
+
+
+async def resolve_model_route_snapshot(session: AsyncSession, model: str) -> ResolvedRouteSnapshot:
+    snapshot = await materialize_model_route_snapshot(session, model)
+    if not snapshot.routes:
         _raise_for_exhausted_snapshot(snapshot)
     return snapshot
 

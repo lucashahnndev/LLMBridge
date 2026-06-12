@@ -2892,41 +2892,56 @@
           </div>
         </div>
 
-        <div class="stack">
+        <div class="control-table">
+          <div class="control-table-head grid-usage-logs">
+            <div class="control-table-cell">Timestamp</div>
+            <div class="control-table-cell">App Token</div>
+            <div class="control-table-cell">Provider</div>
+            <div class="control-table-cell">Provider Key</div>
+            <div class="control-table-cell">Model Path</div>
+            <div class="control-table-cell">Status</div>
+            <div class="control-table-cell">Tokens</div>
+            <div class="control-table-cell">Latency</div>
+          </div>
+
           {#each usageLogs as log}
             <div
-              class="item-card usage selectable"
+              class="control-table-row grid-usage-logs selectable"
               role="button"
               tabindex="0"
               on:click={() => openUsageLog(log)}
               on:keydown={(event) => handleCardKeydown(event, () => openUsageLog(log))}
             >
-              <div class="usage-summary">
-                <div class="usage-topline">
-                  <strong>{log.provider_used} / {log.resolved_model ?? log.model_requested}</strong>
-                  <p>{formatDate(log.created_at)}</p>
-                </div>
-                <div class="usage-identifiers">
-                  <span class="usage-tag usage-tag-strong">App token {log.app_token_name ?? 'Unknown app'}</span>
-                  <span class="usage-tag usage-tag-strong">Provider key {log.provider_key_name ?? 'Unknown key'}</span>
-                  <span class="usage-tag usage-tag-strong">Provider {log.provider_used}</span>
-                  <span class="usage-tag usage-tag-strong">Model {log.resolved_model ?? log.model_requested}</span>
-                </div>
+              <div class="control-table-cell" style="opacity: 0.8;">
+                {formatDate(log.created_at)}
               </div>
-              <div class="item-main usage-main">
-                <div class="item-meta">
-                  <span class="badge {log.status_code >= 400 ? 'badge-bad' : log.was_rotated ? 'badge-warn' : 'badge-good'}">{formatUsageStatus(log)}</span>
-                  <span>{formatMetric(log.total_tokens)} tokens</span>
-                  <span>{formatMetric(log.latency_ms, 1)} ms</span>
-                </div>
+              <div class="control-table-cell">
+                <strong>{log.app_token_name ?? 'Unknown app'}</strong>
               </div>
-              {#if log.error_message}
-                <p class="usage-error">{formatUsageError(log.error_message)}</p>
-              {/if}
+              <div class="control-table-cell" style="text-transform: capitalize;">
+                {log.provider_used}
+              </div>
+              <div class="control-table-cell" style="opacity: 0.85;">
+                {log.provider_key_name ?? 'Unknown key'}
+              </div>
+              <div class="control-table-cell">
+                {log.resolved_model ?? log.model_requested}
+              </div>
+              <div class="control-table-cell">
+                <span class="badge {log.status_code >= 400 ? 'badge-bad' : log.was_rotated ? 'badge-warn' : 'badge-good'}">
+                  {formatUsageStatus(log)}
+                </span>
+              </div>
+              <div class="control-table-cell">
+                {formatMetric(log.total_tokens)}
+              </div>
+              <div class="control-table-cell">
+                {formatMetric(log.latency_ms, 0)} ms
+              </div>
             </div>
           {/each}
           {#if !usageLogs.length}
-            <p class="muted">No usage logs yet.</p>
+            <p class="muted" style="padding: 1rem; text-align: center; margin: 0;">No usage logs yet.</p>
           {/if}
         </div>
           </div>

@@ -5,8 +5,8 @@ This spec defines the request-routing and translation contract for the unified L
 ## Contract
 
 - the proxy accepts a provider-agnostic request shape compatible with OpenAI-style chat completions;
-- the `model` value is normalized as `provider/model-name`;
-- the proxy resolves the provider prefix to a driver;
+- the `model` value is normalized as a structured route whose first path segment identifies the gateway provider and whose remaining path is interpreted by that provider's driver;
+- the proxy resolves the first path segment to a driver;
 - each driver translates the normalized request into the provider-native API shape;
 - each driver translates the provider-native response back into the normalized response shape;
 - the proxy may also expose an Anthropic-compatible `/v1/messages` adapter that maps Anthropic-style requests into the same internal routing core and maps the response back into Anthropic-style output;
@@ -29,6 +29,8 @@ This spec defines the request-routing and translation contract for the unified L
 - queue strategies may reorder candidates by fixed priority, latency, or history-backed score, but they must still fall back to the real provider/model routes beneath them;
 - queue-level fallback must advance to the next candidate when the current candidate fails for a retryable upstream reason or exhausts its quota;
 - queue routing must not replace the provider/model contract; it wraps it.
+- broker-style providers such as GitHub Models and OpenRouter may use the remaining path as a downstream target namespace, for example `github/openai/gpt-4.1` or `openrouter/anthropic/claude-3.5-sonnet`;
+- those drivers may interpret the downstream target to choose a provider dialect, adapter, and final remote model id, while the gateway still treats the first path segment as the provider selector.
 - public adapters must preserve telemetry fields that identify the source protocol, sink protocol, selected route kind, resolved route, queue name, and tool-calling behavior.
 - queue orchestration must separate three different decisions:
   - availability is decided at `key/provider/model`;

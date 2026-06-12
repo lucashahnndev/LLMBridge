@@ -47,6 +47,9 @@ class RouteClassifierTest(unittest.TestCase):
     def test_google_retry_message_updates_cooldown_until(self) -> None:
         asyncio.run(self._run_google_retry_message_test())
 
+    def test_429_does_not_degrade_provider_model_rank(self) -> None:
+        asyncio.run(self._run_429_does_not_degrade_rank_test())
+
     def test_401_403_disable_or_block_route(self) -> None:
         asyncio.run(self._run_auth_error_test())
 
@@ -122,6 +125,7 @@ class RouteClassifierTest(unittest.TestCase):
             self.assertGreater(refreshed_candidate.avg_latency_ms, 1200.0)
             self.assertIsNotNone(route_state.last_used_at)
             self.assertEqual(route_state.in_flight_count, 0)
+            self.assertIsNotNone(route_state.next_available_at)
         finally:
             await engine.dispose()
             temp_dir.cleanup()
@@ -183,6 +187,42 @@ class RouteClassifierTest(unittest.TestCase):
                     )
                 ).scalar_one()
 
+            self.assertIsNotNone(state.cooldown_until)
+        finally:
+            await engine.dispose()
+            temp_dir.cleanup()
+
+    async def _run_429_does_not_degrade_rank_test(self) -> None:
+        temp_dir, engine, session_factory = await self._create_session_factory("classifier-429-rank.sqlite")
+        try:
+            async with session_factory() as session:
+                candidate, key = await self._seed_candidate(session)
+                before = await session.get(ModelQueueCandidate, candidate.id)
+                event = RouteClassificationEvent(
+                    provider="google",
+                    model_name="flash",
+                    key_id=key.id,
+                    candidate_id=candidate.id,
+                    success=False,
+                    status_code=429,
+                    latency_ms=25.0,
+                    started_at=key.created_at,
+                    finished_at=key.created_at,
+                    response_body_preview={"error": {"message": "Please retry in 1.2s"}},
+                )
+                await classify_route_classification_event(session, event)
+                refreshed_candidate = await session.get(ModelQueueCandidate, candidate.id)
+                state = (
+                    await session.execute(
+                        select(ProviderKeyRouteState).where(
+                            ProviderKeyRouteState.provider_key_id == key.id,
+                            ProviderKeyRouteState.model_name == "flash",
+                        )
+                    )
+                ).scalar_one()
+
+            self.assertEqual(refreshed_candidate.error_score, before.error_score)
+            self.assertEqual(refreshed_candidate.final_rank, before.final_rank)
             self.assertIsNotNone(state.cooldown_until)
         finally:
             await engine.dispose()
@@ -253,6 +293,7 @@ class RouteClassifierTest(unittest.TestCase):
 
             self.assertGreater(refreshed_candidate.error_score, 0.0)
             self.assertIsNotNone(state.cooldown_until)
+            self.assertIsNotNone(state.next_available_at)
         finally:
             await engine.dispose()
             temp_dir.cleanup()
