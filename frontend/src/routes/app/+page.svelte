@@ -97,7 +97,19 @@
     { key: 'runtime', label: 'Runtime', icon: Settings }
   ];
 
+  import { activeSection as activeSectionStore, topbarTitle, refreshTrigger } from '$lib/stores';
+
   let activeSection: SectionKey = 'overview';
+  $: activeSection = $activeSectionStore;
+  $: if (activeSection !== $activeSectionStore) {
+    activeSectionStore.set(activeSection);
+  }
+  $: {
+    const matched = sections.find((s) => s.key === activeSection);
+    if (matched) {
+      topbarTitle.set(matched.label);
+    }
+  }
   let token = '';
   let themeMode: ThemeMode = 'system';
   let loading = false;
@@ -1480,7 +1492,14 @@
     saveUiPreferences();
   }
 
+  let unsubscribeRefresh: () => void;
+
   onMount(() => {
+    unsubscribeRefresh = refreshTrigger.subscribe(() => {
+      if (isHydrated && token) {
+        void refreshDashboard();
+      }
+    });
     const savedPreferences = loadUiPreferences();
     if (savedPreferences.activeSection) {
       activeSection = savedPreferences.activeSection;
@@ -1576,6 +1595,9 @@
   });
 
   onDestroy(() => {
+    if (unsubscribeRefresh) {
+      unsubscribeRefresh();
+    }
     if (healthTimer) {
       clearInterval(healthTimer);
     }
@@ -1609,106 +1631,7 @@
   />
 </svelte:head>
 
-<main class="shell" class:sidebar-collapsed={sidebarCollapsed}>
-  <aside class="sidebar">
-    <div class="brand">
-      {#if sidebarCollapsed}
-        <div class="brand-icon">LB</div>
-      {:else}
-        <div class="eyebrow">LLMBridge</div>
-        <h1>Control plane</h1>
-      {/if}
-    </div>
-
-    <nav class="nav">
-      {#each sections as section}
-        <button
-          type="button"
-          class:active={activeSection === section.key}
-          on:click={() => (activeSection = section.key)}
-          title={sidebarCollapsed ? section.label : ''}
-        >
-          <span class="nav-icon"><svelte:component this={section.icon} size={15} strokeWidth={1.6} /></span>
-          {#if !sidebarCollapsed}
-            <span class="nav-label">{section.label}</span>
-          {/if}
-        </button>
-      {/each}
-      <button
-        type="button"
-        on:click={() => goto('/app/playground')}
-        title={sidebarCollapsed ? 'Playground' : ''}
-      >
-        <span class="nav-icon"><SquareTerminal size={15} strokeWidth={1.6} /></span>
-        {#if !sidebarCollapsed}
-          <span class="nav-label">Playground</span>
-        {/if}
-      </button>
-    </nav>
-
-    <div class="sidebar-footer">
-      <button class="collapse-btn" on:click={() => (sidebarCollapsed = !sidebarCollapsed)} title={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}>
-        <span class="nav-icon">
-          {#if sidebarCollapsed}
-            <PanelLeftOpen size={15} strokeWidth={1.6} />
-          {:else}
-            <PanelLeftClose size={15} strokeWidth={1.6} />
-          {/if}
-        </span>
-        {#if !sidebarCollapsed}
-          <span class="nav-label">Collapse</span>
-        {/if}
-      </button>
-    </div>
-  </aside>
-
-  <section class="workspace">
-    <header class="topbar">
-      <div class="topbar-left">
-        <span class="topbar-section">{sections.find((s) => s.key === activeSection)?.label ?? 'Overview'}</span>
-      </div>
-      <div class="topbar-tools">
-        <button type="button" class="ghost icon-only" title="Documentation" aria-label="Open documentation" on:click={() => goto('/docs')}>
-          <BookOpenText size={16} strokeWidth={1.8} />
-        </button>
-        <div class="topbar-divider"></div>
-        <details class="profile-menu">
-          <summary class="profile-summary">
-            <span class="profile-avatar">A</span>
-            <span class="profile-name">Administrator</span>
-          </summary>
-          <div class="profile-popover">
-            <div class="popover-header">
-              <span class="popover-avatar">A</span>
-              <div class="popover-id">
-                <strong>Administrator</strong>
-                <small>{token ? 'Local session active' : 'No active session'}</small>
-              </div>
-            </div>
-            <div class="popover-divider"></div>
-            <div class="theme-switcher">
-              <span class="theme-label">Appearance</span>
-              <div class="theme-options">
-                <button type="button" class="theme-opt" class:theme-opt-active={themeMode === 'light'} on:click={() => { themeMode = 'light'; handleThemeModeChange(); }} title="Light">☀</button>
-                <button type="button" class="theme-opt" class:theme-opt-active={themeMode === 'system'} on:click={() => { themeMode = 'system'; handleThemeModeChange(); }} title="System">◑</button>
-                <button type="button" class="theme-opt" class:theme-opt-active={themeMode === 'dark'} on:click={() => { themeMode = 'dark'; handleThemeModeChange(); }} title="Dark">☽</button>
-              </div>
-            </div>
-            <div class="popover-divider"></div>
-            <button type="button" class="popover-action" on:click={refreshDashboard} disabled={loading}>
-              Refresh data
-            </button>
-            <div class="popover-divider"></div>
-            <button type="button" class="popover-action popover-danger" on:click={handleLogout}>
-              Sign out
-            </button>
-          </div>
-        </details>
-      </div>
-    </header>
-
-    <div class="content">
-      <div class="toast-container" aria-live="polite" aria-atomic="true">
+  <div class="toast-container" aria-live="polite" aria-atomic="true">
         {#each notices as notice (notice.id)}
           <div class={`toast ${notice.type}`}>
             <div class="toast-content">
@@ -3111,9 +3034,7 @@
         </section>
       {/if}
 
-    </div>
-  </section>
-</main>
+
 
 <style>
   @import './new_style.css';

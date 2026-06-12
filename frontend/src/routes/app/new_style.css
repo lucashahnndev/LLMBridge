@@ -581,6 +581,7 @@ html[data-theme='light'] .popover-danger:hover:not(:disabled) {
 
 /* ── Content Area & Animations ───────────────────────────────────── */
 .content {
+  position: relative;
   min-width: 0;
   flex: 1;
   overflow-y: auto;

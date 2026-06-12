@@ -4,6 +4,7 @@
   import OverviewDetailPanel from '$lib/components/OverviewDetailPanel.svelte';
   import { getStoredAdminToken, type OverviewDetail } from '$lib/api';
   import { loadOverviewDetail, overviewPageTitle, type OverviewRange, type OverviewRouteKind } from '$lib/overview';
+  import { topbarTitle } from '$lib/stores';
   import type { PageData } from './$types';
 
   export let data: PageData;
@@ -19,6 +20,8 @@
   let range: OverviewRange = '24h';
   let previousIdentifier = data.identifier;
   let previousKind = data.kind;
+
+  $: topbarTitle.set(overviewTitle);
 
   $: if (data.kind !== previousKind || data.identifier !== previousIdentifier) {
     previousKind = data.kind;
@@ -82,24 +85,13 @@
   />
 </svelte:head>
 
-<main class="overview-route-shell">
-    <OverviewDetailPanel
-    title={overviewTitle}
-    fallbackLabel={overviewFallbackLabel}
-    backHref="/app"
-    {detail}
-    {loading}
-    {error}
-    {range}
-    onRangeChange={handleRangeChange}
-  />
-</main>
-
-<style>
-  .overview-route-shell {
-    min-height: 100vh;
-    background:
-      radial-gradient(circle at top, rgba(216, 184, 88, 0.05), transparent 35%),
-      #0c0d0f;
-  }
-</style>
+<OverviewDetailPanel
+  title={overviewTitle}
+  fallbackLabel={overviewFallbackLabel}
+  backHref="/app"
+  {detail}
+  {loading}
+  {error}
+  {range}
+  onRangeChange={handleRangeChange}
+/>

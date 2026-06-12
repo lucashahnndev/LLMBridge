@@ -15,6 +15,7 @@
     type UsageLog
   } from '$lib/api';
   import { Copy, Check, ChevronLeft, RefreshCw, Sparkles, ShieldAlert } from 'lucide-svelte';
+  import { topbarTitle } from '$lib/stores';
 
   type Protocol = 'anthropic' | 'openai';
   type TargetMode = 'queue' | 'provider-model' | 'custom';
@@ -596,6 +597,7 @@ console.log(data);`;
   }
 
   onMount(() => {
+    topbarTitle.set('Playground');
     const savedToken = getStoredAdminToken();
     if (!savedToken) {
       void goto('/login');
@@ -615,27 +617,9 @@ console.log(data);`;
   />
 </svelte:head>
 
-<main class="playground-shell">
-  <header class="playground-topbar">
-    <div class="topbar-left">
-      <button class="back-button" type="button" on:click={() => goto('/app')}>
-        <ChevronLeft size={16} strokeWidth={1.8} />
-        <span>Dashboard</span>
-      </button>
-
-      <div class="title-block">
-        <span class="eyebrow">LLMBridge</span>
-        <h1>Playground</h1>
-      </div>
-    </div>
-
-    <div class="topbar-right">
-      <button type="button" class="topbar-btn" on:click={loadExample}>Load example</button>
-    </div>
-  </header>
-
+<div class="playground-page-overlay">
   {#if catalogError}
-    <section class="inline-alert error">
+    <section class="inline-alert error" style="position: absolute; top: 1rem; right: 1rem; z-index: 100; max-width: 400px; box-shadow: 0 4px 12px rgba(0,0,0,0.5);">
       <ShieldAlert size={16} strokeWidth={1.8} />
       <div>
         <strong>Catalog load failed</strong>
@@ -644,9 +628,12 @@ console.log(data);`;
     </section>
   {/if}
 
-  <div class="playground-workspace">
-    <!-- Left Side: Composer and Settings -->
-    <aside class="composer-sidebar">
+  <!-- Left Side: Composer and Settings -->
+  <aside class="composer-sidebar">
+    <div class="sidebar-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.85rem; border-bottom: 1px solid var(--border); padding-bottom: 0.5rem; flex-shrink: 0;">
+      <span style="font-size: 0.72rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted);">Composer</span>
+      <button type="button" class="preset-chip" style="margin: 0; padding: 0.15rem 0.45rem; font-size: 0.7rem; border-radius: 4px; height: auto;" on:click={loadExample}>Load example</button>
+    </div>
       <!-- Target Mode & Protocol selection -->
       <div class="sidebar-section">
         <div class="section-title">Routing & Protocol</div>
@@ -938,7 +925,6 @@ console.log(data);`;
       </div>
     </section>
   </div>
-</main>
 
 <style>
   :global(body) {
@@ -947,105 +933,15 @@ console.log(data);`;
       linear-gradient(180deg, #0b0d11 0%, #0d1116 55%, #0b0d11 100%);
   }
 
-  .playground-shell {
-    display: flex;
-    flex-direction: column;
-    height: 100vh;
-    height: 100dvh;
-    overflow: hidden;
-    background: var(--bg);
-    color: var(--text);
-  }
-
-  .playground-topbar {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 0 1.25rem;
-    height: 52px;
-    border-bottom: 1px solid var(--border);
-    background: rgba(13, 17, 22, 0.6);
-    backdrop-filter: blur(12px);
-    flex-shrink: 0;
-  }
-
-  .topbar-left {
-    display: flex;
-    align-items: center;
-    gap: 1.25rem;
-  }
-
-  .back-button {
-    display: flex;
-    align-items: center;
-    gap: 0.45rem;
-    background: none;
-    border: none;
-    padding: 0;
-    color: var(--muted);
-    font-size: 0.8rem;
-    cursor: pointer;
-    font-weight: 500;
-    transition: color 0.15s ease;
-  }
-
-  .back-button:hover {
-    color: var(--text);
-  }
-
-  .title-block {
-    display: flex;
-    flex-direction: column;
-    gap: 0.05rem;
-  }
-
-  .title-block .eyebrow {
-    font-size: 0.65rem;
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
-    color: var(--muted);
-  }
-
-  .title-block h1 {
-    font-size: 0.95rem;
-    font-weight: 600;
-    margin: 0;
-    color: var(--text);
-  }
-
-  .topbar-right {
-    display: flex;
-    align-items: center;
-    gap: 0.75rem;
-  }
-
-  .topbar-btn {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.45rem;
-    height: 30px;
-    padding: 0 0.85rem;
-    background: rgba(255, 255, 255, 0.03);
-    border: 1px solid var(--border);
-    border-radius: 4px;
-    color: var(--text);
-    font-size: 0.78rem;
-    cursor: pointer;
-    font-weight: 500;
-    transition: background 0.15s ease, border-color 0.15s ease;
-  }
-
-  .topbar-btn:hover {
-    background: rgba(255, 255, 255, 0.08);
-    border-color: rgba(255, 255, 255, 0.18);
-  }
-
-  .playground-workspace {
+  .playground-page-overlay {
+    position: absolute;
+    inset: 0;
+    z-index: 10;
     display: grid;
     grid-template-columns: 420px 1fr;
-    flex: 1;
-    min-height: 0;
     background: var(--bg);
+    color: var(--text);
+    overflow: hidden;
   }
 
   /* Left Side: Sidebar/Composer */
@@ -1661,7 +1557,7 @@ console.log(data);`;
   }
 
   @media (max-width: 900px) {
-    .playground-workspace {
+    .playground-page-overlay {
       grid-template-columns: 1fr;
     }
     .composer-sidebar {
