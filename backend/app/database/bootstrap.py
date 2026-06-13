@@ -30,6 +30,8 @@ async def ensure_usage_log_telemetry_columns(engine) -> None:
                 additions.append(("protocol_in", "TEXT NOT NULL DEFAULT 'openai'"))
             if "protocol_out" not in existing_columns:
                 additions.append(("protocol_out", "TEXT NOT NULL DEFAULT 'openai'"))
+            if "upstream_protocol" not in existing_columns:
+                additions.append(("upstream_protocol", "TEXT NOT NULL DEFAULT 'openai'"))
             if "route_kind" not in existing_columns:
                 additions.append(("route_kind", "TEXT NOT NULL DEFAULT 'provider'"))
             if "tool_calling" not in existing_columns:

@@ -4,6 +4,7 @@ import json
 import logging
 import time
 from dataclasses import asdict
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Annotated
 
@@ -17,7 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from backend.app.core.config import get_settings
 from backend.app.database.models import AppToken, KeyStatus, ProviderKey, ProviderKeyModelCooldown, UsageLog
 from backend.app.database.session import get_session
-from backend.app.drivers import get_provider_driver
+from backend.app.drivers import ProviderDriver, get_output_adapter_driver, get_provider_driver
 from backend.app.schemas.proxy import ChatCompletionRequest
 from backend.app.services.canonical import (
     canonical_request_to_chat_completion,
@@ -53,6 +54,28 @@ from backend.app.services.route_materializer import ensure_materialized_route_sn
 logger = logging.getLogger(__name__)
 
 security = HTTPBearer(auto_error=False)
+BROKERED_ROUTE_PROVIDERS = frozenset({"github", "openrouter"})
+NON_CHAT_MODEL_MARKERS = (
+    "embedding",
+    "embeddings",
+    "rerank",
+    "moderation",
+    "transcription",
+    "speech",
+    "tts",
+    "whisper",
+)
+
+
+@dataclass(frozen=True)
+class RouteDriverSelection:
+    gateway_provider: str
+    gateway_driver: ProviderDriver
+    gateway_model_name: str
+    adapter_provider: str
+    adapter_driver: ProviderDriver
+    adapter_model_name: str
+    resolved_route_model: str
 
 
 async def get_app_token(
@@ -79,15 +102,91 @@ def parse_model_identifier(model: str) -> tuple[str, str]:
     if "/" not in model:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="model must use the provider/model-name format",
+            detail="model must use the provider/downstream-target format",
         )
     provider, model_name = model.split("/", 1)
     if not provider or not model_name:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="model must use the provider/model-name format",
+            detail="model must use the provider/downstream-target format",
         )
     return provider, model_name
+
+
+def resolve_route_driver_selection(route_model: str) -> RouteDriverSelection:
+    provider, model_name = parse_model_identifier(route_model)
+    try:
+        gateway_driver = get_provider_driver(provider)
+    except KeyError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Unsupported provider '{provider}'") from exc
+
+    if provider in BROKERED_ROUTE_PROVIDERS and "/" in model_name:
+        downstream_provider, downstream_model_name = parse_model_identifier(model_name)
+        try:
+            adapter_driver = get_output_adapter_driver(downstream_provider)
+        except KeyError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Unsupported downstream adapter '{downstream_provider}'",
+            ) from exc
+        resolve_adapter_model_name = getattr(adapter_driver, "resolve_model_name", None)
+        resolved_adapter_model_name = (
+            resolve_adapter_model_name(downstream_model_name)
+            if callable(resolve_adapter_model_name)
+            else downstream_model_name
+        )
+        resolved_gateway_model_name = f"{downstream_provider}/{resolved_adapter_model_name}"
+        resolve_gateway_model_name = getattr(gateway_driver, "resolve_model_name", None)
+        if callable(resolve_gateway_model_name):
+            resolved_gateway_model_name = resolve_gateway_model_name(resolved_gateway_model_name)
+        return RouteDriverSelection(
+            gateway_provider=provider,
+            gateway_driver=gateway_driver,
+            gateway_model_name=resolved_gateway_model_name,
+            adapter_provider=downstream_provider,
+            adapter_driver=adapter_driver,
+            adapter_model_name=resolved_adapter_model_name,
+            resolved_route_model=f"{provider}/{resolved_gateway_model_name}",
+        )
+
+    resolve_model_name = getattr(gateway_driver, "resolve_model_name", None)
+    resolved_model_name = resolve_model_name(model_name) if callable(resolve_model_name) else model_name
+    return RouteDriverSelection(
+        gateway_provider=provider,
+        gateway_driver=gateway_driver,
+        gateway_model_name=resolved_model_name,
+        adapter_provider=provider,
+        adapter_driver=gateway_driver,
+        adapter_model_name=resolved_model_name,
+        resolved_route_model=f"{provider}/{resolved_model_name}",
+    )
+
+
+def build_provider_payload(
+    *,
+    adapter_driver: ProviderDriver,
+    request_payload: dict[str, object],
+    adapter_model_name: str,
+    gateway_model_name: str,
+) -> dict[str, object]:
+    payload = adapter_driver.build_payload(request_payload, adapter_model_name)
+    payload["model"] = gateway_model_name
+    return payload
+
+
+def determine_upstream_protocol(*, gateway_provider: str, use_google_native: bool) -> str:
+    if gateway_provider == "google" and use_google_native:
+        return "google"
+    return "openai"
+
+
+def route_supports_chat_completion(route_model: str) -> bool:
+    lowered = route_model.lower()
+    return not any(marker in lowered for marker in NON_CHAT_MODEL_MARKERS)
+
+
+def filter_chat_compatible_routes(routes: list[ResolvedRouteCandidate]) -> list[ResolvedRouteCandidate]:
+    return [route for route in routes if route_supports_chat_completion(route.route)]
 
 
 async def get_eligible_provider_keys(
@@ -199,6 +298,7 @@ async def log_usage(
     provider_key_id: int | None,
     protocol_in: str = "openai",
     protocol_out: str = "openai",
+    upstream_protocol: str | None = None,
     route_kind: str = "provider",
     queue_name: str | None = None,
     model_requested: str,
@@ -222,6 +322,7 @@ async def log_usage(
         provider_key_id=provider_key_id,
         protocol_in=protocol_in,
         protocol_out=protocol_out,
+        upstream_protocol=upstream_protocol or protocol_out,
         route_kind=route_kind,
         queue_name=queue_name,
         model_requested=model_requested,
@@ -689,14 +790,10 @@ async def _proxy_chat_completion_for_route(
     trace: ProxyTraceRecorder | None = None,
 ) -> tuple[int, dict[str, object] | list[object] | str, float]:
     requested_model = requested_model or route_model
-    provider, model_name = parse_model_identifier(route_model)
-    try:
-        driver = get_provider_driver(provider)
-    except KeyError as exc:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Unsupported provider '{provider}'") from exc
-    resolve_model_name = getattr(driver, "resolve_model_name", None)
-    resolved_model_name = resolve_model_name(model_name) if callable(resolve_model_name) else model_name
-    resolved_route_model = f"{provider}/{resolved_model_name}"
+    selection = resolve_route_driver_selection(route_model)
+    provider = selection.gateway_provider
+    resolved_model_name = selection.gateway_model_name
+    resolved_route_model = selection.resolved_route_model
 
     settings = get_settings()
     if provider_key_id is not None:
@@ -736,10 +833,22 @@ async def _proxy_chat_completion_for_route(
     used_key: ProviderKey | None = None
     was_rotated = False
 
-    use_google_native = provider == "google" and hasattr(driver, "build_native_payload")
-    provider_payload = request_payload
+    use_google_native = (
+        selection.gateway_provider == selection.adapter_provider == "google"
+        and hasattr(selection.gateway_driver, "build_native_payload")
+    )
+    upstream_protocol = determine_upstream_protocol(
+        gateway_provider=selection.gateway_provider,
+        use_google_native=use_google_native,
+    )
+    provider_payload = build_provider_payload(
+        adapter_driver=selection.adapter_driver,
+        request_payload=request_payload,
+        adapter_model_name=selection.adapter_model_name,
+        gateway_model_name=selection.gateway_model_name,
+    )
     if use_google_native:
-        provider_payload = driver.build_native_payload(canonical_request, resolved_model_name)
+        provider_payload = selection.gateway_driver.build_native_payload(canonical_request, resolved_model_name)
     for attempt_index, provider_key in enumerate(provider_keys):
         used_key = provider_key
         route_state = await get_or_create_provider_key_route_state(
@@ -765,18 +874,17 @@ async def _proxy_chat_completion_for_route(
         try:
             provider_token = decrypt_text(provider_key.encrypted_token)
             if use_google_native:
-                response = await driver.send_native_chat_completion(
+                response = await selection.gateway_driver.send_native_chat_completion(
                     client=client,
                     provider_token=provider_token,
                     canonical=canonical_request,
                     model_name=resolved_model_name,
                 )
             else:
-                response = await driver.send_chat_completion(
-                    client=client,
-                    provider_token=provider_token,
-                    normalized_payload=request_payload,
-                    model_name=resolved_model_name,
+                response = await client.post(
+                    selection.gateway_driver.build_url(resolved_model_name),
+                    headers=selection.gateway_driver.build_headers(provider_token),
+                    json=provider_payload,
                 )
         except httpx.HTTPError as exc:
             failure_message = str(exc) or "Provider request failed"
@@ -812,6 +920,7 @@ async def _proxy_chat_completion_for_route(
                 provider_key_id=provider_key.id,
                 protocol_in=protocol_in,
                 protocol_out=protocol_out,
+                upstream_protocol=upstream_protocol,
                 route_kind=route_kind,
                 queue_name=queue_name,
                 model_requested=requested_model,
@@ -866,11 +975,12 @@ async def _proxy_chat_completion_for_route(
                 latency_ms=latency_ms,
             )
             await mark_provider_key_success(session, provider_key)
-            body = driver.normalize_response_body(body, resolved_model_name)
+            body = selection.adapter_driver.normalize_response_body(body, selection.adapter_model_name)
             canonical_response = chat_completion_body_to_canonical_response(
                 body if isinstance(body, dict) else {"detail": "Non-JSON response"},
                 model_name=resolved_route_model,
                 protocol_out=protocol_out,
+                upstream_protocol=upstream_protocol,
             )
             if trace is not None:
                 trace.record_canonical_response(canonical_response)
@@ -881,6 +991,7 @@ async def _proxy_chat_completion_for_route(
                 provider_key_id=provider_key.id,
                 protocol_in=protocol_in,
                 protocol_out=protocol_out,
+                upstream_protocol=upstream_protocol,
                 route_kind=route_kind,
                 queue_name=queue_name,
                 model_requested=requested_model,
@@ -944,6 +1055,7 @@ async def _proxy_chat_completion_for_route(
             provider_key_id=provider_key.id,
             protocol_in=protocol_in,
             protocol_out=protocol_out,
+            upstream_protocol=upstream_protocol,
             route_kind=route_kind,
             queue_name=queue_name,
             model_requested=requested_model,
@@ -999,6 +1111,13 @@ async def proxy_chat_completion(
         try:
             snapshot = await ensure_materialized_route_snapshot(session, payload.model)
             routes = snapshot.routes
+            if route_kind == "queue":
+                routes = filter_chat_compatible_routes(routes)
+                if not routes:
+                    raise HTTPException(
+                        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                        detail=f"Queue '{queue_name}' has no chat-compatible candidates",
+                    )
         except HTTPException as exc:
             if trace.enabled:
                 trace.record_error(
@@ -1051,6 +1170,8 @@ async def proxy_chat_completion(
                 requested_model=payload.model,
                 resolved_routes=[route.route for route in routes],
                 queue_name=queue_name,
+                gateway_providers=[route.provider for route in routes],
+                downstream_targets=[route.model_name for route in routes],
             )
         last_status_code = status.HTTP_502_BAD_GATEWAY
         last_body: dict[str, object] | list[object] | str = {"detail": "Proxy request failed"}
@@ -1059,7 +1180,7 @@ async def proxy_chat_completion(
             route_payload = payload.model_copy(update={"model": route.route})
             if trace.enabled:
                 trace.record_resolution(
-                    route=asdict(route),
+                    route={**asdict(route), "route": route.route},
                     candidate_index=attempt_index,
                 )
             try:
@@ -1140,6 +1261,13 @@ async def proxy_chat_completion_stream(
     try:
         snapshot = await ensure_materialized_route_snapshot(session, payload.model)
         routes = snapshot.routes
+        if route_kind == "queue":
+            routes = filter_chat_compatible_routes(routes)
+            if not routes:
+                raise HTTPException(
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    detail=f"Queue '{queue_name}' has no chat-compatible candidates",
+                )
     except HTTPException as exc:
         if trace.enabled:
             trace.record_error(
@@ -1193,6 +1321,8 @@ async def proxy_chat_completion_stream(
             requested_model=payload.model,
             resolved_routes=[route.route for route in routes],
             queue_name=queue_name,
+            gateway_providers=[route.provider for route in routes],
+            downstream_targets=[route.model_name for route in routes],
         )
 
     last_error: str | dict[str, object] | list[object] | None = None
@@ -1201,7 +1331,7 @@ async def proxy_chat_completion_stream(
         route_payload = payload.model_copy(update={"model": route.route})
         if trace.enabled:
             trace.record_resolution(
-                route=asdict(route),
+                route={**asdict(route), "route": route.route},
                 candidate_index=attempt_index,
             )
         try:
@@ -1265,14 +1395,10 @@ async def _proxy_chat_completion_stream_for_route(
     trace: ProxyTraceRecorder | None = None,
 ) -> StreamingResponse:
     requested_model = requested_model or route_model
-    provider, model_name = parse_model_identifier(route_model)
-    try:
-        driver = get_provider_driver(provider)
-    except KeyError as exc:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Unsupported provider '{provider}'") from exc
-    resolve_model_name = getattr(driver, "resolve_model_name", None)
-    resolved_model_name = resolve_model_name(model_name) if callable(resolve_model_name) else model_name
-    resolved_route_model = f"{provider}/{resolved_model_name}"
+    selection = resolve_route_driver_selection(route_model)
+    provider = selection.gateway_provider
+    resolved_model_name = selection.gateway_model_name
+    resolved_route_model = selection.resolved_route_model
 
     settings = get_settings()
     if provider_key_id is not None:
@@ -1311,10 +1437,22 @@ async def _proxy_chat_completion_stream_for_route(
         "Connection": "keep-alive",
     }
     start_time = time.perf_counter()
-    use_google_native = provider == "google" and hasattr(driver, "build_native_payload")
-    provider_payload = request_payload
+    use_google_native = (
+        selection.gateway_provider == selection.adapter_provider == "google"
+        and hasattr(selection.gateway_driver, "build_native_payload")
+    )
+    upstream_protocol = determine_upstream_protocol(
+        gateway_provider=selection.gateway_provider,
+        use_google_native=use_google_native,
+    )
+    provider_payload = build_provider_payload(
+        adapter_driver=selection.adapter_driver,
+        request_payload=request_payload,
+        adapter_model_name=selection.adapter_model_name,
+        gateway_model_name=selection.gateway_model_name,
+    )
     if use_google_native:
-        provider_payload = driver.build_native_payload(canonical_request, resolved_model_name)
+        provider_payload = selection.gateway_driver.build_native_payload(canonical_request, resolved_model_name)
 
     for attempt_index, provider_key in enumerate(provider_keys):
         if trace is not None and trace.enabled:
@@ -1328,7 +1466,7 @@ async def _proxy_chat_completion_stream_for_route(
             )
         if use_google_native:
             try:
-                response = await driver.send_native_chat_completion(
+                response = await selection.gateway_driver.send_native_chat_completion(
                     client=client,
                     provider_token=decrypt_text(provider_key.encrypted_token),
                     canonical=canonical_request,
@@ -1367,6 +1505,7 @@ async def _proxy_chat_completion_stream_for_route(
                     provider_key_id=provider_key.id,
                     protocol_in=protocol_in,
                     protocol_out=protocol_out,
+                    upstream_protocol=upstream_protocol,
                     route_kind=route_kind,
                     queue_name=queue_name,
                     model_requested=requested_model,
@@ -1444,6 +1583,7 @@ async def _proxy_chat_completion_stream_for_route(
                     provider_key_id=provider_key.id,
                     protocol_in=protocol_in,
                     protocol_out=protocol_out,
+                    upstream_protocol=upstream_protocol,
                     route_kind=route_kind,
                     queue_name=queue_name,
                     model_requested=requested_model,
@@ -1470,7 +1610,7 @@ async def _proxy_chat_completion_stream_for_route(
                 latency_ms=(time.perf_counter() - start_time) * 1000.0,
             )
             await mark_provider_key_success(session, provider_key)
-            normalized_body = driver.normalize_response_body(body, resolved_model_name)
+            normalized_body = selection.adapter_driver.normalize_response_body(body, selection.adapter_model_name)
             if not isinstance(normalized_body, dict):
                 normalized_body = {"detail": "Provider returned an unsupported streaming response shape"}
             stream_events = chat_completion_body_to_stream_events(normalized_body)
@@ -1491,6 +1631,7 @@ async def _proxy_chat_completion_stream_for_route(
                         provider_key_id=provider_key.id,
                         protocol_in=protocol_in,
                         protocol_out=protocol_out,
+                        upstream_protocol=upstream_protocol,
                         route_kind=route_kind,
                         queue_name=queue_name,
                         model_requested=requested_model,
@@ -1523,9 +1664,9 @@ async def _proxy_chat_completion_stream_for_route(
         if not use_google_native:
             request = client.build_request(
                 "POST",
-                driver.build_url(resolved_model_name),
-                headers=driver.build_headers(decrypt_text(provider_key.encrypted_token)),
-                json=driver.build_payload(request_payload, resolved_model_name),
+                selection.gateway_driver.build_url(resolved_model_name),
+                headers=selection.gateway_driver.build_headers(decrypt_text(provider_key.encrypted_token)),
+                json=provider_payload,
             )
             try:
                 response = await client.send(request, stream=True)
@@ -1562,6 +1703,7 @@ async def _proxy_chat_completion_stream_for_route(
                     provider_key_id=provider_key.id,
                     protocol_in=protocol_in,
                     protocol_out=protocol_out,
+                    upstream_protocol=upstream_protocol,
                     route_kind=route_kind,
                     queue_name=queue_name,
                     model_requested=requested_model,
@@ -1642,6 +1784,7 @@ async def _proxy_chat_completion_stream_for_route(
                     provider_key_id=provider_key.id,
                     protocol_in=protocol_in,
                     protocol_out=protocol_out,
+                    upstream_protocol=upstream_protocol,
                     route_kind=route_kind,
                     queue_name=queue_name,
                     model_requested=requested_model,
@@ -1699,7 +1842,10 @@ async def _proxy_chat_completion_stream_for_route(
                                 yield f"data: {data_text}\n\n"
                                 continue
 
-                            normalized_event = driver.normalize_stream_event(parsed_event, resolved_model_name)
+                            normalized_event = selection.adapter_driver.normalize_stream_event(
+                                parsed_event,
+                                selection.adapter_model_name,
+                            )
                             if isinstance(normalized_event, (dict, list)):
                                 normalized_text = json.dumps(normalized_event, ensure_ascii=False)
                                 normalized_chunks.append(normalized_text)
@@ -1728,6 +1874,7 @@ async def _proxy_chat_completion_stream_for_route(
                         provider_key_id=provider_key.id,
                         protocol_in=protocol_in,
                         protocol_out=protocol_out,
+                        upstream_protocol=upstream_protocol,
                         route_kind=route_kind,
                         queue_name=queue_name,
                         model_requested=requested_model,

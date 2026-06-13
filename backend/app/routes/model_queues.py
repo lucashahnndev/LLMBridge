@@ -48,6 +48,7 @@ async def create_model_queue(payload: ModelQueueCreate, session: SessionDep) -> 
     session.add(queue)
     await session.commit()
     await session.refresh(queue)
+    await session.refresh(queue, attribute_names=["candidates"])
     schedule_route_materializer_refresh_all()
     return model_queue_response(queue)
 

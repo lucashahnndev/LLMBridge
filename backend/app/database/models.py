@@ -130,6 +130,7 @@ class UsageLog(Base):
     )
     protocol_in: Mapped[str] = mapped_column(String(20), default="openai", nullable=False)
     protocol_out: Mapped[str] = mapped_column(String(20), default="openai", nullable=False)
+    upstream_protocol: Mapped[str] = mapped_column(String(20), default="openai", nullable=False)
     route_kind: Mapped[str] = mapped_column(String(20), default="provider", nullable=False)
     queue_name: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
     model_requested: Mapped[str] = mapped_column(String(100), nullable=False)

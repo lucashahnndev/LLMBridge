@@ -17,6 +17,7 @@ from backend.app.schemas.metrics import (
     MetricsOverviewSummaryResponse,
     ProjectMetricsResponse,
 )
+from backend.app.services.records import derive_operational_route_parts
 
 
 def resolve_usage_window_filter(window: str) -> tuple[datetime, datetime]:
@@ -256,6 +257,7 @@ async def _build_overview_response(
             UsageLog.was_rotated,
             UsageLog.protocol_in,
             UsageLog.protocol_out,
+            UsageLog.upstream_protocol,
             UsageLog.route_kind,
             UsageLog.tool_calling,
         )
@@ -276,10 +278,11 @@ async def _build_overview_response(
     total_rotations_triggered = 0
     protocol_in_counts: OrderedDict[str, int] = OrderedDict()
     protocol_out_counts: OrderedDict[str, int] = OrderedDict()
+    upstream_protocol_counts: OrderedDict[str, int] = OrderedDict()
     route_kind_counts: OrderedDict[str, int] = OrderedDict()
     tool_calling_count = 0
 
-    for created_at, status_code, total_tokens, latency_ms, was_rotated, protocol_in, protocol_out, route_kind, tool_calling in result.all():
+    for created_at, status_code, total_tokens, latency_ms, was_rotated, protocol_in, protocol_out, upstream_protocol, route_kind, tool_calling in result.all():
         if created_at is None:
             continue
         bucket_start = align_bucket_start(created_at, granularity)
@@ -314,6 +317,7 @@ async def _build_overview_response(
             bucket["total_rotations_triggered"] = int(bucket["total_rotations_triggered"]) + 1
         protocol_in_counts[protocol_in] = protocol_in_counts.get(protocol_in, 0) + 1
         protocol_out_counts[protocol_out] = protocol_out_counts.get(protocol_out, 0) + 1
+        upstream_protocol_counts[upstream_protocol] = upstream_protocol_counts.get(upstream_protocol, 0) + 1
         route_kind_counts[route_kind] = route_kind_counts.get(route_kind, 0) + 1
         if tool_calling:
             tool_calling_count += 1
@@ -366,6 +370,10 @@ async def _build_overview_response(
     models = [
         MetricsModelUsageResponse(
             model_name=row.model_name,
+            gateway_provider=route_parts["gateway_provider"],
+            downstream_provider=route_parts["downstream_provider"],
+            downstream_model_name=route_parts["downstream_model_name"],
+            operational_route=route_parts["operational_route"],
             requests_count=int(row.requests_count or 0),
             success_count=int(row.success_count or 0),
             error_count=max(0, int(row.requests_count or 0) - int(row.success_count or 0)),
@@ -374,6 +382,12 @@ async def _build_overview_response(
             total_rotations_triggered=int(row.total_rotations_triggered or 0),
         )
         for row in model_rows
+        for route_parts in [
+            derive_operational_route_parts(
+                provider_used=row.model_name.split("/", 1)[0] if isinstance(row.model_name, str) and "/" in row.model_name else None,
+                resolved_model=row.model_name,
+            )
+        ]
     ]
 
     return MetricsOverviewResponse(
@@ -392,6 +406,7 @@ async def _build_overview_response(
         telemetry=MetricsOverviewTelemetryResponse(
             protocol_in_counts=dict(protocol_in_counts),
             protocol_out_counts=dict(protocol_out_counts),
+            upstream_protocol_counts=dict(upstream_protocol_counts),
             route_kind_counts=dict(route_kind_counts),
             tool_calling_count=tool_calling_count,
         ),

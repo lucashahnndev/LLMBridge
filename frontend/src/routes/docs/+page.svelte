@@ -70,7 +70,7 @@ setx ANTHROPIC_MODEL "queue/gemini"`;
     'Content-Type': 'application/json'
   },
   body: JSON.stringify({
-    model: 'google/gemini-3.1-flash',
+    model: 'github/openai/gpt-4.1',
     messages: [{ role: 'user', content: 'Explain quantum computing.' }]
   })
 });
@@ -123,7 +123,7 @@ console.log(data.content[0].text);`;
   const canonicalResponseIR = `{
   "request_id": "req_01J0",
   "protocol_out": "anthropic",
-  "model": "google/gemini-3.1-flash",
+  "model": "github/openai/gpt-4.1",
   "finish_reason": "tool_use",
   "content": [
     { "type": "text", "text": "I will use the calculator tool." },
@@ -411,8 +411,8 @@ console.log(data.content[0].text);`;
           </thead>
           <tbody>
             <tr>
-              <td><code>provider/model_name</code></td>
-              <td>Target a specific provider unconditionally (e.g., <code>google/gemini-1.5-pro</code>). Fails directly if the provider errors.</td>
+              <td><code>provider/downstream-target</code></td>
+              <td>Target a specific provider unconditionally (e.g., <code>github/openai/gpt-4.1</code> or <code>google/gemini-1.5-pro</code>). Fails directly if the provider errors.</td>
             </tr>
             <tr>
               <td><code>queue/queue_name</code></td>
@@ -486,7 +486,7 @@ console.log(data.content[0].text);`;
           <div class="code-header">Example Session</div>
           <pre><code>/link
 /apps
-/provider google
+/provider github
 /queue gemini
 /alerts proxy off</code></pre>
         </div>

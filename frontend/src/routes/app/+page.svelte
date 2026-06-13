@@ -1894,6 +1894,7 @@
               <div class="activity-filters">
                 <select bind:value={providerKeyProviderFilter} on:change={handleApplyFilters} class="ghost" style="border:0; height:100%; border-radius:0;">
                   <option value="">all providers</option>
+                  <option value="github">github</option>
                   <option value="openai">openai</option>
                   <option value="google">google</option>
                   <option value="openrouter">openrouter</option>
@@ -1927,6 +1928,7 @@
                       <label>
                         Provider
                         <select bind:value={providerType}>
+                          <option value="github">github</option>
                           <option value="openai">openai</option>
                           <option value="google">google</option>
                           <option value="openrouter">openrouter</option>
@@ -2067,6 +2069,7 @@
                         <label>
                           Provider
                           <select bind:value={selectedProviderKeyProvider}>
+                            <option value="github">github</option>
                             <option value="openai">openai</option>
                             <option value="google">google</option>
                             <option value="openrouter">openrouter</option>
@@ -2566,6 +2569,7 @@
                     <label>
                       Provider
                       <select bind:value={selectedQueueCandidateProvider}>
+                        <option value="github">github</option>
                         <option value="google">google</option>
                         <option value="openai">openai</option>
                         <option value="openrouter">openrouter</option>
@@ -2920,8 +2924,8 @@
               </div>
 
               <p class="runtime-note">
-                Use provider/model aliases like <code>google/gemini-3.1-flash</code>, <code>openai/gpt-4o-mini</code>,
-                or use generic tokens to let the rotator pick any valid key based on rate limits.
+                Use provider routes like <code>google/gemini-3.1-flash</code>, <code>openai/gpt-4o-mini</code>,
+                or broker routes like <code>github/openai/gpt-4.1</code> to let the rotator pick the right key and downstream target.
               </p>
 
               <div class="form-grid runtime-grid" style="max-width: 600px;">

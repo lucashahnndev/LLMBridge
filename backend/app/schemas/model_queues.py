@@ -9,7 +9,7 @@ from backend.app.schemas.common import ORMModel, QueueStrategySchema
 
 
 class ModelQueueCandidateBase(BaseModel):
-    provider: str = Field(..., examples=["google", "openai", "openrouter"])
+    provider: str = Field(..., examples=["github", "google", "openai", "openrouter"])
     model_name: str = Field(..., examples=["gemini-3-flash-preview", "gpt-4o-mini"])
     position: int = Field(default=0, ge=0)
     is_active: bool = True

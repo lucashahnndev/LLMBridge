@@ -146,16 +146,39 @@ class ProxyTraceRecorder:
             self._store(["client", "raw_body"], parsed_raw_body)
         self._store(["client", "payload"], request_payload)
 
-    def record_route(self, *, route_kind: str, requested_model: str, resolved_routes: list[str] | None = None, queue_name: str | None = None) -> None:
+    def record_route(
+        self,
+        *,
+        route_kind: str,
+        requested_model: str,
+        resolved_routes: list[str] | None = None,
+        queue_name: str | None = None,
+        gateway_providers: list[str] | None = None,
+        downstream_targets: list[str] | None = None,
+    ) -> None:
         self._store(["route", "kind"], route_kind)
         self._store(["route", "requested_model"], requested_model)
         if queue_name:
             self._store(["route", "queue_name"], queue_name)
         if resolved_routes is not None:
             self._store(["route", "resolved_routes"], resolved_routes)
+        if gateway_providers is not None:
+            self._store(["route", "gateway_providers"], gateway_providers)
+        if downstream_targets is not None:
+            self._store(["route", "downstream_targets"], downstream_targets)
 
     def record_resolution(self, *, route: Any, candidate_index: int | None = None) -> None:
         self._store(["route", "selected"], route)
+        if isinstance(route, dict):
+            provider = route.get("provider")
+            model_name = route.get("model_name")
+            if isinstance(provider, str) and provider.strip():
+                self._store(["route", "selected_gateway_provider"], provider)
+            if isinstance(model_name, str) and model_name.strip():
+                self._store(["route", "selected_downstream_target"], model_name)
+            route_text = route.get("route")
+            if isinstance(route_text, str) and route_text.strip():
+                self._store(["route", "selected_route"], route_text)
         if candidate_index is not None:
             self._store(["route", "candidate_index"], candidate_index)
 

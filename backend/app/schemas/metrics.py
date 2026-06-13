@@ -50,12 +50,17 @@ class MetricsOverviewSummaryResponse(ORMModel):
 class MetricsOverviewTelemetryResponse(ORMModel):
     protocol_in_counts: dict[str, int] = Field(default_factory=dict)
     protocol_out_counts: dict[str, int] = Field(default_factory=dict)
+    upstream_protocol_counts: dict[str, int] = Field(default_factory=dict)
     route_kind_counts: dict[str, int] = Field(default_factory=dict)
     tool_calling_count: int = Field(default=0, ge=0)
 
 
 class MetricsModelUsageResponse(ORMModel):
     model_name: str
+    gateway_provider: str | None = None
+    downstream_provider: str | None = None
+    downstream_model_name: str | None = None
+    operational_route: str | None = None
     requests_count: int = Field(default=0, ge=0)
     success_count: int = Field(default=0, ge=0)
     error_count: int = Field(default=0, ge=0)

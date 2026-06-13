@@ -1,15 +1,16 @@
 # Proxy Stat
 
-Last update date: 2026-06-11
+Last update date: 2026-06-12
 
 ## Current state
 
 - a public OpenAI-style chat completions route now exists at `/v1/chat/completions`;
-- the request model is validated and the `model` field is parsed as `provider/model-name`;
+- the request model is validated and the `model` field is parsed as a structured route whose first segment selects the gateway provider and whose remaining path is preserved for the provider driver;
 - the proxy now also resolves `queue/{queue-name}` aliases to ordered provider/model candidates before executing a route;
 - the proxy contract now includes an Anthropic-compatible `/v1/messages` adapter that reuses the same internal routing core;
 - the proxy telemetry contract now records protocol-in/protocol-out, route kind, resolved route, queue name, and tool-calling state;
 - the architecture and docs now describe a richer canonical IR that preserves tool calls, ordering, and response intent while allowing optional metadata cleanup;
+- the provider registry now includes a GitHub Models driver that targets `https://models.github.ai/inference` with GitHub API version headers;
 - the Google adapter now sends non-stream requests through Gemini native `generateContent` from the canonical IR, avoiding an internal OpenAI-like hop for Google targets;
 - Google streaming requests now use the same native canonical-to-Gemini payload path and return a normalized SSE stream from the proxy edge;
 - the Google adapter now compacts Gemini tool schemas into native `functionDeclarations`, filtering unsupported JSON Schema keys while preserving tool semantics;
@@ -21,6 +22,7 @@ Last update date: 2026-06-11
 - usage logging is recorded for proxy requests;
 - streaming chat-completions requests are proxied as `text/event-stream`;
 - the route format keeps `provider/model-name` as the real provider route while `queue/{queue-name}` acts as an orchestration alias;
+- the route format also supports broker-style nested targets such as `github/openai/gpt-4.1` while still using the first path segment as the gateway provider;
 - Anthropic-compatible public routing is now available and maps into the same internal route resolver.
 - the architectural redesign for queue routing is now specified:
   - availability at `key/provider/model`;
@@ -54,6 +56,7 @@ Last update date: 2026-06-11
 - Anthropic-compatible `/v1/messages` adapter added and covered by backend unit tests;
 - backend syntax validated with `python3 -m py_compile`.
 - backend unit tests cover token helpers, proxy parsing helpers, and the driver registry.
+- backend trace coverage now includes structured GitHub route fields for `github/<publisher>/<model>` debugging.
 - focused tests now cover canonical IR, Google native tool-calling payload generation, proxy Google tool-calling normalization, and Gemini replay payload helpers.
 - replay validation against a real Gemini trace returned HTTP 200 after foreign tool history was compacted to text context while callable tools stayed available as Gemini `functionDeclarations`.
 - trace capture still needs end-to-end validation on streaming Anthropic responses.

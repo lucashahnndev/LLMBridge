@@ -449,6 +449,7 @@ def chat_completion_body_to_canonical_response(
     *,
     model_name: str,
     protocol_out: str = "openai",
+    upstream_protocol: str | None = None,
     route: CanonicalRoute | None = None,
 ) -> CanonicalResponse | dict[str, object]:
     if "choices" not in response_body:
@@ -484,6 +485,7 @@ def chat_completion_body_to_canonical_response(
     return CanonicalResponse(
         request_id=str(response_body.get("id")) if isinstance(response_body.get("id"), str) else None,
         protocol_out=protocol_out,
+        upstream_protocol=upstream_protocol,
         route=route or CanonicalRoute(kind="provider", requested_model=model_name, provider=model_name.split("/", 1)[0] if "/" in model_name else None, model_name=model_name.split("/", 1)[1] if "/" in model_name else model_name, resolved_route=model_name),
         model=str(response_body.get("model") or model_name),
         role="assistant",

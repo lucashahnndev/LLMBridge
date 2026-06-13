@@ -53,6 +53,8 @@ def _ensure_usage_log_telemetry_columns(sync_conn) -> None:
         additions.append(("protocol_in", "TEXT NOT NULL DEFAULT 'openai'"))
     if "protocol_out" not in existing_columns:
         additions.append(("protocol_out", "TEXT NOT NULL DEFAULT 'openai'"))
+    if "upstream_protocol" not in existing_columns:
+        additions.append(("upstream_protocol", "TEXT NOT NULL DEFAULT 'openai'"))
     if "route_kind" not in existing_columns:
         additions.append(("route_kind", "TEXT NOT NULL DEFAULT 'provider'"))
     if "tool_calling" not in existing_columns:
@@ -110,6 +112,48 @@ DEFAULT_GEMINI_QUEUE_MODELS = (
     "models/gemini-3.1-flash-live-preview",
 )
 
+DEFAULT_GITHUB_QUEUE_NAME = "github"
+DEFAULT_GITHUB_QUEUE_DESCRIPTION = "Default GitHub Models queue"
+DEFAULT_GITHUB_QUEUE_MODELS = (
+    "openai/gpt-5",
+    "openai/o3",
+    "openai/o1",
+    "openai/gpt-4.1",
+    "openai/gpt-5-chat",
+    "openai/gpt-5-mini",
+    "openai/o4-mini",
+    "openai/o3-mini",
+    "openai/o1-preview",
+    "openai/o1-mini",
+    "openai/gpt-4o",
+    "openai/gpt-4o-mini",
+    "openai/gpt-4.1-mini",
+    "openai/gpt-4.1-nano",
+    "openai/gpt-5-nano",
+    "microsoft/phi-4-reasoning",
+    "microsoft/phi-4-multimodal-instruct",
+    "microsoft/phi-4-mini-reasoning",
+    "microsoft/phi-4-mini-instruct",
+    "microsoft/phi-4",
+    "meta/llama-4-maverick-17b-128e-instruct-fp8",
+    "meta/llama-4-scout-17b-16e-instruct",
+    "deepseek/deepseek-r1",
+    "deepseek/deepseek-r1-0528",
+    "deepseek/deepseek-v3-0324",
+    "mistral-ai/mistral-medium-2505",
+    "mistral-ai/mistral-small-2503",
+    "mistral-ai/codestral-2501",
+    "cohere/cohere-command-a",
+    "meta/meta-llama-3.1-405b-instruct",
+    "meta/llama-3.3-70b-instruct",
+    "meta/llama-3.2-90b-vision-instruct",
+    "meta/llama-3.2-11b-vision-instruct",
+    "meta/meta-llama-3.1-8b-instruct",
+    "mistral-ai/ministral-3b",
+    "openai/text-embedding-3-large",
+    "openai/text-embedding-3-small",
+)
+
 
 def _normalize_model_name(model_name: str) -> str:
     cleaned = model_name.strip()
@@ -150,10 +194,74 @@ def _seed_default_gemini_queue(sync_conn) -> None:
     )
 
 
+def _seed_default_github_queue(sync_conn) -> None:
+    existing_queue = sync_conn.execute(
+        select(ModelQueue.__table__.c.id).where(ModelQueue.__table__.c.name == DEFAULT_GITHUB_QUEUE_NAME)
+    ).scalar_one_or_none()
+    if existing_queue is not None:
+        return
+
+    result = sync_conn.execute(
+        insert(ModelQueue.__table__).values(
+            name=DEFAULT_GITHUB_QUEUE_NAME,
+            description=DEFAULT_GITHUB_QUEUE_DESCRIPTION,
+            strategy=QueueStrategy.ORDERED,
+            is_active=True,
+        )
+    )
+    queue_id = result.inserted_primary_key[0]
+
+    sync_conn.execute(
+        insert(ModelQueueCandidate.__table__),
+        [
+            {
+                "queue_id": queue_id,
+                "provider": "github",
+                "model_name": model_name.strip(),
+                "position": position,
+                "is_active": True,
+            }
+            for position, model_name in enumerate(DEFAULT_GITHUB_QUEUE_MODELS)
+        ],
+    )
+
+
 def _upgrade_telemetry_and_seed_gemini_queue(sync_conn) -> None:
     _ensure_tables(sync_conn, ModelQueue.__table__, ModelQueueCandidate.__table__)
     _ensure_usage_log_telemetry_columns(sync_conn)
     _seed_default_gemini_queue(sync_conn)
+
+
+def _upgrade_seed_github_queue(sync_conn) -> None:
+    _ensure_tables(sync_conn, ModelQueue.__table__, ModelQueueCandidate.__table__)
+    _seed_default_github_queue(sync_conn)
+
+
+def _reorder_default_github_queue(sync_conn) -> None:
+    queue_id = sync_conn.execute(
+        select(ModelQueue.__table__.c.id).where(ModelQueue.__table__.c.name == DEFAULT_GITHUB_QUEUE_NAME)
+    ).scalar_one_or_none()
+    if queue_id is None:
+        return
+
+    current_rows = sync_conn.execute(
+        select(
+            ModelQueueCandidate.__table__.c.id,
+            ModelQueueCandidate.__table__.c.provider,
+            ModelQueueCandidate.__table__.c.model_name,
+        ).where(ModelQueueCandidate.__table__.c.queue_id == queue_id)
+    ).fetchall()
+    current_by_key = {(row[2],): row[0] for row in current_rows}
+
+    for position, model_name in enumerate(DEFAULT_GITHUB_QUEUE_MODELS):
+        candidate_id = current_by_key.get((model_name.strip(),))
+        if candidate_id is None:
+            continue
+        sync_conn.execute(
+            ModelQueueCandidate.__table__.update()
+            .where(ModelQueueCandidate.__table__.c.id == candidate_id)
+            .values(position=position)
+        )
 
 
 def _seed_default_alert_settings(sync_conn) -> None:
@@ -250,6 +358,10 @@ def _upgrade_model_queue_rank_fields(sync_conn) -> None:
     _ensure_model_queue_rank_columns(sync_conn)
 
 
+def _upgrade_usage_log_upstream_protocol(sync_conn) -> None:
+    _ensure_usage_log_telemetry_columns(sync_conn)
+
+
 def _read_schema_version(sync_conn) -> str:
     version = sync_conn.execute(
         select(SchemaVersion.version).where(SchemaVersion.key == "schema")
@@ -281,9 +393,24 @@ MIGRATION_STEPS: tuple[MigrationStep, ...] = (
         upgrade=_upgrade_provider_key_route_states,
     ),
     MigrationStep(
-        version=SCHEMA_VERSION,
+        version="0.3.2",
         description="Add provider/model rank fields for queue candidates",
         upgrade=_upgrade_model_queue_rank_fields,
+    ),
+    MigrationStep(
+        version="0.3.4",
+        description="Seed GitHub Models queue",
+        upgrade=_upgrade_seed_github_queue,
+    ),
+    MigrationStep(
+        version="0.3.6",
+        description="Add upstream protocol telemetry for usage logs",
+        upgrade=_upgrade_usage_log_upstream_protocol,
+    ),
+    MigrationStep(
+        version=SCHEMA_VERSION,
+        description="Reorder GitHub Models queue by capability",
+        upgrade=_reorder_default_github_queue,
     ),
 )
 

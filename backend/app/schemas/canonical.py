@@ -97,6 +97,7 @@ class CanonicalTelemetry(BaseModel):
 
     protocol_in: str
     protocol_out: str | None = None
+    upstream_protocol: str | None = None
     app_token_id: int | None = None
     provider_key_id: int | None = None
     route_kind: str | None = None
@@ -133,6 +134,7 @@ class CanonicalResponse(BaseModel):
 
     request_id: str | None = None
     protocol_out: str
+    upstream_protocol: str | None = None
     route: CanonicalRoute
     model: str
     role: str = "assistant"

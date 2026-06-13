@@ -53,13 +53,14 @@ class DatabaseMigrationTest(unittest.TestCase):
                 )
 
             applied = await apply_schema_migrations(engine)
-            self.assertEqual(applied, ["0.3.0", "0.3.1", SCHEMA_VERSION])
+            self.assertEqual(applied, ["0.3.0", "0.3.1", "0.3.2", "0.3.4", "0.3.6", SCHEMA_VERSION])
 
             async with engine.begin() as conn:
                 columns = await conn.exec_driver_sql("PRAGMA table_info(usage_logs)")
                 column_names = {row[1] for row in columns.fetchall()}
                 self.assertIn("protocol_in", column_names)
                 self.assertIn("protocol_out", column_names)
+                self.assertIn("upstream_protocol", column_names)
                 self.assertIn("route_kind", column_names)
                 self.assertIn("tool_calling", column_names)
 
@@ -112,6 +113,66 @@ class DatabaseMigrationTest(unittest.TestCase):
                             "gemini-2.5-flash-lite",
                             "gemini-flash-lite-latest",
                             "gemini-3.1-flash-live-preview",
+                        ],
+                    )
+
+                github_queue_result = await conn.exec_driver_sql(
+                    "SELECT id FROM model_queues WHERE name = 'github'"
+                )
+                github_queue_row = github_queue_result.fetchone()
+                self.assertIsNotNone(github_queue_row)
+                if github_queue_row is not None:
+                    github_candidate_result = await conn.exec_driver_sql(
+                        """
+                        SELECT provider, model_name
+                        FROM model_queue_candidates
+                        WHERE queue_id = ?
+                        ORDER BY position ASC, id ASC
+                        """,
+                        (github_queue_row[0],),
+                    )
+                    github_candidates = github_candidate_result.fetchall()
+                    self.assertEqual([candidate[0] for candidate in github_candidates], ["github"] * 37)
+                    self.assertEqual(
+                        [candidate[1] for candidate in github_candidates],
+                        [
+                            "openai/gpt-5",
+                            "openai/o3",
+                            "openai/o1",
+                            "openai/gpt-4.1",
+                            "openai/gpt-5-chat",
+                            "openai/gpt-5-mini",
+                            "openai/o4-mini",
+                            "openai/o3-mini",
+                            "openai/o1-preview",
+                            "openai/o1-mini",
+                            "openai/gpt-4o",
+                            "openai/gpt-4o-mini",
+                            "openai/gpt-4.1-mini",
+                            "openai/gpt-4.1-nano",
+                            "openai/gpt-5-nano",
+                            "microsoft/phi-4-reasoning",
+                            "microsoft/phi-4-multimodal-instruct",
+                            "microsoft/phi-4-mini-reasoning",
+                            "microsoft/phi-4-mini-instruct",
+                            "microsoft/phi-4",
+                            "meta/llama-4-maverick-17b-128e-instruct-fp8",
+                            "meta/llama-4-scout-17b-16e-instruct",
+                            "deepseek/deepseek-r1",
+                            "deepseek/deepseek-r1-0528",
+                            "deepseek/deepseek-v3-0324",
+                            "mistral-ai/mistral-medium-2505",
+                            "mistral-ai/mistral-small-2503",
+                            "mistral-ai/codestral-2501",
+                            "cohere/cohere-command-a",
+                            "meta/meta-llama-3.1-405b-instruct",
+                            "meta/llama-3.3-70b-instruct",
+                            "meta/llama-3.2-90b-vision-instruct",
+                            "meta/llama-3.2-11b-vision-instruct",
+                            "meta/meta-llama-3.1-8b-instruct",
+                            "mistral-ai/ministral-3b",
+                            "openai/text-embedding-3-large",
+                            "openai/text-embedding-3-small",
                         ],
                     )
 

@@ -87,6 +87,18 @@ def _title(text: str) -> str:
     return f"*{_escape_markdown_v2(text)}*"
 
 
+def _bold(text: str) -> str:
+    return f"*{_escape_markdown_v2(text)}*"
+
+
+def _italic(text: str) -> str:
+    return f"_{_escape_markdown_v2(text)}_"
+
+
+def _code(text: str) -> str:
+    return f"`{_escape_code_block(text)}`"
+
+
 def _truncate(text: str, max_length: int) -> str:
     if len(text) <= max_length:
         return text
@@ -96,45 +108,44 @@ def _truncate(text: str, max_length: int) -> str:
 
 
 def build_help_message() -> str:
-    return "\n".join(
-        [
-            _title("LLMBridge Telegram"),
-            _format_code_block(
-                [
-                    "/status                service status",
-                    "/runtime               runtime host and port",
-                    "/apps                  app token summary",
-                    "/app <id|name>         app token overview",
-                    "/providers             provider summary",
-                    "/provider <name>       provider overview",
-                    "/queues                queue summary",
-                    "/queue <name>          queue overview",
-                    "/alerts                alert switches",
-                    "/alerts on|off         enable or disable Telegram",
-                    "/alerts proxy on|off   proxy failure alerts",
-                    "/alerts queue on|off   queue exhausted alerts",
-                    "/alerts provider on|off provider pool alerts",
-                    "/alerts key on|off     provider key alerts",
-                    "/link                  bind this chat if no chat is configured",
-                ]
-            ),
-        ]
-    )
+    lines = [
+        _bold("🤖 LLMBridge Telegram Control Panel"),
+        "",
+        "Use the following commands to monitor and manage your instances:",
+        "",
+        f"• {_code('/status')} \\- {_italic('Show overall service status')}",
+        f"• {_code('/runtime')} \\- {_italic('Show runtime host, port, and API URLs')}",
+        f"• {_code('/apps')} \\- {_italic('List all app tokens and their metrics')}",
+        f"• {_code('/app <id|name>')} \\- {_italic('Show detailed metrics for a specific app token')}",
+        f"• {_code('/providers')} \\- {_italic('List all configured providers and key counts')}",
+        f"• {_code('/provider <name>')} \\- {_italic('Show detailed metrics for a specific provider')}",
+        f"• {_code('/queues')} \\- {_italic('List all model routing queues and their requests')}",
+        f"• {_code('/queue <name>')} \\- {_italic('Show details and model breakdown of a queue')}",
+        "",
+        _bold("🔔 Alert Management"),
+        f"• {_code('/alerts')} \\- {_italic('Show current alert configuration')}",
+        f"• {_code('/alerts on|off')} \\- {_italic('Enable or disable Telegram alerts globally')}",
+        f"• {_code('/alerts proxy on|off')} \\- {_italic('Toggle proxy error alerts')}",
+        f"• {_code('/alerts queue on|off')} \\- {_italic('Toggle queue exhaustion alerts')}",
+        f"• {_code('/alerts provider on|off')} \\- {_italic('Toggle provider pool empty alerts')}",
+        f"• {_code('/alerts key on|off')} \\- {_italic('Toggle provider API key status change alerts')}",
+        "",
+        _bold("🔗 Connection"),
+        f"• {_code('/link')} \\- {_italic('Bind this Telegram chat to receive alerts and commands')}",
+    ]
+    return "\n".join(lines)
 
 
 def build_status_message(*, runtime_base_url: str) -> str:
     return "\n".join(
         [
-            _title("LLMBridge status"),
-            _format_kv_block(
-                [
-                    ("Service", get_settings().app_name),
-                    ("Version", APP_VERSION),
-                    ("Schema", SCHEMA_VERSION),
-                    ("Runtime", runtime_base_url),
-                    ("Checked", _utc_now()),
-                ]
-            ),
+            _bold("📊 LLMBridge Status Overview"),
+            "",
+            f"• {_bold('Service:')} {_escape_markdown_v2(get_settings().app_name)}",
+            f"• {_bold('Version:')} {_code(APP_VERSION)}",
+            f"• {_bold('Schema:')} {_code(str(SCHEMA_VERSION))}",
+            f"• {_bold('Runtime URL:')} {_code(runtime_base_url)}",
+            f"• {_bold('Checked At:')} {_code(_utc_now())}",
         ]
     )
 
@@ -189,26 +200,21 @@ async def _build_apps_list_message(session: AsyncSession) -> str:
     result = await session.execute(stmt)
     rows = result.all()
     if not rows:
-        return "\n".join([_title("LLMBridge app tokens"), _escape_markdown_v2("No app tokens found.")])
-    lines = [_title("LLMBridge app tokens")]
-    lines.append(
-        _format_code_block(
-            [
-                "TOKEN NAME              ENVIRONMENT   STATUS    REQUESTS   TOKENS",
-                "----------------------   -----------   -------   --------   -------",
-            ]
-        )
-    )
+        return "\n".join([_bold("📱 LLMBridge App Tokens"), "", _escape_markdown_v2("No app tokens found.")])
+    lines = [
+        _bold("📱 LLMBridge App Tokens"),
+        _italic("Showing the latest active tokens:"),
+        ""
+    ]
     for row in rows[:8]:
+        status_icon = "🟢" if row.is_active else "🔴"
         lines.append(
-            _format_code_block(
-                [
-                    f"{_truncate(row.name, 22).ljust(22)}   {_truncate(row.environment.value, 11).ljust(11)}   "
-                    f"{_truncate('ACTIVE' if row.is_active else 'OFF', 7).ljust(7)}   "
-                    f"{str(int(row.requests_count or 0)).ljust(8)}   {str(int(row.total_tokens_consumed or 0)).ljust(7)}"
-                ]
-            )
+            f"{status_icon} {_bold(row.name)} \\({_code(row.environment.value)}\\)\n"
+            f"  • Status: {_italic('Active' if row.is_active else 'Inactive')}\n"
+            f"  • Requests: {_code(str(int(row.requests_count or 0)))}\n"
+            f"  • Tokens Consumed: {_code(str(int(row.total_tokens_consumed or 0)))}"
         )
+        lines.append("")
     return "\n".join(lines)
 
 
@@ -218,17 +224,21 @@ async def _build_providers_list_message(session: AsyncSession) -> str:
     )
     rows = result.all()
     if not rows:
-        return "\n".join([_title("LLMBridge providers"), _escape_markdown_v2("No provider activity yet.")])
+        return "\n".join([_bold("🔌 LLMBridge Providers"), "", _escape_markdown_v2("No provider activity yet.")])
     provider_counts = await _provider_request_counts(session)
-    lines = [_title("LLMBridge providers"), _format_code_block(["PROVIDER             REQUESTS   KEYS", "-------------------   --------   ----"])]
+    lines = [
+        _bold("🔌 LLMBridge Providers"),
+        _italic("Summary of active providers:"),
+        ""
+    ]
     for provider, key_count in rows[:8]:
+        req_count = provider_counts.get(provider, 0)
         lines.append(
-            _format_code_block(
-                [
-                    f"{_truncate(provider, 19).ljust(19)}   {str(provider_counts.get(provider, 0)).ljust(8)}   {str(int(key_count or 0)).ljust(4)}"
-                ]
-            )
+            f"• {_bold(provider.upper())}\n"
+            f"  • Requests: {_code(str(req_count))}\n"
+            f"  • Keys Configured: {_code(str(int(key_count or 0)))}"
         )
+        lines.append("")
     return "\n".join(lines)
 
 
@@ -236,17 +246,23 @@ async def _build_queues_list_message(session: AsyncSession) -> str:
     result = await session.execute(select(ModelQueue.name, ModelQueue.strategy, ModelQueue.is_active).order_by(ModelQueue.id.desc()))
     queues = result.all()
     if not queues:
-        return "\n".join([_title("LLMBridge queues"), _escape_markdown_v2("No queues found.")])
+        return "\n".join([_bold("⛓️ LLMBridge Queues"), "", _escape_markdown_v2("No queues found.")])
     queue_counts = await _queue_request_counts(session)
-    lines = [_title("LLMBridge queues"), _format_code_block(["QUEUE                STRATEGY      STATUS    REQUESTS", "-------------------   ----------   -------   --------"])]
+    lines = [
+        _bold("⛓️ LLMBridge Routing Queues"),
+        _italic("Configured queues:"),
+        ""
+    ]
     for name, strategy, is_active in queues[:8]:
+        status_icon = "🟢" if is_active else "🔴"
+        req_count = queue_counts.get(name, 0)
         lines.append(
-            _format_code_block(
-                [
-                    f"{_truncate(name, 19).ljust(19)}   {_truncate(strategy.value, 10).ljust(10)}   {_truncate('ACTIVE' if is_active else 'OFF', 7).ljust(7)}   {str(queue_counts.get(name, 0)).ljust(8)}"
-                ]
-            )
+            f"{status_icon} {_bold(name)}\n"
+            f"  • Strategy: {_code(strategy.value)}\n"
+            f"  • Status: {_italic('Active' if is_active else 'Inactive')}\n"
+            f"  • Total Requests: {_code(str(req_count))}"
         )
+        lines.append("")
     return "\n".join(lines)
 
 
@@ -262,36 +278,29 @@ async def _resolve_app_token(session: AsyncSession, identifier: str) -> AppToken
 async def _build_app_overview_message(session: AsyncSession, identifier: str) -> str:
     app_token = await _resolve_app_token(session, identifier)
     if app_token is None:
-        return "\n".join([_title("LLMBridge app token"), _escape_markdown_v2(f"App token '{identifier}' not found.")])
+        return "\n".join([_bold("📱 LLMBridge App Token Overview"), "", _escape_markdown_v2(f"App token '{identifier}' not found.")])
     overview = await build_app_token_overview(session, app_token.id, "24h")
     summary = overview.summary
     lines = [
-        _title("LLMBridge app token"),
-        _format_kv_block(
-            [
-                ("App", overview.context_label),
-                ("Environment", app_token.environment.value),
-                ("Token", app_token.masked_token),
-            ]
-        ),
-        _format_kv_block(
-            [
-                ("Requests", str(summary.total_requests)),
-                ("Success", f"{summary.success_rate:.1f}%"),
-                ("Latency", f"{summary.avg_latency_ms:.1f} ms"),
-                ("Tokens", str(summary.total_tokens_consumed)),
-                ("Rotations", str(summary.total_rotations_triggered)),
-            ]
-        ),
+        f"📱 {_bold('LLMBridge App Token Overview')}",
+        "",
+        f"• {_bold('App Name:')} {overview.context_label}",
+        f"• {_bold('Environment:')} {_code(app_token.environment.value)}",
+        f"• {_bold('Masked Token:')} {_code(app_token.masked_token)}",
+        "",
+        _bold("📊 Performance (Last 24h):"),
+        f"  • Total Requests: {_code(str(summary.total_requests))}",
+        f"  • Success Rate: {_code(f'{summary.success_rate:.1f}%')}",
+        f"  • Avg Latency: {_code(f'{summary.avg_latency_ms:.1f} ms')}",
+        f"  • Tokens Consumed: {_code(str(summary.total_tokens_consumed))}",
+        f"  • Key Rotations: {_code(str(summary.total_rotations_triggered))}",
     ]
     if overview.models:
-        top_models = overview.models[:3]
-        model_lines = ["MODELS               REQUESTS   TOKENS", "-------------------   --------   ------"]
-        for model in top_models:
-            model_lines.append(
-                f"{_truncate(model.model_name, 19).ljust(19)}   {str(model.requests_count).ljust(8)}   {str(model.total_tokens_consumed).ljust(6)}"
+        lines.extend(["", _bold("🤖 Top Models Used:")])
+        for model in overview.models[:3]:
+            lines.append(
+                f"  • {_bold(model.model_name)}: {_code(str(model.requests_count))} reqs / {_code(str(model.total_tokens_consumed))} tokens"
             )
-        lines.append(_format_code_block(model_lines))
     return "\n".join(lines)
 
 
@@ -303,89 +312,81 @@ async def _build_provider_overview_message(session: AsyncSession, provider: str)
     keys = key_result.scalars().all()
     active_keys = [key for key in keys if key.status == KeyStatus.ACTIVE]
     lines = [
-        _title("LLMBridge provider"),
-        _format_kv_block(
-            [
-                ("Provider", overview.context_label),
-                ("Keys", f"{len(keys)} total / {len(active_keys)} active"),
-            ]
-        ),
-        _format_kv_block(
-            [
-                ("Requests", str(overview.summary.total_requests)),
-                ("Success", f"{overview.summary.success_rate:.1f}%"),
-                ("Latency", f"{overview.summary.avg_latency_ms:.1f} ms"),
-                ("Tokens", str(overview.summary.total_tokens_consumed)),
-                ("Rotations", str(overview.summary.total_rotations_triggered)),
-            ]
-        ),
+        f"🔌 {_bold('LLMBridge Provider Overview')}",
+        "",
+        f"• {_bold('Provider:')} {overview.context_label.upper()}",
+        f"• {_bold('API Keys:')} {_code(f'{len(keys)} total / {len(active_keys)} active')}",
+        "",
+        _bold("📊 Performance (Last 24h):"),
+        f"  • Total Requests: {_code(str(overview.summary.total_requests))}",
+        f"  • Success Rate: {_code(f'{overview.summary.success_rate:.1f}%')}",
+        f"  • Avg Latency: {_code(f'{overview.summary.avg_latency_ms:.1f} ms')}",
+        f"  • Tokens Consumed: {_code(str(overview.summary.total_tokens_consumed))}",
+        f"  • Key Rotations: {_code(str(overview.summary.total_rotations_triggered))}",
     ]
     if overview.models:
-        model_lines = ["MODELS               REQUESTS   TOKENS", "-------------------   --------   ------"]
+        lines.extend(["", _bold("🤖 Top Models Used:")])
         for model in overview.models[:3]:
-            model_lines.append(
-                f"{_truncate(model.model_name, 19).ljust(19)}   {str(model.requests_count).ljust(8)}   {str(model.total_tokens_consumed).ljust(6)}"
+            lines.append(
+                f"  • {_bold(model.model_name)}: {_code(str(model.requests_count))} reqs / {_code(str(model.total_tokens_consumed))} tokens"
             )
-        lines.append(_format_code_block(model_lines))
     return "\n".join(lines)
 
 
 async def _build_queue_overview_message(session: AsyncSession, queue_name: str) -> str:
     overview = await build_queue_overview(session, queue_name, "24h")
     lines = [
-        _title("LLMBridge queue"),
-        _format_kv_block(
-            [
-                ("Queue", overview.context_label),
-                ("Requests", str(overview.summary.total_requests)),
-                ("Success", f"{overview.summary.success_rate:.1f}%"),
-                ("Latency", f"{overview.summary.avg_latency_ms:.1f} ms"),
-                ("Tokens", str(overview.summary.total_tokens_consumed)),
-                ("Rotations", str(overview.summary.total_rotations_triggered)),
-            ]
-        ),
+        f"⛓️ {_bold('LLMBridge Queue Overview')}",
+        "",
+        f"• {_bold('Queue Name:')} {overview.context_label}",
+        "",
+        _bold("📊 Performance (Last 24h):"),
+        f"  • Total Requests: {_code(str(overview.summary.total_requests))}",
+        f"  • Success Rate: {_code(f'{overview.summary.success_rate:.1f}%')}",
+        f"  • Avg Latency: {_code(f'{overview.summary.avg_latency_ms:.1f} ms')}",
+        f"  • Tokens Consumed: {_code(str(overview.summary.total_tokens_consumed))}",
+        f"  • Key Rotations: {_code(str(overview.summary.total_rotations_triggered))}",
     ]
     if overview.models:
-        model_lines = ["MODELS               REQUESTS   TOKENS", "-------------------   --------   ------"]
+        lines.extend(["", _bold("🤖 Top Models Used:")])
         for model in overview.models[:5]:
-            model_lines.append(
-                f"{_truncate(model.model_name, 19).ljust(19)}   {str(model.requests_count).ljust(8)}   {str(model.total_tokens_consumed).ljust(6)}"
+            lines.append(
+                f"  • {_bold(model.model_name)}: {_code(str(model.requests_count))} reqs / {_code(str(model.total_tokens_consumed))} tokens"
             )
-        lines.append(_format_code_block(model_lines))
     return "\n".join(lines)
 
 
 def build_runtime_message(*, host: str, port: int, restart_required: bool) -> str:
+    restart_status = "⚠️ Yes (restart required)" if restart_required else "✅ No"
     return "\n".join(
         [
-            _title("LLMBridge runtime"),
-            _format_kv_block(
-                [
-                    ("Host", host),
-                    ("Port", str(port)),
-                    ("API base", f"http://{host}:{port}/api/v1"),
-                    ("Restart required", "yes" if restart_required else "no"),
-                ]
-            ),
+            _bold("⚙️ LLMBridge Runtime Config"),
+            "",
+            f"• {_bold('Host:')} {_code(host)}",
+            f"• {_bold('Port:')} {_code(str(port))}",
+            f"• {_bold('API Base URL:')} {_code(f'http://{host}:{port}/api/v1')}",
+            f"• {_bold('Restart Required:')} {restart_status}",
         ]
     )
 
 
 def build_alerts_message(alert_settings: AlertSettings) -> str:
+    def _status_emoji(enabled: bool) -> str:
+        return "🔔 Enabled" if enabled else "🔕 Disabled"
+
     chat_id = alert_settings.telegram_chat_id or "not configured"
     return "\n".join(
         [
-            _title("LLMBridge alerts"),
-            _format_kv_block(
-                [
-                    ("Telegram", _toggle_label(alert_settings.telegram_enabled)),
-                    ("Chat ID", chat_id),
-                    ("Proxy failures", _toggle_label(alert_settings.alert_proxy_failures)),
-                    ("Queue exhausted", _toggle_label(alert_settings.alert_queue_exhausted)),
-                    ("Provider pool", _toggle_label(alert_settings.alert_provider_pool_exhausted)),
-                    ("Provider key", _toggle_label(alert_settings.alert_provider_key_status_changes)),
-                ]
-            ),
+            _bold("🔔 LLMBridge Alert Settings"),
+            "",
+            f"• {_bold('Telegram Alerts:')} {_status_emoji(alert_settings.telegram_enabled)}",
+            f"• {_bold('Active Chat ID:')} {_code(chat_id)}",
+            "",
+            _bold("Alert Channels:"),
+            f"• {_bold('Proxy Failures:')} {_status_emoji(alert_settings.alert_proxy_failures)}",
+            f"• {_bold('Queue Exhausted:')} {_status_emoji(alert_settings.alert_queue_exhausted)}",
+            f"• {_bold('Provider Pool Exhausted:')} {_status_emoji(alert_settings.alert_provider_pool_exhausted)}",
+            f"• {_bold('API Key Status Changes:')} {_status_emoji(alert_settings.alert_provider_key_status_changes)}",
         ]
     )
 
@@ -457,12 +458,28 @@ def _message_id(update: dict[str, Any]) -> int | None:
     return message_id if isinstance(message_id, int) else None
 
 
+TELEGRAM_BOT_COMMANDS = [
+    {"command": "status", "description": "Show overall service status"},
+    {"command": "runtime", "description": "Show runtime host and port config"},
+    {"command": "apps", "description": "List configured app tokens"},
+    {"command": "app", "description": "Show detailed metrics for an app token"},
+    {"command": "providers", "description": "List configured providers and key counts"},
+    {"command": "provider", "description": "Show detailed metrics for a provider"},
+    {"command": "queues", "description": "List routing queues and their requests"},
+    {"command": "queue", "description": "Show details and model breakdown of a queue"},
+    {"command": "alerts", "description": "View or configure alert channel settings"},
+    {"command": "link", "description": "Bind this chat to receive LLMBridge alerts"},
+    {"command": "help", "description": "Show available commands list"},
+]
+
+
 class TelegramBotWorker:
     def __init__(self, sessionmaker: async_sessionmaker[AsyncSession]) -> None:
         self._sessionmaker = sessionmaker
         self._stop_event = asyncio.Event()
         self._task: asyncio.Task[None] | None = None
         self._offset = 0
+        self._commands_set_token: str | None = None
 
     async def start(self) -> None:
         if self._task is not None and not self._task.done():
@@ -482,6 +499,16 @@ class TelegramBotWorker:
         finally:
             self._task = None
 
+    async def _set_bot_commands(self, client: httpx.AsyncClient, bot_token: str) -> None:
+        payload = {
+            "commands": TELEGRAM_BOT_COMMANDS
+        }
+        try:
+            await _telegram_request(client, bot_token, "setMyCommands", payload)
+            logger.info("Successfully registered Telegram bot commands via API.")
+        except Exception as exc:
+            logger.warning("Failed to register Telegram bot commands: %s", exc)
+
     async def _run(self) -> None:
         timeout = httpx.Timeout(TELEGRAM_POLL_TIMEOUT + 10, connect=15.0)
         async with httpx.AsyncClient(timeout=timeout) as client:
@@ -494,6 +521,10 @@ class TelegramBotWorker:
                         if not bot_token:
                             await asyncio.sleep(TELEGRAM_POLL_IDLE_SECONDS)
                             continue
+
+                        if self._commands_set_token != bot_token:
+                            await self._set_bot_commands(client, bot_token)
+                            self._commands_set_token = bot_token
 
                         updates = await self._poll_updates(client, bot_token)
                         if not updates:
@@ -588,13 +619,10 @@ class TelegramBotWorker:
                 chat_id=chat_id,
                 text="\n".join(
                     [
-                        _title("LLMBridge command failed"),
-                        _format_kv_block(
-                            [
-                                ("Command", command),
-                                ("Status", "failed"),
-                            ]
-                        ),
+                        f"❌ {_bold('LLMBridge Command Failed')}",
+                        "",
+                        f"• {_bold('Command:')} {_code(command)}",
+                        f"• {_bold('Status:')} failed",
                     ]
                 ),
                 reply_to_message_id=message_id,
@@ -624,7 +652,7 @@ class TelegramBotWorker:
 
         if command == "app":
             if not args:
-                return "Usage: /app <id|name>"
+                return f"⚠️ {_bold('Usage:')} {_code('/app <id|name>')}"
             return await _build_app_overview_message(session, args[0])
 
         if command == "providers":
@@ -632,7 +660,7 @@ class TelegramBotWorker:
 
         if command == "provider":
             if not args:
-                return "Usage: /provider <name>"
+                return f"⚠️ {_bold('Usage:')} {_code('/provider <name>')}"
             return await _build_provider_overview_message(session, args[0].lower())
 
         if command == "queues":
@@ -640,7 +668,7 @@ class TelegramBotWorker:
 
         if command == "queue":
             if not args:
-                return "Usage: /queue <name>"
+                return f"⚠️ {_bold('Usage:')} {_code('/queue <name>')}"
             return await _build_queue_overview_message(session, args[0])
 
         if command == "alerts":
@@ -669,7 +697,7 @@ class TelegramBotWorker:
                     return "Unknown alerts switch."
                 alert_settings = await update_alert_settings(session, **updates)
                 return build_alerts_message(alert_settings)
-            return "Usage: /alerts [on|off|proxy on|queue on|provider on|key on]"
+            return f"⚠️ {_bold('Usage:')} {_code('/alerts [on|off|proxy on|queue on|provider on|key on]')}"
 
         if command == "link":
             alert_settings = await update_alert_settings(
@@ -679,13 +707,10 @@ class TelegramBotWorker:
             )
             return "\n".join(
                 [
-                    _title("LLMBridge chat linked"),
-                    _format_kv_block(
-                        [
-                            ("Chat ID", chat_id),
-                            ("Telegram", _toggle_label(alert_settings.telegram_enabled)),
-                        ]
-                    ),
+                    f"🔗 {_bold('LLMBridge Chat Linked')}",
+                    "",
+                    f"• {_bold('Chat ID:')} {_code(chat_id)}",
+                    f"• {_bold('Telegram Alerts:')} 🔔 Enabled",
                 ]
             )
 

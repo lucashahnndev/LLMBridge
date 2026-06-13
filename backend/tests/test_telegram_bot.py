@@ -43,7 +43,7 @@ class TelegramBotCommandTest(unittest.TestCase):
                 args=[],
             )
 
-        self.assertIn("LLMBridge chat linked", response or "")
+        self.assertIn("LLMBridge Chat Linked", response or "")
         update_mock.assert_awaited_once()
         _, kwargs = update_mock.await_args
         self.assertEqual(kwargs["telegram_chat_id"], "123")
@@ -79,8 +79,8 @@ class TelegramBotCommandTest(unittest.TestCase):
                 args=["provider", "off"],
             )
 
-        self.assertIn("Provider pool", response or "")
-        self.assertIn("off", response or "")
+        self.assertIn("Provider Pool", response or "")
+        self.assertIn("Disabled", response or "")
         update_mock.assert_awaited_once()
         _, kwargs = update_mock.await_args
         self.assertEqual(kwargs["alert_provider_pool_exhausted"], False)
@@ -103,7 +103,7 @@ class TelegramBotCommandTest(unittest.TestCase):
             args=[],
         )
 
-        self.assertIn("LLMBridge app tokens", response or "")
+        self.assertIn("LLMBridge App Tokens", response or "")
         self.assertIn("Atlas", response or "")
         self.assertIn("12", response or "")
 
@@ -123,8 +123,8 @@ class TelegramBotCommandTest(unittest.TestCase):
                 args=[],
             )
 
-        self.assertIn("LLMBridge providers", response or "")
-        self.assertIn("google", response or "")
+        self.assertIn("LLMBridge Providers", response or "")
+        self.assertIn("GOOGLE", response or "")
         self.assertIn("2", response or "")
 
     async def _run_send_message(self) -> None:

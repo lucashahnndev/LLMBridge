@@ -15,7 +15,7 @@ class AnthropicMessage(BaseModel):
 class AnthropicMessagesRequest(BaseModel):
     model_config = ConfigDict(extra="allow")
 
-    model: str = Field(..., examples=["queue/google"])
+    model: str = Field(..., examples=["queue/github", "queue/google"])
     max_tokens: int = Field(..., ge=1)
     messages: list[AnthropicMessage]
     system: Any | None = None

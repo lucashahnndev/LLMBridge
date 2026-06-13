@@ -51,6 +51,9 @@ class ProxyTraceTest(unittest.TestCase):
     def test_proxy_chat_completion_writes_trace_file(self) -> None:
         asyncio.run(self._run_proxy_trace())
 
+    def test_proxy_chat_completion_writes_structured_github_trace_file(self) -> None:
+        asyncio.run(self._run_structured_github_trace())
+
     async def _run_proxy_trace(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             db_path = Path(temp_dir) / "proxy-trace.sqlite"
@@ -177,6 +180,109 @@ class ProxyTraceTest(unittest.TestCase):
                 self.assertEqual(trace_content["provider"]["responses"][0]["status_code"], 200)
                 self.assertEqual(trace_content["result"]["status_code"], 200)
                 self.assertEqual(trace_content["result"]["body"]["choices"][0]["message"]["tool_calls"][0]["function"]["name"], "demo")
+
+            clear_request_context()
+            await engine.dispose()
+
+    async def _run_structured_github_trace(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            db_path = Path(temp_dir) / "proxy-trace-github.sqlite"
+            trace_dir = Path(temp_dir) / "traces"
+            engine = create_async_engine(f"sqlite+aiosqlite:///{db_path}")
+            session_factory = async_sessionmaker(bind=engine, expire_on_commit=False)
+            settings = Settings(
+                proxy_timeout_seconds=5,
+                trace_proxy_enabled=True,
+                trace_proxy_dir=str(trace_dir),
+                trace_proxy_redact=True,
+            )
+
+            async with engine.begin() as conn:
+                await conn.run_sync(Base.metadata.create_all)
+
+            async with session_factory() as session:
+                app_token = AppToken(
+                    name="Atlas",
+                    environment="development",
+                    token="app-token-1",
+                    is_active=True,
+                    rpm_limit=None,
+                )
+                provider_key = ProviderKey(
+                    name="GitHub primary",
+                    description=None,
+                    provider="github",
+                    encrypted_token=encrypt_text("github-secret"),
+                    status=KeyStatus.ACTIVE,
+                    blocked_until=None,
+                    failure_count=0,
+                )
+                session.add_all([app_token, provider_key])
+                await session.commit()
+
+                payload = ChatCompletionRequest(
+                    model="github/openai/gpt-4.1",
+                    messages=[
+                        {
+                            "role": "user",
+                            "content": "Say hello.",
+                        }
+                    ],
+                )
+
+                request_body_ctx.set(json.dumps(payload.model_dump(exclude_none=False), ensure_ascii=False))
+
+                upstream_body = {
+                    "id": "chatcmpl-github-trace-1",
+                    "object": "chat.completion",
+                    "created": 1_719_000_000,
+                    "model": "openai/gpt-4.1",
+                    "choices": [
+                        {
+                            "index": 0,
+                            "message": {
+                                "role": "assistant",
+                                "content": "Hello from GitHub Models.",
+                            },
+                            "finish_reason": "stop",
+                        }
+                    ],
+                    "usage": {
+                        "prompt_tokens": 7,
+                        "completion_tokens": 5,
+                        "total_tokens": 12,
+                    },
+                }
+
+                captured: dict[str, object] = {}
+
+                def handler(request: httpx.Request) -> httpx.Response:
+                    captured["body"] = json.loads(request.content.decode("utf-8"))
+                    return httpx.Response(200, json=upstream_body, request=request)
+
+                original_async_client = httpx.AsyncClient
+
+                def client_factory(*args, **kwargs):
+                    timeout = kwargs.get("timeout")
+                    return original_async_client(transport=httpx.MockTransport(handler), timeout=timeout)
+
+                with patch("backend.app.services.proxy.get_settings", return_value=settings):
+                    with patch("backend.app.services.proxy.httpx.AsyncClient", side_effect=client_factory):
+                        status_code, body = await proxy_chat_completion(session, app_token, payload)
+
+                self.assertEqual(status_code, 200)
+                self.assertEqual(body, upstream_body)
+                self.assertEqual(captured["body"]["model"], "openai/gpt-4.1")
+
+                trace_files = list(trace_dir.glob("*.json"))
+                self.assertEqual(len(trace_files), 1)
+                trace_content = json.loads(trace_files[0].read_text(encoding="utf-8"))
+                self.assertEqual(trace_content["route"]["requested_model"], "github/openai/gpt-4.1")
+                self.assertEqual(trace_content["route"]["selected_gateway_provider"], "github")
+                self.assertEqual(trace_content["route"]["selected_downstream_target"], "openai/gpt-4.1")
+                self.assertEqual(trace_content["route"]["selected_route"], "github/openai/gpt-4.1")
+                self.assertIn("github", trace_content["route"]["gateway_providers"])
+                self.assertIn("openai/gpt-4.1", trace_content["route"]["downstream_targets"])
 
             clear_request_context()
             await engine.dispose()

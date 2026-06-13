@@ -52,6 +52,7 @@ class MetricsOverviewTelemetryTest(unittest.TestCase):
                             provider_key_id=provider_key.id,
                             protocol_in='openai',
                             protocol_out='openai',
+                            upstream_protocol='openai',
                             route_kind='provider',
                             queue_name=None,
                             model_requested='google/gemini-3.1-flash',
@@ -72,6 +73,7 @@ class MetricsOverviewTelemetryTest(unittest.TestCase):
                             provider_key_id=provider_key.id,
                             protocol_in='anthropic',
                             protocol_out='anthropic',
+                            upstream_protocol='openai',
                             route_kind='queue',
                             queue_name='google',
                             model_requested='queue/google',
@@ -98,9 +100,14 @@ class MetricsOverviewTelemetryTest(unittest.TestCase):
             self.assertEqual(overview.context_type, 'app_token')
             self.assertEqual(overview.telemetry.protocol_in_counts, {'openai': 1, 'anthropic': 1})
             self.assertEqual(overview.telemetry.protocol_out_counts, {'openai': 1, 'anthropic': 1})
+            self.assertEqual(overview.telemetry.upstream_protocol_counts, {'openai': 2})
             self.assertEqual(overview.telemetry.route_kind_counts, {'provider': 1, 'queue': 1})
             self.assertEqual(overview.telemetry.tool_calling_count, 1)
             self.assertEqual(overview.summary.total_requests, 2)
+            self.assertEqual(overview.models[0].gateway_provider, 'google')
+            self.assertEqual(overview.models[0].downstream_provider, 'google')
+            self.assertEqual(overview.models[0].downstream_model_name, 'gemini-3-flash-preview')
+            self.assertEqual(overview.models[0].operational_route, 'google/gemini-3-flash-preview')
 
 
 if __name__ == '__main__':

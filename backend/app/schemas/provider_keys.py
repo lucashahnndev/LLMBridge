@@ -9,7 +9,7 @@ from backend.app.schemas.common import ORMModel, KeyStatusSchema
 class ProviderKeyBase(BaseModel):
     name: str = Field(..., max_length=100, examples=["Chave Gemini Reserva"])
     description: Optional[str] = None
-    provider: str = Field(..., examples=["google", "openai", "openrouter"])
+    provider: str = Field(..., examples=["github", "google", "openai", "openrouter"])
 
 
 class ProviderKeyCreate(ProviderKeyBase):

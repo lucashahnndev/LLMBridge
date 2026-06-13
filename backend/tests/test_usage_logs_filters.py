@@ -52,6 +52,7 @@ class UsageLogFiltersTest(unittest.TestCase):
                             provider_key_id=provider_key.id,
                             protocol_in="openai",
                             protocol_out="openai",
+                            upstream_protocol="openai",
                             route_kind="provider",
                             queue_name=None,
                             model_requested="google/gemini-3.1-flash",
@@ -72,6 +73,7 @@ class UsageLogFiltersTest(unittest.TestCase):
                             provider_key_id=provider_key.id,
                             protocol_in="anthropic",
                             protocol_out="anthropic",
+                            upstream_protocol="openai",
                             route_kind="queue",
                             queue_name="google",
                             model_requested="queue/google",
@@ -110,6 +112,10 @@ class UsageLogFiltersTest(unittest.TestCase):
             self.assertEqual(len(filtered.items), 1)
             self.assertEqual(filtered.items[0].protocol_in, "openai")
             self.assertTrue(filtered.items[0].tool_calling)
+            self.assertEqual(filtered.items[0].gateway_provider, "google")
+            self.assertEqual(filtered.items[0].downstream_provider, "google")
+            self.assertEqual(filtered.items[0].downstream_model_name, "gemini-3-flash-preview")
+            self.assertEqual(filtered.items[0].operational_route, "google/gemini-3-flash-preview")
 
 
 if __name__ == "__main__":

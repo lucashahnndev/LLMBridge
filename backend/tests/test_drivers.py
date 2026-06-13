@@ -1,6 +1,16 @@
 import unittest
+from unittest.mock import patch
 
-from backend.app.drivers import GoogleDriver, OpenAIDriver, OpenRouterDriver, get_provider_driver
+from backend.app.core.config import Settings
+from backend.app.drivers import (
+    GithubModelsDriver,
+    GoogleDriver,
+    OpenAICompatibleDriver,
+    OpenAIDriver,
+    OpenRouterDriver,
+    get_output_adapter_driver,
+    get_provider_driver,
+)
 from backend.app.schemas.canonical import (
     CanonicalContentBlock,
     CanonicalGeneration,
@@ -25,6 +35,52 @@ class DriverRegistryTest(unittest.TestCase):
     def test_registry_returns_google_driver(self) -> None:
         driver = get_provider_driver("google")
         self.assertIsInstance(driver, GoogleDriver)
+
+    def test_registry_returns_github_models_driver(self) -> None:
+        driver = get_provider_driver("github")
+        self.assertIsInstance(driver, GithubModelsDriver)
+
+    def test_output_adapter_returns_openai_driver_for_openai(self) -> None:
+        driver = get_output_adapter_driver("openai")
+        self.assertIsInstance(driver, OpenAIDriver)
+
+    def test_output_adapter_returns_google_driver_for_google(self) -> None:
+        driver = get_output_adapter_driver("google")
+        self.assertIsInstance(driver, GoogleDriver)
+
+    def test_output_adapter_returns_generic_openai_compatible_driver_for_microsoft(self) -> None:
+        with patch(
+            "backend.app.drivers.registry.get_settings",
+            return_value=Settings(openai_api_base="https://api.openai.com/v1"),
+        ):
+            driver = get_output_adapter_driver("microsoft")
+        self.assertIsInstance(driver, OpenAICompatibleDriver)
+        self.assertEqual(driver.provider, "microsoft")
+
+
+class GithubModelsDriverTest(unittest.TestCase):
+    def test_github_models_driver_builds_github_inference_endpoint(self) -> None:
+        driver = GithubModelsDriver("github", "https://models.github.ai/inference", "2022-11-28")
+        self.assertEqual(
+            driver.build_url("openai/gpt-4.1"),
+            "https://models.github.ai/inference/chat/completions",
+        )
+        headers = driver.build_headers("github-secret")
+        self.assertEqual(headers["Authorization"], "Bearer github-secret")
+        self.assertEqual(headers["Accept"], "application/vnd.github+json")
+        self.assertEqual(headers["X-GitHub-Api-Version"], "2022-11-28")
+
+    def test_github_models_driver_keeps_downstream_target_in_model_field(self) -> None:
+        driver = GithubModelsDriver("github", "https://models.github.ai/inference", "2022-11-28")
+        payload = driver.build_payload({"messages": []}, "openai/gpt-4.1")
+        self.assertEqual(payload["model"], "openai/gpt-4.1")
+
+    def test_github_models_driver_rejects_missing_downstream_target(self) -> None:
+        from fastapi import HTTPException
+
+        driver = GithubModelsDriver("github", "https://models.github.ai/inference", "2022-11-28")
+        with self.assertRaises(HTTPException):
+            driver.resolve_model_name("openai")
 
 
 class GoogleDriverAliasTest(unittest.TestCase):

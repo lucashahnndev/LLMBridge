@@ -11,6 +11,7 @@ class UsageLogBase(BaseModel):
     provider_key_id: Optional[int] = None
     protocol_in: str = Field(default="openai", max_length=20)
     protocol_out: str = Field(default="openai", max_length=20)
+    upstream_protocol: str = Field(default="openai", max_length=20)
     route_kind: str = Field(default="provider", max_length=20)
     queue_name: Optional[str] = None
     model_requested: str = Field(..., max_length=100)
@@ -34,6 +35,10 @@ class UsageLogResponse(ORMModel, UsageLogBase):
     id: int
     app_token_name: str | None = None
     provider_key_name: str | None = None
+    gateway_provider: str | None = None
+    downstream_provider: str | None = None
+    downstream_model_name: str | None = None
+    operational_route: str | None = None
     queue_name: str | None = None
     created_at: datetime
 
