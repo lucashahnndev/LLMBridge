@@ -7,6 +7,7 @@ from backend.app.services.alerts import (
     format_proxy_failure_alert,
     format_queue_exhausted_alert,
     send_telegram_test_message,
+    _send_telegram_message,
 )
 
 
@@ -70,6 +71,10 @@ class TelegramAlertFormattingTest(unittest.TestCase):
         asyncio_result = self._run_send_telegram_test_message()
         self.assertEqual(asyncio_result, "987654321")
 
+    def test_send_telegram_message_builds_telegram_request(self) -> None:
+        asyncio_result = self._run_send_telegram_message()
+        self.assertIsNone(asyncio_result)
+
     def _run_send_telegram_test_message(self) -> str:
         import asyncio
 
@@ -95,6 +100,40 @@ class TelegramAlertFormattingTest(unittest.TestCase):
             self.assertEqual(kwargs["chat_id"], "987654321")
             self.assertIn("LLMBridge Telegram test", kwargs["text"])
             return chat_id
+
+        return asyncio.run(_run())
+
+    def _run_send_telegram_message(self) -> None:
+        import asyncio
+
+        async def _run() -> None:
+            fake_client = SimpleNamespace()
+            fake_client.post = AsyncMock(
+                return_value=SimpleNamespace(
+                    raise_for_status=lambda: None,
+                    json=lambda: {"ok": True, "result": {}},
+                )
+            )
+
+            class _ClientContext:
+                def __init__(self) -> None:
+                    self.client = fake_client
+
+                async def __aenter__(self):
+                    return self.client
+
+                async def __aexit__(self, exc_type, exc, tb):
+                    return None
+
+            with patch("backend.app.services.alerts.httpx.AsyncClient", return_value=_ClientContext()):
+                await _send_telegram_message(bot_token="abc", chat_id="123", text="hello")
+
+            fake_client.post.assert_awaited_once()
+            args = fake_client.post.await_args.args
+            kwargs = fake_client.post.await_args.kwargs
+            self.assertIn("/botabc/sendMessage", args[0])
+            self.assertEqual(kwargs["json"]["chat_id"], "123")
+            self.assertEqual(kwargs["json"]["text"], "hello")
 
         return asyncio.run(_run())
 

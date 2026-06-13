@@ -8,6 +8,16 @@ export type LoginResponse = {
   expires_in_minutes: number;
 };
 
+export type AdminSetupStatusResponse = {
+  setup_required: boolean;
+  password_configured: boolean;
+  password_override_configured: boolean;
+};
+
+export type AdminPasswordChangeResponse = {
+  updated: boolean;
+};
+
 export type HealthResponse = {
   status: string;
   service: string;
@@ -267,6 +277,34 @@ export async function loginAdmin(password: string): Promise<LoginResponse> {
   return response.json();
 }
 
+export async function fetchAdminSetupStatus(): Promise<AdminSetupStatusResponse> {
+  const response = await fetch(`${apiBaseUrl()}/auth/setup`);
+
+  if (!response.ok) {
+    throw new Error('Failed to load admin setup status');
+  }
+
+  return response.json();
+}
+
+export async function setupAdminPassword(payload: {
+  password: string;
+  confirm_password: string;
+}): Promise<LoginResponse> {
+  const response = await fetch(`${apiBaseUrl()}/auth/setup`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
+  });
+
+  if (!response.ok) {
+    const detail = await response.text();
+    throw new Error(detail || 'Failed to complete admin setup');
+  }
+
+  return response.json();
+}
+
 export async function logoutAdmin(token: string): Promise<void> {
   const response = await fetch(`${apiBaseUrl()}/auth/logout`, {
     method: 'POST',
@@ -276,6 +314,30 @@ export async function logoutAdmin(token: string): Promise<void> {
   if (!response.ok) {
     throw new Error('Failed to logout');
   }
+}
+
+export async function changeAdminPassword(
+  token: string,
+  payload: {
+    password: string;
+    confirm_password: string;
+  }
+): Promise<AdminPasswordChangeResponse> {
+  const response = await fetch(`${apiBaseUrl()}/auth/password`, {
+    method: 'PATCH',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify(payload)
+  });
+
+  if (!response.ok) {
+    const detail = await response.text();
+    throw new Error(detail || 'Failed to update admin password');
+  }
+
+  return response.json();
 }
 
 export async function fetchGlobalMetrics(

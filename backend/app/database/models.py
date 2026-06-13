@@ -194,6 +194,24 @@ class AlertSettings(Base):
         return bool(self.telegram_bot_token_encrypted)
 
 
+class AdminAuthState(Base):
+    __tablename__ = "admin_auth_state"
+
+    key: Mapped[str] = mapped_column(String(32), primary_key=True, default="admin")
+    password_hash: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.current_timestamp(),
+        nullable=False,
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.current_timestamp(),
+        onupdate=func.current_timestamp(),
+        nullable=False,
+    )
+
+
 class ProviderKeyModelCooldown(Base):
     # Deprecated compatibility table. The operational source of truth for
     # route availability is ProviderKeyRouteState.

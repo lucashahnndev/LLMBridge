@@ -17,3 +17,23 @@ class AdminProfileResponse(BaseModel):
 
 class AdminLogoutResponse(BaseModel):
     revoked: bool = True
+
+
+class AdminSetupStatusResponse(BaseModel):
+    setup_required: bool
+    password_configured: bool
+    password_override_configured: bool
+
+
+class AdminPasswordSetupRequest(BaseModel):
+    password: str = Field(..., min_length=1)
+    confirm_password: str = Field(..., min_length=1)
+
+
+class AdminPasswordChangeRequest(BaseModel):
+    password: str = Field(..., min_length=1)
+    confirm_password: str = Field(..., min_length=1)
+
+
+class AdminPasswordChangeResponse(BaseModel):
+    updated: bool = True

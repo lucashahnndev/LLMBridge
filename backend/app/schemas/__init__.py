@@ -7,7 +7,16 @@ from backend.app.schemas.app_tokens import (
     AppTokenResponse,
     AppTokenUpdate,
 )
-from backend.app.schemas.auth import AdminLoginRequest, AdminLoginResponse, AdminLogoutResponse, AdminProfileResponse
+from backend.app.schemas.auth import (
+    AdminLoginRequest,
+    AdminLoginResponse,
+    AdminLogoutResponse,
+    AdminPasswordChangeRequest,
+    AdminPasswordChangeResponse,
+    AdminPasswordSetupRequest,
+    AdminProfileResponse,
+    AdminSetupStatusResponse,
+)
 from backend.app.schemas.common import EnvironmentTypeSchema, HealthResponse, KeyStatusSchema
 from backend.app.schemas.canonical import (
     CanonicalCleanupPolicy,
@@ -45,7 +54,11 @@ __all__ = [
     "AdminLoginRequest",
     "AdminLoginResponse",
     "AdminLogoutResponse",
+    "AdminPasswordChangeRequest",
+    "AdminPasswordChangeResponse",
+    "AdminPasswordSetupRequest",
     "AdminProfileResponse",
+    "AdminSetupStatusResponse",
     "EnvironmentTypeSchema",
     "CanonicalCleanupPolicy",
     "CanonicalContentBlock",

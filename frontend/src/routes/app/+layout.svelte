@@ -2,7 +2,7 @@
   import { onMount } from 'svelte';
   import { goto } from '$app/navigation';
   import { page } from '$app/stores';
-  import { clearStoredAdminToken, getStoredAdminToken, logoutAdmin } from '$lib/api';
+  import { changeAdminPassword, clearStoredAdminToken, getStoredAdminToken, logoutAdmin } from '$lib/api';
   import { applyThemeMode, getStoredThemeMode, setStoredThemeMode, type ThemeMode } from '$lib/theme';
   import { activeSection, topbarTitle, refreshTrigger, type SectionKey } from '$lib/stores';
   import {
@@ -25,6 +25,12 @@
   let sidebarPinnedOpen = false;
   let sidebarHovered = false;
   let sidebarHoverLocked = false;
+  let showPasswordResetModal = false;
+  let passwordResetNew = '';
+  let passwordResetConfirm = '';
+  let passwordResetBusy = false;
+  let passwordResetError = '';
+  let passwordResetInfo = '';
 
   const sections: Array<{ key: SectionKey; label: string; icon: typeof LayoutDashboard }> = [
     { key: 'overview', label: 'Overview', icon: LayoutDashboard },
@@ -88,6 +94,56 @@
   function handleSidebarMouseLeave() {
     sidebarHovered = false;
     sidebarHoverLocked = false;
+  }
+
+  function openPasswordResetModal() {
+    showPasswordResetModal = true;
+    passwordResetError = '';
+    passwordResetInfo = '';
+    passwordResetNew = '';
+    passwordResetConfirm = '';
+  }
+
+  function closePasswordResetModal() {
+    showPasswordResetModal = false;
+    passwordResetError = '';
+    passwordResetInfo = '';
+    passwordResetNew = '';
+    passwordResetConfirm = '';
+  }
+
+  async function handlePasswordReset() {
+    if (!token) {
+      passwordResetError = 'Login required.';
+      return;
+    }
+
+    if (!passwordResetNew || !passwordResetConfirm) {
+      passwordResetError = 'Fill both password fields.';
+      return;
+    }
+
+    if (passwordResetNew !== passwordResetConfirm) {
+      passwordResetError = 'Passwords do not match.';
+      return;
+    }
+
+    passwordResetBusy = true;
+    passwordResetError = '';
+    passwordResetInfo = '';
+    try {
+      await changeAdminPassword(token, {
+        password: passwordResetNew,
+        confirm_password: passwordResetConfirm
+      });
+      passwordResetInfo = 'Admin password updated.';
+      passwordResetNew = '';
+      passwordResetConfirm = '';
+    } catch (error) {
+      passwordResetError = error instanceof Error ? error.message : 'Failed to update admin password';
+    } finally {
+      passwordResetBusy = false;
+    }
   }
 
   $: hideBrandWordmark = $page.url.pathname.startsWith('/app/playground');
@@ -215,6 +271,9 @@
               <button type="button" class="popover-action" on:click={triggerRefresh}>
                 Refresh data
               </button>
+              <button type="button" class="popover-action" on:click={openPasswordResetModal}>
+                Reset password
+              </button>
               <div class="popover-divider"></div>
               <button type="button" class="popover-action popover-danger" on:click={handleLogout}>
                 Sign out
@@ -229,6 +288,44 @@
       </div>
     </section>
   </main>
+
+  {#if showPasswordResetModal}
+    <div class="modal-backdrop" on:click={closePasswordResetModal} on:keydown={(e) => e.key === 'Escape' && closePasswordResetModal()} tabindex="0" role="button">
+      <div class="modal-content" on:click|stopPropagation on:keydown|stopPropagation tabindex="-1" role="dialog" aria-modal="true">
+        <div class="modal-header">
+          <h3>Reset password</h3>
+          <button type="button" class="ghost" on:click={closePasswordResetModal}>Close</button>
+        </div>
+        <div class="modal-body">
+          <p class="muted" style="margin-top: 0;">
+            Update the admin password for future logins. The current session stays active.
+          </p>
+          <div class="form-grid runtime-grid" style="max-width: 420px;">
+            <label class="wide">
+              New password
+              <input bind:value={passwordResetNew} type="password" placeholder="Enter new password" />
+            </label>
+            <label class="wide">
+              Confirm password
+              <input bind:value={passwordResetConfirm} type="password" placeholder="Repeat new password" />
+            </label>
+          </div>
+          {#if passwordResetError}
+            <p class="muted">{passwordResetError}</p>
+          {/if}
+          {#if passwordResetInfo}
+            <p class="muted">{passwordResetInfo}</p>
+          {/if}
+          <div class="modal-section-actions">
+            <button type="button" class="ghost" on:click={closePasswordResetModal}>Cancel</button>
+            <button type="button" on:click={handlePasswordReset} disabled={passwordResetBusy}>
+              {passwordResetBusy ? 'Saving...' : 'Save password'}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  {/if}
 {/if}
 
 <style>

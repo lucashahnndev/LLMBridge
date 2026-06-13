@@ -3,6 +3,7 @@ from __future__ import annotations
 import enum
 import json
 from datetime import datetime, timezone
+from typing import Any
 
 import httpx
 from sqlalchemy import select
@@ -21,6 +22,7 @@ class AlertChannel(str, enum.Enum):
 
 
 ALERT_SETTINGS_KEY = "global"
+TELEGRAM_API_BASE = "https://api.telegram.org"
 
 _MARKDOWN_V2_SPECIALS = "\\_*[]()~`>#+-=|{}.!\""
 
@@ -129,6 +131,23 @@ async def _send_telegram_message(
 
     async with httpx.AsyncClient(timeout=10.0) as client:
         await _telegram_request(client, bot_token, "sendMessage", payload)
+
+
+async def _telegram_request(
+    client: httpx.AsyncClient,
+    bot_token: str,
+    method: str,
+    payload: dict[str, Any],
+) -> dict[str, Any]:
+    url = f"{TELEGRAM_API_BASE}/bot{bot_token}/{method}"
+    response = await client.post(url, json=payload)
+    response.raise_for_status()
+    data = response.json()
+    if not isinstance(data, dict):
+        raise RuntimeError("Telegram API returned a non-object payload")
+    if data.get("ok") is False:
+        raise RuntimeError(f"Telegram API error: {data}")
+    return data
 
 
 async def get_alert_settings(session: AsyncSession) -> AlertSettings:

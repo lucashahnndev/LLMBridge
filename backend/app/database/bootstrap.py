@@ -4,6 +4,7 @@ from backend.app.database.base import Base
 from backend.app.database.models import (  # noqa: F401
     AppToken,
     AdminTokenRevocation,
+    AdminAuthState,
     AlertSettings,
     ModelQueue,
     ModelQueueCandidate,

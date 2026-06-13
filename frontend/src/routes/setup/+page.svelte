@@ -1,52 +1,48 @@
 <script lang="ts">
   import { goto } from '$app/navigation';
   import { onMount } from 'svelte';
-  import { fetchAdminSetupStatus, fetchHealth, getStoredAdminToken, loginAdmin, setStoredAdminToken } from '$lib/api';
+  import { fetchAdminSetupStatus, getStoredAdminToken, setupAdminPassword, setStoredAdminToken } from '$lib/api';
   import { applyThemeMode, getStoredThemeMode, setStoredThemeMode, type ThemeMode } from '$lib/theme';
 
   let password = '';
+  let confirmPassword = '';
   let loading = false;
   let error = '';
-  let healthError = '';
+  let info = '';
   let themeMode: ThemeMode = 'system';
-
-  async function refreshHealth() {
-    healthError = '';
-    try {
-      await fetchHealth();
-    } catch (nextError) {
-      healthError = nextError instanceof Error ? nextError.message : 'Health check failed';
-    }
-  }
 
   async function refreshSetupStatus() {
     try {
       const status = await fetchAdminSetupStatus();
-      if (status.setup_required) {
-        await goto('/setup');
+      if (!status.setup_required) {
+        await goto('/login');
         return true;
       }
     } catch {
-      // If setup status is unavailable, we keep the login screen visible.
+      // If the status endpoint is unavailable, we still show the setup form.
     }
 
     return false;
   }
 
-  async function handleLogin() {
-    if (!password) {
-      error = 'Enter the admin password.';
+  async function handleSetup() {
+    if (!password || !confirmPassword) {
+      error = 'Preencha a senha e a confirmação.';
+      return;
+    }
+    if (password !== confirmPassword) {
+      error = 'As senhas não coincidem.';
       return;
     }
 
     loading = true;
     error = '';
     try {
-      const result = await loginAdmin(password);
+      const result = await setupAdminPassword({ password, confirm_password: confirmPassword });
       setStoredAdminToken(result.access_token);
       await goto('/app');
     } catch (nextError) {
-      error = nextError instanceof Error ? nextError.message : 'Login failed';
+      error = nextError instanceof Error ? nextError.message : 'Falha ao concluir o setup.';
     } finally {
       loading = false;
     }
@@ -69,18 +65,15 @@
     void (async () => {
       const redirected = await refreshSetupStatus();
       if (!redirected) {
-        await refreshHealth();
+        info = 'Create the first admin password to unlock the dashboard.';
       }
     })();
   });
 </script>
 
 <svelte:head>
-  <title>LLMBridge</title>
-  <meta
-    name="description"
-    content="LLMBridge local gateway console."
-  />
+  <title>LLMBridge Setup</title>
+  <meta name="description" content="LLMBridge initial admin password setup." />
 </svelte:head>
 
 <main class="auth-shell">
@@ -98,20 +91,25 @@
     <div class="auth-copy">
       <div class="brand-lockup">
         <div class="brand-rule"></div>
-        <h1>LLMBridge</h1>
+        <h1>Initial setup</h1>
       </div>
-      <p>Local gateway control, without the clutter.</p>
+      <p>Create the first admin password. If you later forget it, the `ADMIN_PASSWORD` env value can still act as recovery override.</p>
     </div>
 
     <div class="auth-panel">
-      {#if healthError}
-        <div class="inline-note error">{healthError}</div>
+      {#if info}
+        <div class="inline-note">{info}</div>
       {/if}
 
-      <form on:submit|preventDefault={handleLogin}>
+      <form on:submit|preventDefault={handleSetup}>
         <label>
           Admin password
-          <input bind:value={password} type="password" placeholder="Enter admin password" />
+          <input bind:value={password} type="password" placeholder="Create a password" />
+        </label>
+
+        <label>
+          Confirm password
+          <input bind:value={confirmPassword} type="password" placeholder="Repeat the password" />
         </label>
 
         {#if error}
@@ -119,10 +117,9 @@
         {/if}
 
         <button type="submit" disabled={loading}>
-          {loading ? '...' : 'Enter'}
+          {loading ? 'Creating...' : 'Create password'}
         </button>
       </form>
-
     </div>
   </section>
 </main>
