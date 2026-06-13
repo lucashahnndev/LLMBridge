@@ -25,6 +25,8 @@ TELEGRAM_POLL_TIMEOUT = 20
 TELEGRAM_POLL_IDLE_SECONDS = 5
 TELEGRAM_ERROR_BACKOFF_SECONDS = 10
 
+_MARKDOWN_V2_SPECIALS = "\\_*[]()~`>#+-=|{}.!\""
+
 
 @dataclass(slots=True)
 class TelegramMessage:
@@ -59,25 +61,63 @@ def _toggle_label(enabled: bool) -> str:
     return "on" if enabled else "off"
 
 
+def _escape_markdown_v2(text: str) -> str:
+    escaped = text.replace("\\", "\\\\")
+    for char in _MARKDOWN_V2_SPECIALS:
+        if char == "\\":
+            continue
+        escaped = escaped.replace(char, f"\\{char}")
+    return escaped
+
+
+def _escape_code_block(text: str) -> str:
+    return text.replace("\\", "\\\\").replace("`", "\\`")
+
+
+def _format_code_block(lines: list[str]) -> str:
+    return "```text\n" + "\n".join(_escape_code_block(line) for line in lines) + "\n```"
+
+
+def _format_kv_block(items: list[tuple[str, str]]) -> str:
+    width = max((len(label) for label, _ in items), default=0)
+    return _format_code_block([f"{label.ljust(width)}  {value}" for label, value in items])
+
+
+def _title(text: str) -> str:
+    return f"*{_escape_markdown_v2(text)}*"
+
+
+def _truncate(text: str, max_length: int) -> str:
+    if len(text) <= max_length:
+        return text
+    if max_length <= 3:
+        return text[:max_length]
+    return text[: max_length - 3] + "..."
+
+
 def build_help_message() -> str:
     return "\n".join(
         [
-            "LLMBridge Telegram",
-            "/status - service status",
-            "/runtime - runtime host and port",
-            "/apps - app token summary",
-            "/app <id|name> - app token overview",
-            "/providers - provider summary",
-            "/provider <name> - provider overview",
-            "/queues - queue summary",
-            "/queue <name> - queue overview",
-            "/alerts - alert switches",
-            "/alerts on|off - enable or disable Telegram",
-            "/alerts proxy on|off - proxy failure alerts",
-            "/alerts queue on|off - queue exhausted alerts",
-            "/alerts provider on|off - provider pool alerts",
-            "/alerts key on|off - provider key alerts",
-            "/link - bind this chat if no chat is configured",
+            _title("LLMBridge Telegram"),
+            _format_code_block(
+                [
+                    "/status                service status",
+                    "/runtime               runtime host and port",
+                    "/apps                  app token summary",
+                    "/app <id|name>         app token overview",
+                    "/providers             provider summary",
+                    "/provider <name>       provider overview",
+                    "/queues                queue summary",
+                    "/queue <name>          queue overview",
+                    "/alerts                alert switches",
+                    "/alerts on|off         enable or disable Telegram",
+                    "/alerts proxy on|off   proxy failure alerts",
+                    "/alerts queue on|off   queue exhausted alerts",
+                    "/alerts provider on|off provider pool alerts",
+                    "/alerts key on|off     provider key alerts",
+                    "/link                  bind this chat if no chat is configured",
+                ]
+            ),
         ]
     )
 
@@ -85,12 +125,16 @@ def build_help_message() -> str:
 def build_status_message(*, runtime_base_url: str) -> str:
     return "\n".join(
         [
-            "LLMBridge status",
-            f"Service: {get_settings().app_name}",
-            f"Version: {APP_VERSION}",
-            f"Schema: {SCHEMA_VERSION}",
-            f"Runtime: {runtime_base_url}",
-            f"Checked: {_utc_now()}",
+            _title("LLMBridge status"),
+            _format_kv_block(
+                [
+                    ("Service", get_settings().app_name),
+                    ("Version", APP_VERSION),
+                    ("Schema", SCHEMA_VERSION),
+                    ("Runtime", runtime_base_url),
+                    ("Checked", _utc_now()),
+                ]
+            ),
         ]
     )
 
@@ -145,11 +189,25 @@ async def _build_apps_list_message(session: AsyncSession) -> str:
     result = await session.execute(stmt)
     rows = result.all()
     if not rows:
-        return "No app tokens found."
-    lines = ["App tokens"]
+        return "\n".join([_title("LLMBridge app tokens"), _escape_markdown_v2("No app tokens found.")])
+    lines = [_title("LLMBridge app tokens")]
+    lines.append(
+        _format_code_block(
+            [
+                "TOKEN NAME              ENVIRONMENT   STATUS    REQUESTS   TOKENS",
+                "----------------------   -----------   -------   --------   -------",
+            ]
+        )
+    )
     for row in rows[:8]:
         lines.append(
-            f"- {row.name} | {row.environment.value} | {'active' if row.is_active else 'off'} | {int(row.requests_count or 0)} req | {int(row.total_tokens_consumed or 0)} tok"
+            _format_code_block(
+                [
+                    f"{_truncate(row.name, 22).ljust(22)}   {_truncate(row.environment.value, 11).ljust(11)}   "
+                    f"{_truncate('ACTIVE' if row.is_active else 'OFF', 7).ljust(7)}   "
+                    f"{str(int(row.requests_count or 0)).ljust(8)}   {str(int(row.total_tokens_consumed or 0)).ljust(7)}"
+                ]
+            )
         )
     return "\n".join(lines)
 
@@ -160,11 +218,17 @@ async def _build_providers_list_message(session: AsyncSession) -> str:
     )
     rows = result.all()
     if not rows:
-        return "No provider activity yet."
+        return "\n".join([_title("LLMBridge providers"), _escape_markdown_v2("No provider activity yet.")])
     provider_counts = await _provider_request_counts(session)
-    lines = ["Providers"]
+    lines = [_title("LLMBridge providers"), _format_code_block(["PROVIDER             REQUESTS   KEYS", "-------------------   --------   ----"])]
     for provider, key_count in rows[:8]:
-        lines.append(f"- {provider} | {provider_counts.get(provider, 0)} req | {int(key_count or 0)} keys")
+        lines.append(
+            _format_code_block(
+                [
+                    f"{_truncate(provider, 19).ljust(19)}   {str(provider_counts.get(provider, 0)).ljust(8)}   {str(int(key_count or 0)).ljust(4)}"
+                ]
+            )
+        )
     return "\n".join(lines)
 
 
@@ -172,12 +236,16 @@ async def _build_queues_list_message(session: AsyncSession) -> str:
     result = await session.execute(select(ModelQueue.name, ModelQueue.strategy, ModelQueue.is_active).order_by(ModelQueue.id.desc()))
     queues = result.all()
     if not queues:
-        return "No queues found."
+        return "\n".join([_title("LLMBridge queues"), _escape_markdown_v2("No queues found.")])
     queue_counts = await _queue_request_counts(session)
-    lines = ["Queues"]
+    lines = [_title("LLMBridge queues"), _format_code_block(["QUEUE                STRATEGY      STATUS    REQUESTS", "-------------------   ----------   -------   --------"])]
     for name, strategy, is_active in queues[:8]:
         lines.append(
-            f"- {name} | {strategy.value} | {'active' if is_active else 'off'} | {queue_counts.get(name, 0)} req"
+            _format_code_block(
+                [
+                    f"{_truncate(name, 19).ljust(19)}   {_truncate(strategy.value, 10).ljust(10)}   {_truncate('ACTIVE' if is_active else 'OFF', 7).ljust(7)}   {str(queue_counts.get(name, 0)).ljust(8)}"
+                ]
+            )
         )
     return "\n".join(lines)
 
@@ -194,28 +262,36 @@ async def _resolve_app_token(session: AsyncSession, identifier: str) -> AppToken
 async def _build_app_overview_message(session: AsyncSession, identifier: str) -> str:
     app_token = await _resolve_app_token(session, identifier)
     if app_token is None:
-        return f"App token '{identifier}' not found."
+        return "\n".join([_title("LLMBridge app token"), _escape_markdown_v2(f"App token '{identifier}' not found.")])
     overview = await build_app_token_overview(session, app_token.id, "24h")
     summary = overview.summary
     lines = [
-        f"App: {overview.context_label}",
-        f"Environment: {app_token.environment.value}",
-        f"Token: {app_token.masked_token}",
-        *_format_summary_block(
-            total_requests=summary.total_requests,
-            success_rate=summary.success_rate,
-            avg_latency_ms=summary.avg_latency_ms,
-            total_tokens=summary.total_tokens_consumed,
-            rotations=summary.total_rotations_triggered,
+        _title("LLMBridge app token"),
+        _format_kv_block(
+            [
+                ("App", overview.context_label),
+                ("Environment", app_token.environment.value),
+                ("Token", app_token.masked_token),
+            ]
+        ),
+        _format_kv_block(
+            [
+                ("Requests", str(summary.total_requests)),
+                ("Success", f"{summary.success_rate:.1f}%"),
+                ("Latency", f"{summary.avg_latency_ms:.1f} ms"),
+                ("Tokens", str(summary.total_tokens_consumed)),
+                ("Rotations", str(summary.total_rotations_triggered)),
+            ]
         ),
     ]
     if overview.models:
         top_models = overview.models[:3]
-        lines.append("Models:")
+        model_lines = ["MODELS               REQUESTS   TOKENS", "-------------------   --------   ------"]
         for model in top_models:
-            lines.append(
-                f"- {model.model_name} | {model.requests_count} req | {model.total_tokens_consumed} tok"
+            model_lines.append(
+                f"{_truncate(model.model_name, 19).ljust(19)}   {str(model.requests_count).ljust(8)}   {str(model.total_tokens_consumed).ljust(6)}"
             )
+        lines.append(_format_code_block(model_lines))
     return "\n".join(lines)
 
 
@@ -227,54 +303,70 @@ async def _build_provider_overview_message(session: AsyncSession, provider: str)
     keys = key_result.scalars().all()
     active_keys = [key for key in keys if key.status == KeyStatus.ACTIVE]
     lines = [
-        f"Provider: {overview.context_label}",
-        f"Keys: {len(keys)} total / {len(active_keys)} active",
-        *_format_summary_block(
-            total_requests=overview.summary.total_requests,
-            success_rate=overview.summary.success_rate,
-            avg_latency_ms=overview.summary.avg_latency_ms,
-            total_tokens=overview.summary.total_tokens_consumed,
-            rotations=overview.summary.total_rotations_triggered,
+        _title("LLMBridge provider"),
+        _format_kv_block(
+            [
+                ("Provider", overview.context_label),
+                ("Keys", f"{len(keys)} total / {len(active_keys)} active"),
+            ]
+        ),
+        _format_kv_block(
+            [
+                ("Requests", str(overview.summary.total_requests)),
+                ("Success", f"{overview.summary.success_rate:.1f}%"),
+                ("Latency", f"{overview.summary.avg_latency_ms:.1f} ms"),
+                ("Tokens", str(overview.summary.total_tokens_consumed)),
+                ("Rotations", str(overview.summary.total_rotations_triggered)),
+            ]
         ),
     ]
     if overview.models:
-        lines.append("Models:")
+        model_lines = ["MODELS               REQUESTS   TOKENS", "-------------------   --------   ------"]
         for model in overview.models[:3]:
-            lines.append(
-                f"- {model.model_name} | {model.requests_count} req | {model.total_tokens_consumed} tok"
+            model_lines.append(
+                f"{_truncate(model.model_name, 19).ljust(19)}   {str(model.requests_count).ljust(8)}   {str(model.total_tokens_consumed).ljust(6)}"
             )
+        lines.append(_format_code_block(model_lines))
     return "\n".join(lines)
 
 
 async def _build_queue_overview_message(session: AsyncSession, queue_name: str) -> str:
     overview = await build_queue_overview(session, queue_name, "24h")
     lines = [
-        f"Queue: {overview.context_label}",
-        *_format_summary_block(
-            total_requests=overview.summary.total_requests,
-            success_rate=overview.summary.success_rate,
-            avg_latency_ms=overview.summary.avg_latency_ms,
-            total_tokens=overview.summary.total_tokens_consumed,
-            rotations=overview.summary.total_rotations_triggered,
+        _title("LLMBridge queue"),
+        _format_kv_block(
+            [
+                ("Queue", overview.context_label),
+                ("Requests", str(overview.summary.total_requests)),
+                ("Success", f"{overview.summary.success_rate:.1f}%"),
+                ("Latency", f"{overview.summary.avg_latency_ms:.1f} ms"),
+                ("Tokens", str(overview.summary.total_tokens_consumed)),
+                ("Rotations", str(overview.summary.total_rotations_triggered)),
+            ]
         ),
     ]
     if overview.models:
-        lines.append("Models:")
+        model_lines = ["MODELS               REQUESTS   TOKENS", "-------------------   --------   ------"]
         for model in overview.models[:5]:
-            lines.append(
-                f"- {model.model_name} | {model.requests_count} req | {model.total_tokens_consumed} tok"
+            model_lines.append(
+                f"{_truncate(model.model_name, 19).ljust(19)}   {str(model.requests_count).ljust(8)}   {str(model.total_tokens_consumed).ljust(6)}"
             )
+        lines.append(_format_code_block(model_lines))
     return "\n".join(lines)
 
 
 def build_runtime_message(*, host: str, port: int, restart_required: bool) -> str:
     return "\n".join(
         [
-            "LLMBridge runtime",
-            f"Host: {host}",
-            f"Port: {port}",
-            f"API base: http://{host}:{port}/api/v1",
-            f"Restart required: {'yes' if restart_required else 'no'}",
+            _title("LLMBridge runtime"),
+            _format_kv_block(
+                [
+                    ("Host", host),
+                    ("Port", str(port)),
+                    ("API base", f"http://{host}:{port}/api/v1"),
+                    ("Restart required", "yes" if restart_required else "no"),
+                ]
+            ),
         ]
     )
 
@@ -283,13 +375,17 @@ def build_alerts_message(alert_settings: AlertSettings) -> str:
     chat_id = alert_settings.telegram_chat_id or "not configured"
     return "\n".join(
         [
-            "LLMBridge alerts",
-            f"Telegram: {_toggle_label(alert_settings.telegram_enabled)}",
-            f"Chat ID: {chat_id}",
-            f"Proxy failures: {_toggle_label(alert_settings.alert_proxy_failures)}",
-            f"Queue exhausted: {_toggle_label(alert_settings.alert_queue_exhausted)}",
-            f"Provider pool: {_toggle_label(alert_settings.alert_provider_pool_exhausted)}",
-            f"Provider key: {_toggle_label(alert_settings.alert_provider_key_status_changes)}",
+            _title("LLMBridge alerts"),
+            _format_kv_block(
+                [
+                    ("Telegram", _toggle_label(alert_settings.telegram_enabled)),
+                    ("Chat ID", chat_id),
+                    ("Proxy failures", _toggle_label(alert_settings.alert_proxy_failures)),
+                    ("Queue exhausted", _toggle_label(alert_settings.alert_queue_exhausted)),
+                    ("Provider pool", _toggle_label(alert_settings.alert_provider_pool_exhausted)),
+                    ("Provider key", _toggle_label(alert_settings.alert_provider_key_status_changes)),
+                ]
+            ),
         ]
     )
 
@@ -318,6 +414,7 @@ async def send_telegram_message(
     chat_id: str,
     text: str,
     reply_to_message_id: int | None = None,
+    parse_mode: str | None = "MarkdownV2",
 ) -> None:
     payload: dict[str, Any] = {
         "chat_id": chat_id,
@@ -326,6 +423,8 @@ async def send_telegram_message(
     }
     if reply_to_message_id is not None:
         payload["reply_to_message_id"] = reply_to_message_id
+    if parse_mode is not None:
+        payload["parse_mode"] = parse_mode
     await _telegram_request(client, bot_token, "sendMessage", payload)
 
 
@@ -487,7 +586,17 @@ class TelegramBotWorker:
                 client,
                 bot_token=bot_token,
                 chat_id=chat_id,
-                text=f"Command failed: {command}",
+                text="\n".join(
+                    [
+                        _title("LLMBridge command failed"),
+                        _format_kv_block(
+                            [
+                                ("Command", command),
+                                ("Status", "failed"),
+                            ]
+                        ),
+                    ]
+                ),
                 reply_to_message_id=message_id,
             )
 
@@ -570,9 +679,13 @@ class TelegramBotWorker:
             )
             return "\n".join(
                 [
-                    "Telegram chat linked.",
-                    f"Chat ID: {chat_id}",
-                    f"Telegram: {_toggle_label(alert_settings.telegram_enabled)}",
+                    _title("LLMBridge chat linked"),
+                    _format_kv_block(
+                        [
+                            ("Chat ID", chat_id),
+                            ("Telegram", _toggle_label(alert_settings.telegram_enabled)),
+                        ]
+                    ),
                 ]
             )
 

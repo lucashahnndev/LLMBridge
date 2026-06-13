@@ -16,9 +16,13 @@ class TelegramBotCommandTest(unittest.TestCase):
     def test_help_lists_app_and_provider_commands(self) -> None:
         message = telegram_bot.build_help_message()
 
-        self.assertIn("/apps - app token summary", message)
-        self.assertIn("/providers - provider summary", message)
-        self.assertIn("/queues - queue summary", message)
+        self.assertIn("LLMBridge Telegram", message)
+        self.assertIn("/apps", message)
+        self.assertIn("/providers", message)
+        self.assertIn("/queues", message)
+
+    def test_send_telegram_message_defaults_to_markdown_v2(self) -> None:
+        asyncio.run(self._run_send_message())
 
     def test_execute_link_command_binds_chat_and_enables_telegram(self) -> None:
         asyncio.run(self._run_link())
@@ -39,7 +43,7 @@ class TelegramBotCommandTest(unittest.TestCase):
                 args=[],
             )
 
-        self.assertIn("Telegram chat linked.", response or "")
+        self.assertIn("LLMBridge chat linked", response or "")
         update_mock.assert_awaited_once()
         _, kwargs = update_mock.await_args
         self.assertEqual(kwargs["telegram_chat_id"], "123")
@@ -75,7 +79,8 @@ class TelegramBotCommandTest(unittest.TestCase):
                 args=["provider", "off"],
             )
 
-        self.assertIn("Provider pool: off", response or "")
+        self.assertIn("Provider pool", response or "")
+        self.assertIn("off", response or "")
         update_mock.assert_awaited_once()
         _, kwargs = update_mock.await_args
         self.assertEqual(kwargs["alert_provider_pool_exhausted"], False)
@@ -98,9 +103,9 @@ class TelegramBotCommandTest(unittest.TestCase):
             args=[],
         )
 
-        self.assertIn("App tokens", response or "")
+        self.assertIn("LLMBridge app tokens", response or "")
         self.assertIn("Atlas", response or "")
-        self.assertIn("12 req", response or "")
+        self.assertIn("12", response or "")
 
     async def _run_providers(self) -> None:
         worker = telegram_bot.TelegramBotWorker(sessionmaker=SimpleNamespace())
@@ -118,9 +123,24 @@ class TelegramBotCommandTest(unittest.TestCase):
                 args=[],
             )
 
-        self.assertIn("Providers", response or "")
+        self.assertIn("LLMBridge providers", response or "")
         self.assertIn("google", response or "")
-        self.assertIn("2 keys", response or "")
+        self.assertIn("2", response or "")
+
+    async def _run_send_message(self) -> None:
+        fake_client = SimpleNamespace()
+        fake_client.post = AsyncMock(
+            return_value=SimpleNamespace(
+                raise_for_status=lambda: None,
+                json=lambda: {"ok": True, "result": {}},
+            )
+        )
+
+        await telegram_bot.send_telegram_message(fake_client, bot_token="abc", chat_id="123", text="hello")
+
+        fake_client.post.assert_awaited_once()
+        kwargs = fake_client.post.await_args.kwargs
+        self.assertEqual(kwargs["json"]["parse_mode"], "MarkdownV2")
 
 
 if __name__ == "__main__":

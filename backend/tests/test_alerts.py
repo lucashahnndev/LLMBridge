@@ -98,7 +98,9 @@ class TelegramAlertFormattingTest(unittest.TestCase):
             kwargs = send_mock.await_args.kwargs
             self.assertEqual(kwargs["bot_token"], "test-token")
             self.assertEqual(kwargs["chat_id"], "987654321")
-            self.assertIn("LLMBridge Telegram test", kwargs["text"])
+            self.assertEqual(kwargs["parse_mode"], "MarkdownV2")
+            self.assertIn("*LLMBridge Telegram test*", kwargs["text"])
+            self.assertIn("Telegram delivery is working", kwargs["text"])
             return chat_id
 
         return asyncio.run(_run())
@@ -134,6 +136,7 @@ class TelegramAlertFormattingTest(unittest.TestCase):
             self.assertIn("/botabc/sendMessage", args[0])
             self.assertEqual(kwargs["json"]["chat_id"], "123")
             self.assertEqual(kwargs["json"]["text"], "hello")
+            self.assertNotIn("parse_mode", kwargs["json"])
 
         return asyncio.run(_run())
 

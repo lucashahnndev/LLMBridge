@@ -53,9 +53,13 @@ def _format_summary_block(items: list[tuple[str, str]]) -> str:
 def _build_telegram_test_message() -> str:
     return "\n".join(
         [
-            "LLMBridge Telegram test",
-            f"Time: {_now_utc()}",
-            "If you received this, Telegram delivery is working.",
+            f"*{_escape_markdown_v2('LLMBridge Telegram test')}*",
+            _format_code_block(
+                [
+                    f"Time    {_now_utc()}",
+                    "Result  Telegram delivery is working",
+                ]
+            ),
         ]
     )
 
@@ -215,7 +219,7 @@ async def send_telegram_alert(
     *,
     session: AsyncSession | None = None,
     channel: AlertChannel | str | None = None,
-    parse_mode: str | None = None,
+    parse_mode: str | None = "MarkdownV2",
 ) -> bool:
     settings = get_settings()
     alert_settings: AlertSettings | None = None
@@ -260,7 +264,7 @@ async def send_telegram_test_message(
         telegram_chat_id=telegram_chat_id,
     )
     message = _build_telegram_test_message()
-    await _send_telegram_message(bot_token=bot_token, chat_id=chat_id, text=message)
+    await _send_telegram_message(bot_token=bot_token, chat_id=chat_id, text=message, parse_mode="MarkdownV2")
     return chat_id
 
 
