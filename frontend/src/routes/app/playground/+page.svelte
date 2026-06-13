@@ -1133,7 +1133,7 @@ console.log(data);`;
   }
 
   input, select, textarea {
-    background: rgba(255, 255, 255, 0.03);
+    background: rgba(13, 17, 23, 0.98);
     border: 1px solid var(--border);
     color: var(--text);
     border-radius: 4px;
@@ -1151,15 +1151,22 @@ console.log(data);`;
     padding-right: 2rem;
   }
 
-  html[data-theme='dark'] .composer-sidebar select {
-    background-color: rgba(10, 12, 16, 0.96);
+  :global(html[data-theme='dark']) .composer-sidebar select {
+    background-color: #0d1117;
     color-scheme: dark;
     color: var(--text);
   }
 
-  html[data-theme='dark'] .composer-sidebar select option {
-    background-color: #0e1218;
+  :global(html[data-theme='dark']) .composer-sidebar select option {
+    background-color: #0d1117;
     color: var(--text);
+  }
+
+  :global(html[data-theme='light']) input,
+  :global(html[data-theme='light']) select,
+  :global(html[data-theme='light']) textarea {
+    background: #ffffff;
+    color-scheme: light;
   }
 
   input:focus, select:focus, textarea:focus {
