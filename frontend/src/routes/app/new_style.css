@@ -1539,6 +1539,17 @@ html[data-theme='light'] select {
   color-scheme: light;
 }
 
+html[data-theme='dark'] textarea {
+  background: #0d1117;
+  color: var(--text);
+  color-scheme: dark;
+}
+
+html[data-theme='dark'] select option {
+  background: #0d1117;
+  color: var(--text);
+}
+
 input::placeholder {
   color: var(--muted);
   opacity: 0.5;
