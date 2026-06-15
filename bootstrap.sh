@@ -64,6 +64,109 @@ run_quiet() {
   exit 1
 }
 
+run_attempt() {
+  local label="$1"
+  local success="$2"
+  shift 2
+
+  local logfile
+  logfile="$(mktemp)"
+
+  step "$label"
+  if "$@" >"$logfile" 2>&1; then
+    ok "$success"
+    rm -f "$logfile"
+    return 0
+  fi
+
+  warn "$label falhou; tentando proxima estrategia."
+  tail -n 40 "$logfile"
+  rm -f "$logfile"
+  return 1
+}
+
+as_root() {
+  if [[ "$(id -u)" -eq 0 ]]; then
+    "$@"
+    return
+  fi
+  if command -v sudo >/dev/null 2>&1; then
+    sudo "$@"
+    return
+  fi
+  return 1
+}
+
+node_major_version() {
+  if ! command -v node >/dev/null 2>&1; then
+    return 1
+  fi
+  node -p "process.versions.node.split('.')[0]"
+}
+
+ensure_nodejs() {
+  local current_major=''
+  if current_major="$(node_major_version 2>/dev/null)"; then
+    if [[ "$current_major" =~ ^[0-9]+$ ]] && (( current_major >= 20 )); then
+      return 0
+    fi
+    warn "Node.js $current_major detectado, mas o bootstrap precisa de Node.js 20+."
+  else
+    warn "Node.js nao foi encontrado no PATH."
+  fi
+
+  local installed=false
+  if command -v apt-get >/dev/null 2>&1; then
+    run_attempt "0/7 atualizando indice APT" "indice APT atualizado" as_root apt-get update && \
+    run_attempt "0/7 instalando Node.js via apt-get" "Node.js instalado via apt-get" as_root apt-get install -y nodejs npm && \
+    installed=true
+  elif command -v dnf >/dev/null 2>&1; then
+    run_attempt "0/7 instalando Node.js via dnf" "Node.js instalado via dnf" as_root dnf install -y nodejs npm && \
+    installed=true
+  elif command -v yum >/dev/null 2>&1; then
+    run_attempt "0/7 instalando Node.js via yum" "Node.js instalado via yum" as_root yum install -y nodejs npm && \
+    installed=true
+  elif command -v pacman >/dev/null 2>&1; then
+    run_attempt "0/7 sincronizando repositorios pacman" "repositorios pacman sincronizados" as_root pacman -Sy --noconfirm && \
+    run_attempt "0/7 instalando Node.js via pacman" "Node.js instalado via pacman" as_root pacman -S --noconfirm nodejs npm && \
+    installed=true
+  elif command -v zypper >/dev/null 2>&1; then
+    run_attempt "0/7 instalando Node.js 20 via zypper" "Node.js instalado via zypper" as_root zypper --non-interactive install nodejs20 npm20 && \
+    installed=true
+    if [[ "$installed" != true ]]; then
+      run_attempt "0/7 instalando Node.js via zypper" "Node.js instalado via zypper" as_root zypper --non-interactive install nodejs npm && \
+      installed=true
+    fi
+  elif command -v apk >/dev/null 2>&1; then
+    run_attempt "0/7 instalando Node.js via apk" "Node.js instalado via apk" as_root apk add --no-cache nodejs npm && \
+    installed=true
+  elif command -v brew >/dev/null 2>&1; then
+    run_attempt "0/7 instalando Node.js via Homebrew" "Node.js instalado via Homebrew" brew install node && \
+    installed=true
+  fi
+
+  hash -r
+  if current_major="$(node_major_version 2>/dev/null)"; then
+    if [[ "$current_major" =~ ^[0-9]+$ ]] && (( current_major >= 20 )); then
+      ok "Node.js $current_major pronto para uso."
+      return 0
+    fi
+    fail "Node.js foi instalado, mas a versao detectada e $current_major e o bootstrap precisa de 20+."
+    warn "Atualize o repositório da distribuicao ou instale uma versao mais nova do Node.js e rode o bootstrap novamente."
+    exit 1
+  fi
+
+  if [[ "$installed" == true ]]; then
+    fail "Node.js foi instalado, mas nao entrou no PATH da sessao atual."
+    warn "Abra um novo terminal ou carregue o ambiente novamente e execute o bootstrap outra vez."
+    exit 1
+  fi
+
+  fail "Nao foi possivel instalar Node.js automaticamente nesta distribuicao."
+  warn "Use uma distribuicao com apt, dnf, yum, pacman, zypper, apk ou brew, ou instale Node.js 20+ manualmente."
+  exit 1
+}
+
 banner
 echo
 
@@ -73,11 +176,7 @@ command -v python3 >/dev/null 2>&1 || {
   exit 1
 }
 
-command -v node >/dev/null 2>&1 || {
-  fail "Node.js nao foi encontrado no PATH."
-  warn "Instale Node.js 20+ para preparar o frontend SvelteKit."
-  exit 1
-}
+ensure_nodejs
 
 if [[ ! -d ".venv" ]]; then
   step "1/7 criando ambiente virtual .venv"
