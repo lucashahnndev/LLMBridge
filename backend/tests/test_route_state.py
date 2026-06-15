@@ -14,6 +14,7 @@ from backend.app.services.availability import (
     get_or_create_provider_key_route_state,
     mark_route_finished,
     mark_route_selected,
+    normalize_provider_route_model_name,
     route_state_is_eligible,
 )
 
@@ -67,6 +68,15 @@ class ProviderKeyRouteStateTest(unittest.TestCase):
     def test_route_state_tracks_in_flight_and_blocking(self) -> None:
         asyncio.run(self._run_runtime_state_test())
 
+    def test_route_state_normalizes_google_aliases_to_operational_model(self) -> None:
+        self.assertEqual(
+            normalize_provider_route_model_name("google", "gemini-3.1-flash"),
+            "gemini-3-flash-preview",
+        )
+
+    def test_route_state_reuses_same_google_alias_record(self) -> None:
+        asyncio.run(self._run_alias_reuse_test())
+
     async def _run_runtime_state_test(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             db_path = Path(temp_dir) / "route-state-runtime.sqlite"
@@ -114,6 +124,44 @@ class ProviderKeyRouteStateTest(unittest.TestCase):
                 self.assertTrue(state.disabled)
                 self.assertEqual(state.disabled_reason, "unauthorized")
                 self.assertFalse(route_state_is_eligible(state, now=now + timedelta(seconds=61)))
+
+            await engine.dispose()
+
+    async def _run_alias_reuse_test(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            db_path = Path(temp_dir) / "route-state-alias.sqlite"
+            engine = create_async_engine(f"sqlite+aiosqlite:///{db_path}")
+            session_factory = async_sessionmaker(bind=engine, expire_on_commit=False)
+
+            async with engine.begin() as conn:
+                await conn.run_sync(Base.metadata.create_all)
+
+            async with session_factory() as session:
+                provider_key = ProviderKey(
+                    name="Google Alias",
+                    description=None,
+                    provider="google",
+                    encrypted_token="cipher",
+                    status=KeyStatus.ACTIVE,
+                    blocked_until=None,
+                    failure_count=0,
+                )
+                session.add(provider_key)
+                await session.flush()
+
+                alias_state = await get_or_create_provider_key_route_state(
+                    session,
+                    provider_key=provider_key,
+                    model_name="gemini-3.1-flash",
+                )
+                resolved_state = await get_or_create_provider_key_route_state(
+                    session,
+                    provider_key=provider_key,
+                    model_name="gemini-3-flash-preview",
+                )
+
+                self.assertEqual(alias_state.id, resolved_state.id)
+                self.assertEqual(alias_state.model_name, "gemini-3-flash-preview")
 
             await engine.dispose()
 

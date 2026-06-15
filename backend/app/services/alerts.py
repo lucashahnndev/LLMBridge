@@ -45,19 +45,18 @@ def _format_code_block(lines: list[str]) -> str:
 
 
 def _format_summary_block(items: list[tuple[str, str]]) -> str:
-    width = max((len(label) for label, _ in items), default=0)
-    lines = [f"{label.ljust(width)}  {value}" for label, value in items]
-    return _format_code_block(lines)
+    lines = [f"• *{_escape_markdown_v2(label)}:* `{_escape_code_block(value)}`" for label, value in items]
+    return "\n".join(lines)
 
 
 def _build_telegram_test_message() -> str:
     return "\n".join(
         [
             f"*{_escape_markdown_v2('LLMBridge Telegram test')}*",
-            _format_code_block(
+            _format_summary_block(
                 [
-                    f"Time    {_now_utc()}",
-                    "Result  Telegram delivery is working",
+                    ("Time", _now_utc()),
+                    ("Result", "Telegram delivery is working"),
                 ]
             ),
         ]

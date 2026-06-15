@@ -7,7 +7,22 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.app.database.models import KeyStatus, ProviderKey, ProviderKeyRouteState
+from backend.app.drivers import get_provider_driver
 from backend.app.services.records import ensure_utc_datetime
+
+
+def normalize_provider_route_model_name(provider: str, model_name: str) -> str:
+    cleaned_provider = provider.strip()
+    cleaned_model_name = model_name.strip()
+    try:
+        driver = get_provider_driver(cleaned_provider)
+    except KeyError:
+        return cleaned_model_name
+
+    resolve_model_name = getattr(driver, "resolve_model_name", None)
+    if not callable(resolve_model_name):
+        return cleaned_model_name
+    return resolve_model_name(cleaned_model_name)
 
 
 async def get_provider_key_route_state(
@@ -17,11 +32,12 @@ async def get_provider_key_route_state(
     provider: str,
     model_name: str,
 ) -> ProviderKeyRouteState | None:
+    normalized_model_name = normalize_provider_route_model_name(provider, model_name)
     result = await session.execute(
         select(ProviderKeyRouteState).where(
             ProviderKeyRouteState.provider_key_id == provider_key_id,
             ProviderKeyRouteState.provider == provider,
-            ProviderKeyRouteState.model_name == model_name,
+            ProviderKeyRouteState.model_name == normalized_model_name,
         )
     )
     return result.scalar_one_or_none()
@@ -33,11 +49,12 @@ async def get_or_create_provider_key_route_state(
     provider_key: ProviderKey,
     model_name: str,
 ) -> ProviderKeyRouteState:
+    normalized_model_name = normalize_provider_route_model_name(provider_key.provider, model_name)
     state = await get_provider_key_route_state(
         session,
         provider_key_id=provider_key.id,
         provider=provider_key.provider,
-        model_name=model_name,
+        model_name=normalized_model_name,
     )
     if state is not None:
         return state
@@ -45,7 +62,7 @@ async def get_or_create_provider_key_route_state(
     state = ProviderKeyRouteState(
         provider_key_id=provider_key.id,
         provider=provider_key.provider,
-        model_name=model_name,
+        model_name=normalized_model_name,
     )
     session.add(state)
     await session.flush()
@@ -168,6 +185,7 @@ async def summarize_provider_route_availability(
     now: datetime | None = None,
 ) -> ProviderRouteAvailability:
     current_time = now or datetime.now(timezone.utc)
+    normalized_model_name = normalize_provider_route_model_name(provider, model_name)
     provider_keys_result = await session.execute(select(ProviderKey).where(ProviderKey.provider == provider))
     provider_keys = list(provider_keys_result.scalars().all())
     if not provider_keys:
@@ -190,7 +208,7 @@ async def summarize_provider_route_availability(
     route_states_result = await session.execute(
         select(ProviderKeyRouteState).where(
             ProviderKeyRouteState.provider == provider,
-            ProviderKeyRouteState.model_name == model_name,
+            ProviderKeyRouteState.model_name == normalized_model_name,
             ProviderKeyRouteState.provider_key_id.in_(key_ids),
         )
     )

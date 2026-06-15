@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
 from backend.app.database.models import ModelQueue, ModelQueueCandidate, QueueStrategy
-from backend.app.services.availability import summarize_provider_route_availability
+from backend.app.services.availability import normalize_provider_route_model_name, summarize_provider_route_availability
 
 
 @dataclass(frozen=True)
@@ -245,11 +245,12 @@ async def materialize_model_route_snapshot(session: AsyncSession, model: str) ->
             provider=provider,
             model_name=model_name,
         )
+        operational_model_name = normalize_provider_route_model_name(provider, model_name)
         summary = RouteMaterializationSummary(**availability.summary)
         routes = [
             ResolvedRouteCandidate(
                 provider=provider,
-                model_name=model_name,
+                model_name=operational_model_name,
                 provider_key_id=provider_key.id,
                 provider_key_name=provider_key.name,
             )
@@ -276,10 +277,11 @@ async def materialize_model_route_snapshot(session: AsyncSession, model: str) ->
     summary = RouteMaterializationSummary()
     resolved_route_groups: list[list[ResolvedRouteCandidate]] = []
     for candidate in sorted_candidates:
+        operational_model_name = normalize_provider_route_model_name(candidate.provider, candidate.model_name)
         availability = await summarize_provider_route_availability(
             session,
             provider=candidate.provider,
-            model_name=candidate.model_name,
+            model_name=operational_model_name,
         )
         summary.merge(RouteMaterializationSummary(**availability.summary))
         if availability.eligible_keys:
@@ -287,7 +289,7 @@ async def materialize_model_route_snapshot(session: AsyncSession, model: str) ->
                 [
                     ResolvedRouteCandidate(
                         provider=candidate.provider,
-                        model_name=candidate.model_name,
+                        model_name=operational_model_name,
                         queue_name=queue.name,
                         queue_id=queue.id,
                         candidate_id=candidate.id,

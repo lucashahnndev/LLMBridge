@@ -30,10 +30,10 @@ class TelegramAlertFormattingTest(unittest.TestCase):
 
         self.assertIn("*LLMBridge Proxy failure*", message)
         self.assertIn("```text", message)
-        self.assertRegex(message, r"App token\s+Atlas")
-        self.assertRegex(message, r"Requested model\s+queue/gemini")
-        self.assertRegex(message, r"Final route\s+google/gemini-3-flash-preview")
-        self.assertRegex(message, r"Tool calling\s+yes")
+        self.assertIn("• *App token:* `Atlas`", message)
+        self.assertIn("• *Requested model:* `queue/gemini`", message)
+        self.assertIn("• *Final route:* `google/gemini-3-flash-preview`", message)
+        self.assertIn("• *Tool calling:* `yes`", message)
         self.assertIn("*Error log*", message)
         self.assertIn("Provider timeout", message)
 
@@ -49,7 +49,7 @@ class TelegramAlertFormattingTest(unittest.TestCase):
 
         self.assertIn("*LLMBridge Queue exhausted*", message)
         self.assertIn("```text", message)
-        self.assertRegex(message, r"Queue\s+gemini")
+        self.assertIn("• *Queue:* `gemini`", message)
         self.assertIn("Queue 'gemini' has no active candidates", message)
 
     def test_format_provider_pool_exhausted_alert_is_direct(self) -> None:
@@ -64,7 +64,7 @@ class TelegramAlertFormattingTest(unittest.TestCase):
 
         self.assertIn("*LLMBridge Provider pool exhausted*", message)
         self.assertIn("```text", message)
-        self.assertRegex(message, r"Provider\s+google")
+        self.assertIn("• *Provider:* `google`", message)
         self.assertIn("No eligible provider keys available for provider 'google'", message)
 
     def test_send_telegram_test_message_uses_provided_credentials(self) -> None:

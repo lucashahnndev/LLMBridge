@@ -51,6 +51,7 @@
   } from '$lib/api';
   import { formatOverviewTimeLabel } from '$lib/formatting';
   import { overviewRouteHref } from '$lib/overview';
+  import { getProviderBrand } from '$lib/provider-brands';
   import { applyThemeMode, getStoredThemeMode, setStoredThemeMode, type ThemeMode } from '$lib/theme';
   import {
     LayoutDashboard,
@@ -65,7 +66,9 @@
     SquareTerminal,
     Copy,
     Pencil,
-    Trash2
+    Trash2,
+    LayoutGrid,
+    List
   } from 'lucide-svelte';
   import { Line, Doughnut, Bar } from 'svelte-chartjs';
   import { Chart, Title, Tooltip, LineElement, PointElement, CategoryScale, LinearScale, Filler, ArcElement, BarElement, Legend, type ChartOptions } from 'chart.js';
@@ -142,6 +145,9 @@
   let appTokens: AppToken[] = [];
   let modelQueues: ModelQueue[] = [];
   let usageLogs: UsageLog[] = [];
+  let providerKeysViewMode: 'table' | 'grid' = 'grid';
+  let appTokensViewMode: 'table' | 'grid' = 'grid';
+  let modelQueuesViewMode: 'table' | 'grid' = 'grid';
   let runtimeConfig: RuntimeConfig | null = null;
   let alertSettings: AlertSettings | null = null;
   let backendHealth: { status: string; service: string } | null = null;
@@ -230,6 +236,7 @@
   let usagePage = 1;
   let usageLogPage: UsageLogPage | null = null;
   let selectedUsageLog: UsageLog | null = null;
+  let showRawPayload = false;
   let showUsageFilters = false;
   let overviewRange: '1h' | '24h' | '7d' | '30d' = '24h';
 
@@ -1380,12 +1387,27 @@
     return 'Upstream error';
   }
 
+  function tryParseJson(str: string | null | undefined): any | null {
+    if (!str) return null;
+    const trimmed = str.trim();
+    if ((trimmed.startsWith('{') && trimmed.endsWith('}')) || (trimmed.startsWith('[') && trimmed.endsWith(']'))) {
+      try {
+        return JSON.parse(trimmed);
+      } catch (e) {
+        return null;
+      }
+    }
+    return null;
+  }
+
   function openUsageLog(log: UsageLog) {
     selectedUsageLog = log;
+    showRawPayload = false;
   }
 
   function closeUsageLog() {
     selectedUsageLog = null;
+    showRawPayload = false;
   }
 
   function formatStatus(value: ProviderKey['status']) {
@@ -1915,6 +1937,24 @@
               <button type="button" on:click={() => (showProviderKeyModal = true)} style="margin-left: auto;">
                 Add provider key
               </button>
+              <div class="view-mode-toggle" style="margin-left: 0.5rem;">
+                <button
+                  type="button"
+                  class:active={providerKeysViewMode === 'table'}
+                  on:click={() => (providerKeysViewMode = 'table')}
+                  title="Table View"
+                >
+                  <List size={14} />
+                </button>
+                <button
+                  type="button"
+                  class:active={providerKeysViewMode === 'grid'}
+                  on:click={() => (providerKeysViewMode = 'grid')}
+                  title="Grid View"
+                >
+                  <LayoutGrid size={14} />
+                </button>
+              </div>
             </div>
 
             {#if showProviderKeyModal}
@@ -1983,58 +2023,133 @@
               </div>
             </div>
 
-            <div class="control-table">
-              <div class="control-table-head grid-provider-keys">
-                <div class="control-table-cell"></div>
-                <div class="control-table-cell">Key Name</div>
-                <div class="control-table-cell">Provider</div>
-                <div class="control-table-cell">Status</div>
-                <div class="control-table-cell">Failures</div>
-                <div class="control-table-cell actions">Actions</div>
+            {#if providerKeysViewMode === 'grid'}
+              <div class="control-grid">
+                {#each filteredProviderKeys as providerKey}
+                  <div class="control-card">
+                    <div class="control-card-header">
+                      <div style="display: flex; align-items: center; gap: 0.5rem;">
+                        <label class="select-check" style="margin: 0; display: inline-flex; align-items: center;">
+                          <input
+                            type="checkbox"
+                            checked={isProviderKeySelected(providerKey.id)}
+                            on:change={() => toggleProviderKeySelection(providerKey.id)}
+                          />
+                        </label>
+                        <strong style="font-size: 0.85rem; font-weight: 600; text-transform: capitalize;">{providerKey.name}</strong>
+                      </div>
+                      <span class="badge {providerKey.status === 'ACTIVE' ? 'badge-good' : providerKey.status === 'INVALID' ? 'badge-bad' : 'badge-warn'}">
+                        {formatStatus(providerKey.status)}
+                      </span>
+                    </div>
+                    <div class="control-card-body">
+                      <div class="control-card-row">
+                        <span class="label">Provider</span>
+                        <span class="value" style="display: inline-flex; align-items: center; gap: 0.25rem; justify-content: flex-end;">
+                          {#if getProviderBrand(providerKey.provider)}
+                            {@const brand = getProviderBrand(providerKey.provider)}
+                            <span class="provider-mark" title={brand.label}>
+                              <img class="provider-mark__image" src={brand.src} alt={brand.label} />
+                            </span>
+                            <span style="font-size: 0.77rem; color: var(--muted); font-weight: normal; text-transform: capitalize;">({providerKey.provider})</span>
+                          {:else}
+                            <span style="text-transform: capitalize;">{providerKey.provider}</span>
+                          {/if}
+                        </span>
+                      </div>
+                      <div class="control-card-row">
+                        <span class="label">Failures</span>
+                        <span class="value">{providerKey.failure_count}</span>
+                      </div>
+                      {#if providerKey.description}
+                        <div class="control-card-row" style="margin-top: 0.25rem;">
+                          <span class="label" style="display: block; width: 100%; text-align: left; margin-bottom: 0.15rem;">Description</span>
+                        </div>
+                        <p class="muted" style="margin: 0; font-size: 0.75rem; white-space: normal; line-height: 1.3;">
+                          {providerKey.description}
+                        </p>
+                      {/if}
+                    </div>
+                    <div class="control-card-footer">
+                      <button type="button" class="ghost icon-only" title="Open overview" aria-label={`Open overview for ${providerKey.name}`} on:click|stopPropagation={() => openProviderOverview(providerKey)} disabled={actionBusy}>
+                        <BarChart2 size={16} />
+                      </button>
+                      <button type="button" class="ghost icon-only" title={`Edit ${providerKey.name}`} aria-label={`Edit ${providerKey.name}`} on:click|stopPropagation={() => selectProviderKey(providerKey)} disabled={actionBusy}>
+                        <Pencil size={15} />
+                      </button>
+                      <button type="button" class="btn-danger icon-only" title={`Delete ${providerKey.name}`} aria-label={`Delete ${providerKey.name}`} on:click|stopPropagation={() => handleDeleteProviderKey(providerKey.id)} disabled={actionBusy}>
+                        <Trash2 size={15} />
+                      </button>
+                    </div>
+                  </div>
+                {/each}
               </div>
-
-              {#each filteredProviderKeys as providerKey}
-                <div class="control-table-row grid-provider-keys">
-                  <div class="control-table-cell">
-                    <label class="select-check" style="margin: 0; display: inline-flex; align-items: center;">
-                      <input
-                        type="checkbox"
-                        checked={isProviderKeySelected(providerKey.id)}
-                        on:change={() => toggleProviderKeySelection(providerKey.id)}
-                      />
-                    </label>
-                  </div>
-                  <div class="control-table-cell">
-                    <strong>{providerKey.name}</strong>
-                  </div>
-                  <div class="control-table-cell">
-                    <span style="text-transform: capitalize;">{providerKey.provider}</span>
-                  </div>
-                  <div class="control-table-cell">
-                    <span class="badge {providerKey.status === 'ACTIVE' ? 'badge-good' : providerKey.status === 'INVALID' ? 'badge-bad' : 'badge-warn'}">
-                      {formatStatus(providerKey.status)}
-                    </span>
-                  </div>
-                  <div class="control-table-cell">
-                    {providerKey.failure_count}
-                  </div>
-                  <div class="control-table-cell actions">
-                    <button type="button" class="ghost icon-only" title="Open overview" aria-label={`Open overview for ${providerKey.name}`} on:click|stopPropagation={() => openProviderOverview(providerKey)} disabled={actionBusy}>
-                      <BarChart2 size={16} />
-                    </button>
-                    <button type="button" class="ghost icon-only" title={`Edit ${providerKey.name}`} aria-label={`Edit ${providerKey.name}`} on:click|stopPropagation={() => selectProviderKey(providerKey)} disabled={actionBusy}>
-                      <Pencil size={15} />
-                    </button>
-                    <button type="button" class="btn-danger icon-only" title={`Delete ${providerKey.name}`} aria-label={`Delete ${providerKey.name}`} on:click|stopPropagation={() => handleDeleteProviderKey(providerKey.id)} disabled={actionBusy}>
-                      <Trash2 size={15} />
-                    </button>
-                  </div>
-                </div>
-              {/each}
               {#if !filteredProviderKeys.length}
-                <p class="muted" style="padding: 1rem; text-align: center; margin: 0;">No provider keys yet.</p>
+                <p class="muted" style="padding: 2rem; text-align: center; background: var(--panel); border: 1px dashed var(--border); border-radius: var(--radius-sm); margin: 0; width: 100%;">
+                  No provider keys found matching your criteria.
+                </p>
               {/if}
-            </div>
+            {:else}
+              <div class="control-table">
+                <div class="control-table-head grid-provider-keys">
+                  <div class="control-table-cell"></div>
+                  <div class="control-table-cell">Key Name</div>
+                  <div class="control-table-cell">Provider</div>
+                  <div class="control-table-cell">Status</div>
+                  <div class="control-table-cell">Failures</div>
+                  <div class="control-table-cell actions">Actions</div>
+                </div>
+
+                {#each filteredProviderKeys as providerKey}
+                  <div class="control-table-row grid-provider-keys">
+                    <div class="control-table-cell">
+                      <label class="select-check" style="margin: 0; display: inline-flex; align-items: center;">
+                        <input
+                          type="checkbox"
+                          checked={isProviderKeySelected(providerKey.id)}
+                          on:change={() => toggleProviderKeySelection(providerKey.id)}
+                        />
+                      </label>
+                    </div>
+                    <div class="control-table-cell">
+                      <strong>{providerKey.name}</strong>
+                    </div>
+                    <div class="control-table-cell">
+                      {#if getProviderBrand(providerKey.provider)}
+                        {@const brand = getProviderBrand(providerKey.provider)}
+                        <span class="provider-mark" title={brand.label}>
+                          <img class="provider-mark__image" src={brand.src} alt={brand.label} />
+                        </span>
+                      {:else}
+                        <span style="text-transform: capitalize;">{providerKey.provider}</span>
+                      {/if}
+                    </div>
+                    <div class="control-table-cell">
+                      <span class="badge {providerKey.status === 'ACTIVE' ? 'badge-good' : providerKey.status === 'INVALID' ? 'badge-bad' : 'badge-warn'}">
+                        {formatStatus(providerKey.status)}
+                      </span>
+                    </div>
+                    <div class="control-table-cell">
+                      {providerKey.failure_count}
+                    </div>
+                    <div class="control-table-cell actions">
+                      <button type="button" class="ghost icon-only" title="Open overview" aria-label={`Open overview for ${providerKey.name}`} on:click|stopPropagation={() => openProviderOverview(providerKey)} disabled={actionBusy}>
+                        <BarChart2 size={16} />
+                      </button>
+                      <button type="button" class="ghost icon-only" title={`Edit ${providerKey.name}`} aria-label={`Edit ${providerKey.name}`} on:click|stopPropagation={() => selectProviderKey(providerKey)} disabled={actionBusy}>
+                        <Pencil size={15} />
+                      </button>
+                      <button type="button" class="btn-danger icon-only" title={`Delete ${providerKey.name}`} aria-label={`Delete ${providerKey.name}`} on:click|stopPropagation={() => handleDeleteProviderKey(providerKey.id)} disabled={actionBusy}>
+                        <Trash2 size={15} />
+                      </button>
+                    </div>
+                  </div>
+                {/each}
+                {#if !filteredProviderKeys.length}
+                  <p class="muted" style="padding: 1rem; text-align: center; margin: 0;">No provider keys yet.</p>
+                {/if}
+              </div>
+            {/if}
                      {#if selectedProviderKeyId !== null}
               <div class="modal-backdrop" on:click={() => (selectedProviderKeyId = null)} on:keydown={(e) => e.key === 'Escape' && (selectedProviderKeyId = null)} tabindex="0" role="button">
                 <div class="modal-content" on:click|stopPropagation on:keydown|stopPropagation tabindex="-1" role="dialog" aria-modal="true">
@@ -2194,6 +2309,24 @@
               <button type="button" on:click={() => (showAppTokenModal = true)} style="margin-left: auto;">
                 Create app token
               </button>
+              <div class="view-mode-toggle" style="margin-left: 0.5rem;">
+                <button
+                  type="button"
+                  class:active={appTokensViewMode === 'table'}
+                  on:click={() => (appTokensViewMode = 'table')}
+                  title="Table View"
+                >
+                  <List size={14} />
+                </button>
+                <button
+                  type="button"
+                  class:active={appTokensViewMode === 'grid'}
+                  on:click={() => (appTokensViewMode = 'grid')}
+                  title="Grid View"
+                >
+                  <LayoutGrid size={14} />
+                </button>
+              </div>
             </div>
 
             {#if showAppTokenModal}
@@ -2277,72 +2410,136 @@
               </div>
             </div>
 
-            <div class="control-table">
-              <div class="control-table-head grid-app-tokens">
-                <div class="control-table-cell"></div>
-                <div class="control-table-cell">Token Name</div>
-                <div class="control-table-cell">Environment</div>
-                <div class="control-table-cell">Status</div>
-                <div class="control-table-cell">Rate Limit</div>
-                <div class="control-table-cell actions">Actions</div>
-              </div>
-
-              {#each filteredAppTokens as appToken}
-                <div class="control-table-row grid-app-tokens">
-                  <div class="control-table-cell">
-                    <label class="select-check" style="margin: 0; display: inline-flex; align-items: center;">
-                      <input
-                        type="checkbox"
-                        checked={isAppTokenSelected(appToken.id)}
-                        on:change={() => toggleAppTokenSelection(appToken.id)}
-                      />
-                    </label>
-                  </div>
-                  <div class="control-table-cell">
-                    <strong>{appToken.name}</strong>
-                  </div>
-                  <div class="control-table-cell">
-                    <span style="text-transform: capitalize;">{appToken.environment}</span>
-                  </div>
-                  <div class="control-table-cell">
-                    <span class="badge {appToken.is_active ? 'badge-good' : 'badge-warn'}">
-                      {appToken.is_active ? 'active' : 'disabled'}
-                    </span>
-                  </div>
-                  <div class="control-table-cell">
-                    {appToken.rpm_limit ? `${appToken.rpm_limit} rpm` : 'No limit'}
-                  </div>
-                  <div class="control-table-cell actions">
-                    <button type="button" class="ghost icon-only" title="Open overview" aria-label={`Open overview for ${appToken.name}`} on:click|stopPropagation={() => openAppTokenOverview(appToken)} disabled={actionBusy}>
-                      <BarChart2 size={16} />
-                    </button>
-                    <button type="button" class="ghost icon-only" title={`Edit ${appToken.name}`} aria-label={`Edit ${appToken.name}`} on:click|stopPropagation={() => selectAppToken(appToken)} disabled={actionBusy}>
-                      <Pencil size={15} />
-                    </button>
-                    <button
-                      type="button"
-                      class="row-switch"
-                      class:on={appToken.is_active}
-                      on:click|stopPropagation={() => handleToggleAppToken(appToken)}
-                      title={appToken.is_active ? `Disable ${appToken.name}` : `Enable ${appToken.name}`}
-                      aria-label={appToken.is_active ? `Disable ${appToken.name}` : `Enable ${appToken.name}`}
-                      aria-pressed={appToken.is_active}
-                      disabled={actionBusy}
-                    >
-                      <span class="row-switch-track">
-                        <span class="row-switch-thumb"></span>
+            {#if appTokensViewMode === 'grid'}
+              <div class="control-grid">
+                {#each filteredAppTokens as appToken}
+                  <div class="control-card">
+                    <div class="control-card-header">
+                      <div style="display: flex; align-items: center; gap: 0.5rem;">
+                        <label class="select-check" style="margin: 0; display: inline-flex; align-items: center;">
+                          <input
+                            type="checkbox"
+                            checked={isAppTokenSelected(appToken.id)}
+                            on:change={() => toggleAppTokenSelection(appToken.id)}
+                          />
+                        </label>
+                        <strong style="font-size: 0.85rem; font-weight: 600;">{appToken.name}</strong>
+                      </div>
+                      <span class="badge {appToken.is_active ? 'badge-good' : 'badge-warn'}">
+                        {appToken.is_active ? 'active' : 'disabled'}
                       </span>
-                    </button>
-                    <button type="button" class="btn-danger icon-only" title={`Delete ${appToken.name}`} aria-label={`Delete ${appToken.name}`} on:click={() => handleDeleteAppToken(appToken.id)} disabled={actionBusy}>
-                      <Trash2 size={15} />
-                    </button>
+                    </div>
+                    <div class="control-card-body">
+                      <div class="control-card-row">
+                        <span class="label">Environment</span>
+                        <span class="value" style="text-transform: capitalize;">{appToken.environment}</span>
+                      </div>
+                      <div class="control-card-row">
+                        <span class="label">Rate Limit</span>
+                        <span class="value">{appToken.rpm_limit ? `${appToken.rpm_limit} rpm` : 'No limit'}</span>
+                      </div>
+                    </div>
+                    <div class="control-card-footer">
+                      <button type="button" class="ghost icon-only" title="Open overview" aria-label={`Open overview for ${appToken.name}`} on:click|stopPropagation={() => openAppTokenOverview(appToken)} disabled={actionBusy}>
+                        <BarChart2 size={16} />
+                      </button>
+                      <button type="button" class="ghost icon-only" title={`Edit ${appToken.name}`} aria-label={`Edit ${appToken.name}`} on:click|stopPropagation={() => selectAppToken(appToken)} disabled={actionBusy}>
+                        <Pencil size={15} />
+                      </button>
+                      <button
+                        type="button"
+                        class="row-switch"
+                        class:on={appToken.is_active}
+                        on:click|stopPropagation={() => handleToggleAppToken(appToken)}
+                        title={appToken.is_active ? `Disable ${appToken.name}` : `Enable ${appToken.name}`}
+                        aria-label={appToken.is_active ? `Disable ${appToken.name}` : `Enable ${appToken.name}`}
+                        aria-pressed={appToken.is_active}
+                        disabled={actionBusy}
+                      >
+                        <span class="row-switch-track">
+                          <span class="row-switch-thumb"></span>
+                        </span>
+                      </button>
+                      <button type="button" class="btn-danger icon-only" title={`Delete ${appToken.name}`} aria-label={`Delete ${appToken.name}`} on:click={() => handleDeleteAppToken(appToken.id)} disabled={actionBusy}>
+                        <Trash2 size={15} />
+                      </button>
+                    </div>
                   </div>
-                </div>
-              {/each}
+                {/each}
+              </div>
               {#if !filteredAppTokens.length}
-                <p class="muted" style="padding: 1rem; text-align: center; margin: 0;">No app tokens yet.</p>
+                <p class="muted" style="padding: 2rem; text-align: center; background: var(--panel); border: 1px dashed var(--border); border-radius: var(--radius-sm); margin: 0; width: 100%;">
+                  No app tokens found matching your criteria.
+                </p>
               {/if}
-            </div>
+            {:else}
+              <div class="control-table">
+                <div class="control-table-head grid-app-tokens">
+                  <div class="control-table-cell"></div>
+                  <div class="control-table-cell">Token Name</div>
+                  <div class="control-table-cell">Environment</div>
+                  <div class="control-table-cell">Status</div>
+                  <div class="control-table-cell">Rate Limit</div>
+                  <div class="control-table-cell actions">Actions</div>
+                </div>
+
+                {#each filteredAppTokens as appToken}
+                  <div class="control-table-row grid-app-tokens">
+                    <div class="control-table-cell">
+                      <label class="select-check" style="margin: 0; display: inline-flex; align-items: center;">
+                        <input
+                          type="checkbox"
+                          checked={isAppTokenSelected(appToken.id)}
+                          on:change={() => toggleAppTokenSelection(appToken.id)}
+                        />
+                      </label>
+                    </div>
+                    <div class="control-table-cell">
+                      <strong>{appToken.name}</strong>
+                    </div>
+                    <div class="control-table-cell">
+                      <span style="text-transform: capitalize;">{appToken.environment}</span>
+                    </div>
+                    <div class="control-table-cell">
+                      <span class="badge {appToken.is_active ? 'badge-good' : 'badge-warn'}">
+                        {appToken.is_active ? 'active' : 'disabled'}
+                      </span>
+                    </div>
+                    <div class="control-table-cell">
+                      {appToken.rpm_limit ? `${appToken.rpm_limit} rpm` : 'No limit'}
+                    </div>
+                    <div class="control-table-cell actions">
+                      <button type="button" class="ghost icon-only" title="Open overview" aria-label={`Open overview for ${appToken.name}`} on:click|stopPropagation={() => openAppTokenOverview(appToken)} disabled={actionBusy}>
+                        <BarChart2 size={16} />
+                      </button>
+                      <button type="button" class="ghost icon-only" title={`Edit ${appToken.name}`} aria-label={`Edit ${appToken.name}`} on:click|stopPropagation={() => selectAppToken(appToken)} disabled={actionBusy}>
+                        <Pencil size={15} />
+                      </button>
+                      <button
+                        type="button"
+                        class="row-switch"
+                        class:on={appToken.is_active}
+                        on:click|stopPropagation={() => handleToggleAppToken(appToken)}
+                        title={appToken.is_active ? `Disable ${appToken.name}` : `Enable ${appToken.name}`}
+                        aria-label={appToken.is_active ? `Disable ${appToken.name}` : `Enable ${appToken.name}`}
+                        aria-pressed={appToken.is_active}
+                        disabled={actionBusy}
+                      >
+                        <span class="row-switch-track">
+                          <span class="row-switch-thumb"></span>
+                        </span>
+                      </button>
+                      <button type="button" class="btn-danger icon-only" title={`Delete ${appToken.name}`} aria-label={`Delete ${appToken.name}`} on:click={() => handleDeleteAppToken(appToken.id)} disabled={actionBusy}>
+                        <Trash2 size={15} />
+                      </button>
+                    </div>
+                  </div>
+                {/each}
+                {#if !filteredAppTokens.length}
+                  <p class="muted" style="padding: 1rem; text-align: center; margin: 0;">No app tokens yet.</p>
+                {/if}
+              </div>
+            {/if}
           </div>
 
             {#if selectedAppTokenId !== null}
@@ -2456,6 +2653,24 @@
             <button type="button" on:click={openCreateModelQueueModal} style="margin-left: auto;">
               Add queue
             </button>
+            <div class="view-mode-toggle" style="margin-left: 0.5rem;">
+              <button
+                type="button"
+                class:active={modelQueuesViewMode === 'table'}
+                on:click={() => (modelQueuesViewMode = 'table')}
+                title="Table View"
+              >
+                <List size={14} />
+              </button>
+              <button
+                type="button"
+                class:active={modelQueuesViewMode === 'grid'}
+                on:click={() => (modelQueuesViewMode = 'grid')}
+                title="Grid View"
+              >
+                <LayoutGrid size={14} />
+              </button>
+            </div>
           </div>
 
           {#if showModelQueueModal}
@@ -2608,48 +2823,97 @@
             </div>
           {/if}
 
-          <div class="control-table">
-            <div class="control-table-head grid-model-queues">
-              <div class="control-table-cell">Queue Name</div>
-              <div class="control-table-cell">Strategy</div>
-              <div class="control-table-cell">Status</div>
-              <div class="control-table-cell">Candidates</div>
-              <div class="control-table-cell actions">Actions</div>
+          {#if modelQueuesViewMode === 'grid'}
+            <div class="control-grid">
+              {#each filteredModelQueues as queue}
+                <div class="control-card">
+                  <div class="control-card-header">
+                    <strong style="font-size: 0.85rem; font-weight: 600;">{queue.name}</strong>
+                    <span class="badge {queue.is_active ? 'badge-good' : 'badge-warn'}">
+                      {queue.is_active ? 'active' : 'disabled'}
+                    </span>
+                  </div>
+                  <div class="control-card-body">
+                    <div class="control-card-row">
+                      <span class="label">Strategy</span>
+                      <span class="value" style="text-transform: capitalize;">{queue.strategy}</span>
+                    </div>
+                    <div class="control-card-row">
+                      <span class="label">Candidates</span>
+                      <span class="value">{queue.candidates.length} candidates</span>
+                    </div>
+                    {#if queue.description}
+                      <div class="control-card-row" style="margin-top: 0.25rem;">
+                        <span class="label" style="display: block; width: 100%; text-align: left; margin-bottom: 0.15rem;">Description</span>
+                      </div>
+                      <p class="muted" style="margin: 0; font-size: 0.75rem; white-space: normal; line-height: 1.3;">
+                        {queue.description}
+                      </p>
+                    {/if}
+                  </div>
+                  <div class="control-card-footer">
+                    <button type="button" class="ghost icon-only" title="Open overview" aria-label={`Open overview for ${queue.name}`} on:click|stopPropagation={() => openQueueOverview(queue)} disabled={actionBusy}>
+                      <BarChart2 size={16} />
+                    </button>
+                    <button type="button" class="ghost icon-only" title={`Edit ${queue.name}`} aria-label={`Edit ${queue.name}`} on:click|stopPropagation={() => openEditModelQueueModal(queue)} disabled={actionBusy}>
+                      <Pencil size={15} />
+                    </button>
+                    <button type="button" class="btn-danger icon-only" title={`Delete ${queue.name}`} aria-label={`Delete ${queue.name}`} on:click|stopPropagation={() => handleDeleteModelQueue(queue.id)} disabled={actionBusy}>
+                      <Trash2 size={15} />
+                    </button>
+                  </div>
+                </div>
+              {/each}
             </div>
-
-            {#each filteredModelQueues as queue}
-              <div class="control-table-row grid-model-queues">
-                <div class="control-table-cell">
-                  <strong>{queue.name}</strong>
-                </div>
-                <div class="control-table-cell">
-                  <span style="text-transform: capitalize;">{queue.strategy}</span>
-                </div>
-                <div class="control-table-cell">
-                  <span class="badge {queue.is_active ? 'badge-good' : 'badge-warn'}">
-                    {queue.is_active ? 'active' : 'disabled'}
-                  </span>
-                </div>
-                <div class="control-table-cell">
-                  {queue.candidates.length} candidates
-                </div>
-                <div class="control-table-cell actions">
-                  <button type="button" class="ghost icon-only" title="Open overview" aria-label={`Open overview for ${queue.name}`} on:click|stopPropagation={() => openQueueOverview(queue)} disabled={actionBusy}>
-                    <BarChart2 size={16} />
-                  </button>
-                  <button type="button" class="ghost icon-only" title={`Edit ${queue.name}`} aria-label={`Edit ${queue.name}`} on:click|stopPropagation={() => openEditModelQueueModal(queue)} disabled={actionBusy}>
-                    <Pencil size={15} />
-                  </button>
-                  <button type="button" class="btn-danger icon-only" title={`Delete ${queue.name}`} aria-label={`Delete ${queue.name}`} on:click|stopPropagation={() => handleDeleteModelQueue(queue.id)} disabled={actionBusy}>
-                    <Trash2 size={15} />
-                  </button>
-                </div>
-              </div>
-            {/each}
             {#if !filteredModelQueues.length}
-              <p class="muted" style="padding: 1rem; text-align: center; margin: 0;">No model queues yet.</p>
+              <p class="muted" style="padding: 2rem; text-align: center; background: var(--panel); border: 1px dashed var(--border); border-radius: var(--radius-sm); margin: 0; width: 100%;">
+                No model queues found matching your criteria.
+              </p>
             {/if}
-          </div>
+          {:else}
+            <div class="control-table">
+              <div class="control-table-head grid-model-queues">
+                <div class="control-table-cell">Queue Name</div>
+                <div class="control-table-cell">Strategy</div>
+                <div class="control-table-cell">Status</div>
+                <div class="control-table-cell">Candidates</div>
+                <div class="control-table-cell actions">Actions</div>
+              </div>
+
+              {#each filteredModelQueues as queue}
+                <div class="control-table-row grid-model-queues">
+                  <div class="control-table-cell">
+                    <strong>{queue.name}</strong>
+                  </div>
+                  <div class="control-table-cell">
+                    <span style="text-transform: capitalize;">{queue.strategy}</span>
+                  </div>
+                  <div class="control-table-cell">
+                    <span class="badge {queue.is_active ? 'badge-good' : 'badge-warn'}">
+                      {queue.is_active ? 'active' : 'disabled'}
+                    </span>
+                  </div>
+                  <div class="control-table-cell">
+                    {queue.candidates.length} candidates
+                  </div>
+                  <div class="control-table-cell actions">
+                    <button type="button" class="ghost icon-only" title="Open overview" aria-label={`Open overview for ${queue.name}`} on:click|stopPropagation={() => openQueueOverview(queue)} disabled={actionBusy}>
+                      <BarChart2 size={16} />
+                    </button>
+                    <button type="button" class="ghost icon-only" title={`Edit ${queue.name}`} aria-label={`Edit ${queue.name}`} on:click|stopPropagation={() => openEditModelQueueModal(queue)} disabled={actionBusy}>
+                      <Pencil size={15} />
+                    </button>
+                    <button type="button" class="btn-danger icon-only" title={`Delete ${queue.name}`} aria-label={`Delete ${queue.name}`} on:click|stopPropagation={() => handleDeleteModelQueue(queue.id)} disabled={actionBusy}>
+                      <Trash2 size={15} />
+                    </button>
+                  </div>
+                </div>
+              {/each}
+              {#if !filteredModelQueues.length}
+                <p class="muted" style="padding: 1rem; text-align: center; margin: 0;">No model queues yet.</p>
+              {/if}
+            </div>
+          {/if}
         </section>
       {/if}
 
@@ -2826,8 +3090,15 @@
               <div class="control-table-cell">
                 <strong>{log.app_token_name ?? 'Unknown app'}</strong>
               </div>
-              <div class="control-table-cell" style="text-transform: capitalize;">
-                {log.provider_used}
+              <div class="control-table-cell">
+                {#if getProviderBrand(log.provider_used)}
+                  {@const brand = getProviderBrand(log.provider_used)}
+                  <span class="provider-mark" title={brand.label}>
+                    <img class="provider-mark__image" src={brand.src} alt={brand.label} />
+                  </span>
+                {:else}
+                  <span style="text-transform: capitalize;">{log.provider_used ?? 'N/A'}</span>
+                {/if}
               </div>
               <div class="control-table-cell" style="opacity: 0.85;">
                 {log.provider_key_name ?? 'Unknown key'}
@@ -2913,9 +3184,110 @@
                     <strong>{formatDate(selectedUsageLog.created_at)}</strong>
                   </div>
                 </div>
-                <div class="json-panel" style="margin-top: 1rem;">
-                  <pre>{JSON.stringify(selectedUsageLog, null, 2)}</pre>
+                <div class="log-metrics-section">
+                  <h4 style="margin: 1.5rem 0 0.75rem; color: var(--muted); font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.05em;">Performance & Metrics</h4>
+                  <div class="detail-grid compact">
+                    <div>
+                      <span>Latency</span>
+                      <strong>{selectedUsageLog.latency_ms > 0 ? `${selectedUsageLog.latency_ms.toFixed(0)} ms` : 'N/A'}</strong>
+                    </div>
+                    <div>
+                      <span>Status Code</span>
+                      <strong>{selectedUsageLog.status_code || 'N/A'}</strong>
+                    </div>
+                    <div>
+                      <span>Rotated</span>
+                      <strong>{selectedUsageLog.was_rotated ? 'Yes' : 'No'}</strong>
+                    </div>
+                    <div>
+                      <span>Prompt Tokens</span>
+                      <strong>{selectedUsageLog.prompt_tokens || 0}</strong>
+                    </div>
+                    <div>
+                      <span>Completion Tokens</span>
+                      <strong>{selectedUsageLog.completion_tokens || 0}</strong>
+                    </div>
+                    <div>
+                      <span>Total Tokens</span>
+                      <strong>{selectedUsageLog.total_tokens || 0}</strong>
+                    </div>
+                  </div>
                 </div>
+
+                {#if selectedUsageLog.error_message}
+                  {@const parsedJson = tryParseJson(selectedUsageLog.error_message)}
+                  <div class="log-error-section" style="margin-top: 1.5rem;">
+                    {#if parsedJson}
+                      <div class="collapsible-section">
+                        <button
+                          type="button"
+                          class="ghost collapsible-trigger"
+                          on:click={() => showRawPayload = !showRawPayload}
+                          style="display: flex; align-items: center; justify-content: space-between; width: 100%; padding: 0.75rem; background: var(--panel-3); border: 1px solid var(--border); border-radius: var(--radius-sm); font-size: 0.85rem; font-weight: 600; cursor: pointer; color: var(--text);"
+                        >
+                          <span style="display: flex; align-items: center; gap: 0.5rem;">
+                            <span>ℹ️</span> Structured JSON Payload
+                          </span>
+                          <span>{showRawPayload ? '▼ Hide' : '▶ Show'}</span>
+                        </button>
+
+                        {#if showRawPayload}
+                          <div class="collapsible-content" style="margin-top: 0.5rem; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--panel-3); overflow: hidden; animation: slide-down 0.2s ease-out;">
+                            <div style="padding: 0.5rem 1rem; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; background: rgba(0,0,0,0.15); border-top-left-radius: var(--radius-sm); border-top-right-radius: var(--radius-sm);">
+                              <span class="muted" style="font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em;">JSON Fields</span>
+                              <button
+                                type="button"
+                                class="ghost compact"
+                                on:click={() => navigator.clipboard.writeText(JSON.stringify(parsedJson, null, 2))}
+                                style="font-size: 0.7rem; padding: 0.25rem 0.5rem;"
+                              >
+                                Copy Raw JSON
+                              </button>
+                            </div>
+                            
+                            <div class="json-table-container" style="max-height: 350px; overflow-y: auto;">
+                              <table style="width: 100%; border-collapse: collapse; font-family: var(--font-mono, monospace); font-size: 0.8rem; text-align: left;">
+                                <thead>
+                                  <tr style="border-bottom: 1px solid var(--border); background: rgba(255, 255, 255, 0.02);">
+                                    <th style="padding: 0.5rem 0.75rem; width: 35%; color: var(--muted); font-weight: 500;">Key</th>
+                                    <th style="padding: 0.5rem 0.75rem; color: var(--muted); font-weight: 500;">Value</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {#each Object.entries(parsedJson) as [key, val], idx}
+                                    <tr style="border-bottom: 1px solid rgba(255, 255, 255, 0.04); background: {idx % 2 === 0 ? 'rgba(0,0,0,0.05)' : 'transparent'};">
+                                      <td style="padding: 0.5rem 0.75rem; font-weight: 600; color: var(--accent, #3b82f6); word-break: break-all; vertical-align: top;">
+                                        {key}
+                                      </td>
+                                      <td style="padding: 0.5rem 0.75rem; color: var(--text); word-break: break-all; vertical-align: top;">
+                                        {#if typeof val === 'object' && val !== null}
+                                          <pre style="margin: 0; white-space: pre-wrap; font-size: 0.75rem; background: rgba(0,0,0,0.2); padding: 0.5rem; border-radius: var(--radius-sm); border: 1px solid var(--border);">{JSON.stringify(val, null, 2)}</pre>
+                                        {:else if typeof val === 'string' && val.length > 150}
+                                          <div style="max-height: 100px; overflow-y: auto; white-space: pre-wrap; background: rgba(0,0,0,0.1); padding: 0.25rem; border-radius: var(--radius-sm);">
+                                            {val}
+                                          </div>
+                                        {:else}
+                                          <span style="color: {typeof val === 'number' ? '#10b981' : typeof val === 'boolean' ? '#f59e0b' : 'var(--text)'}">
+                                            {val}
+                                          </span>
+                                        {/if}
+                                      </td>
+                                    </tr>
+                                  {/each}
+                                </tbody>
+                              </table>
+                            </div>
+                          </div>
+                        {/if}
+                      </div>
+                    {:else}
+                      <h4 style="margin: 0 0 0.75rem; color: var(--bad); font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.05em;">Error Output</h4>
+                      <div class="json-panel" style="background: rgba(200, 117, 117, 0.05); border: 1px solid rgba(200, 117, 117, 0.2); padding: 1rem; border-radius: var(--radius-sm);">
+                        <code style="color: var(--bad); white-space: pre-wrap; font-size: 0.85rem; font-family: monospace;">{selectedUsageLog.error_message}</code>
+                      </div>
+                    {/if}
+                  </div>
+                {/if}
               </div>
             </div>
           </div>

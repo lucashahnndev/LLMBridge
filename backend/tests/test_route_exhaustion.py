@@ -43,6 +43,9 @@ class RouteExhaustionTest(unittest.TestCase):
     def test_direct_route_with_eligible_keys_balances_order(self) -> None:
         asyncio.run(self._run_direct_eligible_balance_test())
 
+    def test_direct_route_alias_respects_cooldown_for_resolved_operational_model(self) -> None:
+        asyncio.run(self._run_direct_alias_cooldown_test())
+
     def test_new_route_state_cooldown_is_respected_even_when_legacy_table_is_empty(self) -> None:
         asyncio.run(self._run_new_state_without_legacy_test())
 
@@ -230,6 +233,40 @@ class RouteExhaustionTest(unittest.TestCase):
 
             self.assertEqual(ctx.exception.status_code, status.HTTP_503_SERVICE_UNAVAILABLE)
             self.assertEqual(ctx.exception.detail["code"], "pool_unavailable")
+        finally:
+            await engine.dispose()
+            temp_dir.cleanup()
+
+    async def _run_direct_alias_cooldown_test(self) -> None:
+        temp_dir, engine, session_factory = await self._create_session_factory("direct-alias-cooldown.sqlite")
+        try:
+            async with session_factory() as session:
+                key = ProviderKey(
+                    name="Key Alias",
+                    description=None,
+                    provider="google",
+                    encrypted_token="a",
+                    status=KeyStatus.ACTIVE,
+                    blocked_until=None,
+                    failure_count=0,
+                )
+                session.add(key)
+                await session.flush()
+                session.add(
+                    ProviderKeyRouteState(
+                        provider_key_id=key.id,
+                        provider="google",
+                        model_name="gemini-3-flash-preview",
+                        cooldown_until=datetime.now(timezone.utc) + timedelta(seconds=120),
+                    )
+                )
+                await session.commit()
+
+                with self.assertRaises(HTTPException) as ctx:
+                    await resolve_model_routes(session, "google/gemini-3.1-flash")
+
+            self.assertEqual(ctx.exception.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+            self.assertIn("Retry-After", ctx.exception.headers)
         finally:
             await engine.dispose()
             temp_dir.cleanup()
