@@ -5,23 +5,23 @@ export type ProviderBrand = {
 
 const PROVIDER_BRANDS: Record<string, ProviderBrand> = {
   google: {
-    src: '/providers/google-gemini.svg',
-    label: 'Google Gemini'
+    src: '/providers/google.ico',
+    label: 'Google'
   },
   openai: {
     src: '/providers/openai.svg',
     label: 'OpenAI'
   },
   github: {
-    src: '/providers/github.svg',
+    src: '/providers/github.ico',
     label: 'GitHub'
   },
   openrouter: {
-    src: '/providers/openrouter.svg',
+    src: '/providers/openrouter.ico',
     label: 'OpenRouter'
   },
   anthropic: {
-    src: '/providers/anthropic.svg',
+    src: '/providers/anthropic.png',
     label: 'Anthropic'
   }
 };
