@@ -341,6 +341,37 @@ class GoogleDriverAliasTest(unittest.TestCase):
         self.assertNotIn("functionResponse", user_part)
         self.assertEqual(payload["tools"][0]["functionDeclarations"][0]["name"], "Bash")
 
+    def test_google_driver_trims_trailing_model_turns_for_native_payload(self) -> None:
+        driver = GoogleDriver("google", "https://generativelanguage.googleapis.com/v1beta/openai")
+        canonical = CanonicalRequest(
+            protocol_in="openai",
+            route=CanonicalRoute(
+                kind="provider",
+                requested_model="google/gemini-3.1-flash",
+                provider="google",
+                model_name="gemini-3.1-flash",
+                resolved_route="google/gemini-3-flash-preview",
+            ),
+            messages=[
+                CanonicalMessage(
+                    role="user",
+                    content="Say hello.",
+                    blocks=[CanonicalContentBlock(type="text", text="Say hello.")],
+                ),
+                CanonicalMessage(
+                    role="assistant",
+                    content="Hello!",
+                    blocks=[CanonicalContentBlock(type="text", text="Hello!")],
+                ),
+            ],
+        )
+
+        payload = driver.build_native_payload(canonical, "gemini-3.1-flash")
+
+        self.assertEqual(len(payload["contents"]), 1)
+        self.assertEqual(payload["contents"][0]["role"], "user")
+        self.assertEqual(payload["contents"][0]["parts"][0]["text"], "Say hello.")
+
     def test_openai_driver_normalizes_legacy_functions_to_tools(self) -> None:
         driver = OpenAIDriver("openai", "https://api.openai.com/v1")
         payload = driver.build_payload(

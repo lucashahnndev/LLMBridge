@@ -183,6 +183,15 @@ class GoogleDriver(OpenAICompatibleDriver):
             serialized = json.dumps(payload, ensure_ascii=False)
         return f"{title}\n{serialized}"
 
+    def _trim_contents_for_native_request(self, contents: list[dict[str, object]]) -> list[dict[str, object]]:
+        # Gemini native requests are stricter about the final turn than OpenAI-style chat.
+        # If the conversation ends on an assistant/model message, drop trailing model turns
+        # so the payload still ends on a user turn or becomes empty.
+        trimmed = list(contents)
+        while trimmed and trimmed[-1].get("role") != "user":
+            trimmed.pop()
+        return trimmed
+
     def build_native_payload(self, canonical: CanonicalRequest, model_name: str) -> dict[str, object]:
         resolved_model_name = self.resolve_model_name(model_name)
         contents: list[dict[str, object]] = []
@@ -239,6 +248,8 @@ class GoogleDriver(OpenAICompatibleDriver):
 
             role = "model" if message.role in {"assistant", "model"} else "user"
             contents.append({"role": role, "parts": parts})
+
+        contents = self._trim_contents_for_native_request(contents)
 
         function_declarations: list[dict[str, object]] = []
         for tool in canonical.tools:
