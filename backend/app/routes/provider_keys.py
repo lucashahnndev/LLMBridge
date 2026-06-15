@@ -2,11 +2,11 @@ from datetime import datetime, timedelta, timezone
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.app.core.config import get_settings
-from backend.app.database.models import KeyStatus, ProviderKey
+from backend.app.database.models import KeyStatus, ProviderKey, ProviderKeyRouteState
 from backend.app.database.session import get_session
 from backend.app.schemas.provider_keys import (
     ProviderKeyCreate,
@@ -33,6 +33,15 @@ async def get_provider_key_or_404(session: AsyncSession, provider_key_id: int) -
     if provider_key is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Provider key not found")
     return provider_key
+
+
+async def reset_provider_key_runtime_state(session: AsyncSession, provider_key: ProviderKey) -> None:
+    provider_key.status = KeyStatus.ACTIVE
+    provider_key.blocked_until = None
+    provider_key.failure_count = 0
+    await session.execute(
+        delete(ProviderKeyRouteState).where(ProviderKeyRouteState.provider_key_id == provider_key.id)
+    )
 
 
 @router.post("", response_model=ProviderKeyResponse, status_code=status.HTTP_201_CREATED)
@@ -82,6 +91,7 @@ async def update_provider_key(
     previous_status = provider_key.status
 
     update_data = payload.model_dump(exclude_unset=True)
+    token_value = update_data.pop("token", None)
     if "status" in update_data and update_data["status"] is not None:
         update_data["status"] = KeyStatus(update_data["status"].value)
         if update_data["status"] == KeyStatus.COOLDOWN and "blocked_until" not in update_data:
@@ -94,6 +104,13 @@ async def update_provider_key(
 
     for field, value in update_data.items():
         setattr(provider_key, field, value)
+
+    token_changed = isinstance(token_value, str) and bool(token_value.strip())
+    if token_changed:
+        provider_key.encrypted_token = encrypt_text(token_value.strip())
+        await reset_provider_key_runtime_state(session, provider_key)
+    elif update_data.get("status") == KeyStatus.ACTIVE:
+        await reset_provider_key_runtime_state(session, provider_key)
 
     await session.commit()
     await session.refresh(provider_key)

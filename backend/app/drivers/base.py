@@ -54,6 +54,21 @@ class ProviderDriver(ABC):
                         },
                     }
 
+        # Some OpenAI-compatible chat completion surfaces reject metadata unless
+        # the request is explicitly stored. Preserve it only when store is on.
+        if payload.get("metadata") is not None and not payload.get("store"):
+            payload.pop("metadata", None)
+
+        tool_choice = payload.get("tool_choice")
+        if self.provider == "meta" and isinstance(tool_choice, dict):
+            payload["tool_choice"] = "required"
+        elif self.provider in {"mistral", "mistral-ai"}:
+            if isinstance(tool_choice, dict):
+                payload["tool_choice"] = "any"
+            elif tool_choice == "required":
+                payload["tool_choice"] = "any"
+            payload.pop("parallel_tool_calls", None)
+
         return payload
 
     def build_payload(self, normalized_payload: dict[str, object], model_name: str) -> dict[str, object]:

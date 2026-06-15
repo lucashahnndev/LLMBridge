@@ -53,7 +53,7 @@ class DatabaseMigrationTest(unittest.TestCase):
                 )
 
             applied = await apply_schema_migrations(engine)
-            self.assertEqual(applied, ["0.3.0", "0.3.1", "0.3.2", "0.3.4", "0.3.6", SCHEMA_VERSION])
+            self.assertEqual(applied, ["0.3.0", "0.3.1", "0.3.2", "0.3.4", "0.3.6", "0.3.7", SCHEMA_VERSION])
 
             async with engine.begin() as conn:
                 columns = await conn.exec_driver_sql("PRAGMA table_info(usage_logs)")
@@ -176,6 +176,45 @@ class DatabaseMigrationTest(unittest.TestCase):
                         ],
                     )
 
+                openrouter_queue_result = await conn.exec_driver_sql(
+                    "SELECT id FROM model_queues WHERE name = 'openrouter'"
+                )
+                openrouter_queue_row = openrouter_queue_result.fetchone()
+                self.assertIsNotNone(openrouter_queue_row)
+                if openrouter_queue_row is not None:
+                    openrouter_candidate_result = await conn.exec_driver_sql(
+                        """
+                        SELECT provider, model_name
+                        FROM model_queue_candidates
+                        WHERE queue_id = ?
+                        ORDER BY position ASC, id ASC
+                        """,
+                        (openrouter_queue_row[0],),
+                    )
+                    openrouter_candidates = openrouter_candidate_result.fetchall()
+                    self.assertEqual([candidate[0] for candidate in openrouter_candidates], ["openrouter"] * 16)
+                    self.assertEqual(
+                        [candidate[1] for candidate in openrouter_candidates],
+                        [
+                            "openai/gpt-4.1",
+                            "openai/gpt-4.1-mini",
+                            "openai/gpt-oss-120b:free",
+                            "openai/gpt-oss-20b:free",
+                            "deepseek/deepseek-r1-0528",
+                            "deepseek/deepseek-r1",
+                            "meta-llama/llama-3.3-70b-instruct",
+                            "meta-llama/llama-3.3-70b-instruct:free",
+                            "mistralai/mistral-large-2512",
+                            "mistralai/mistral-medium-3.1",
+                            "mistralai/mistral-small-3.2-24b-instruct",
+                            "microsoft/phi-4",
+                            "microsoft/phi-4-mini-instruct",
+                            "google/gemma-4-31b-it:free",
+                            "google/gemma-4-26b-a4b-it:free",
+                            "meta-llama/llama-3.2-3b-instruct:free",
+                        ],
+                    )
+
                 version_result = await conn.exec_driver_sql(
                     "SELECT version FROM schema_versions WHERE \"key\" = 'schema'"
                 )
@@ -247,7 +286,7 @@ class DatabaseMigrationTest(unittest.TestCase):
                 )
 
             applied = await apply_schema_migrations(engine)
-            self.assertEqual(applied, ["0.3.1", SCHEMA_VERSION])
+            self.assertEqual(applied, ["0.3.1", "0.3.2", "0.3.4", "0.3.6", "0.3.7", SCHEMA_VERSION])
 
             async with engine.begin() as conn:
                 rows = await conn.exec_driver_sql(

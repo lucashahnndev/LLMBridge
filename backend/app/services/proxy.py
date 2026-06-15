@@ -55,6 +55,10 @@ logger = logging.getLogger(__name__)
 
 security = HTTPBearer(auto_error=False)
 BROKERED_ROUTE_PROVIDERS = frozenset({"github", "openrouter"})
+DOWNSTREAM_ADAPTER_ALIASES = {
+    "meta-llama": "meta",
+    "mistralai": "mistral-ai",
+}
 NON_CHAT_MODEL_MARKERS = (
     "embedding",
     "embeddings",
@@ -122,8 +126,9 @@ def resolve_route_driver_selection(route_model: str) -> RouteDriverSelection:
 
     if provider in BROKERED_ROUTE_PROVIDERS and "/" in model_name:
         downstream_provider, downstream_model_name = parse_model_identifier(model_name)
+        adapter_provider = DOWNSTREAM_ADAPTER_ALIASES.get(downstream_provider, downstream_provider)
         try:
-            adapter_driver = get_output_adapter_driver(downstream_provider)
+            adapter_driver = get_output_adapter_driver(adapter_provider)
         except KeyError as exc:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -143,7 +148,7 @@ def resolve_route_driver_selection(route_model: str) -> RouteDriverSelection:
             gateway_provider=provider,
             gateway_driver=gateway_driver,
             gateway_model_name=resolved_gateway_model_name,
-            adapter_provider=downstream_provider,
+            adapter_provider=adapter_provider,
             adapter_driver=adapter_driver,
             adapter_model_name=resolved_adapter_model_name,
             resolved_route_model=f"{provider}/{resolved_gateway_model_name}",
@@ -249,7 +254,10 @@ def coerce_response_body(response: httpx.Response) -> dict[str, object] | list[o
     content_type = response.headers.get("content-type", "")
     if "application/json" not in content_type:
         return {"detail": response.text}
-    return response.json()
+    try:
+        return response.json()
+    except ValueError:
+        return {"detail": response.text}
 
 
 def chat_completion_body_to_stream_events(body: dict[str, object]) -> list[dict[str, object]]:

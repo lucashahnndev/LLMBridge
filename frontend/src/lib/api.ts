@@ -648,6 +648,7 @@ export async function updateProviderKey(
     name?: string;
     provider?: string;
     description?: string | null;
+    tokenValue?: string;
   }
 ): Promise<ProviderKey> {
   const response = await fetch(`${apiBaseUrl()}/provider-keys/${providerKeyId}`, {
@@ -656,7 +657,10 @@ export async function updateProviderKey(
       Authorization: `Bearer ${token}`,
       'Content-Type': 'application/json'
     },
-    body: JSON.stringify(payload)
+    body: JSON.stringify({
+      ...payload,
+      token: payload.tokenValue
+    })
   });
 
   if (!response.ok) {

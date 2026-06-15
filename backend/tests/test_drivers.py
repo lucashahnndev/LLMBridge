@@ -82,6 +82,76 @@ class GithubModelsDriverTest(unittest.TestCase):
         with self.assertRaises(HTTPException):
             driver.resolve_model_name("openai")
 
+    def test_openai_compatible_driver_drops_metadata_when_store_is_not_enabled(self) -> None:
+        driver = OpenAICompatibleDriver("openai", "https://api.openai.com/v1")
+        payload = driver.build_payload(
+            {
+                "messages": [],
+                "metadata": {"client": "claude-code"},
+            },
+            "gpt-4.1",
+        )
+        self.assertNotIn("metadata", payload)
+
+    def test_openai_compatible_driver_preserves_metadata_when_store_is_enabled(self) -> None:
+        driver = OpenAICompatibleDriver("openai", "https://api.openai.com/v1")
+        payload = driver.build_payload(
+            {
+                "messages": [],
+                "metadata": {"client": "claude-code"},
+                "store": True,
+            },
+            "gpt-4.1",
+        )
+        self.assertEqual(payload["metadata"], {"client": "claude-code"})
+
+    def test_meta_driver_coerces_named_tool_choice_to_required(self) -> None:
+        driver = OpenAICompatibleDriver("meta", "https://api.openai.com/v1")
+        payload = driver.build_payload(
+            {
+                "messages": [],
+                "tools": [{"type": "function", "function": {"name": "demo", "parameters": {}}}],
+                "tool_choice": {"type": "function", "function": {"name": "demo"}},
+            },
+            "llama-3.3-70b-instruct",
+        )
+        self.assertEqual(payload["tool_choice"], "required")
+
+    def test_mistral_driver_coerces_named_tool_choice_to_any(self) -> None:
+        driver = OpenAICompatibleDriver("mistral-ai", "https://api.openai.com/v1")
+        payload = driver.build_payload(
+            {
+                "messages": [],
+                "tools": [{"type": "function", "function": {"name": "demo", "parameters": {}}}],
+                "tool_choice": {"type": "function", "function": {"name": "demo"}},
+            },
+            "mistral-small-2503",
+        )
+        self.assertEqual(payload["tool_choice"], "any")
+
+    def test_mistral_driver_coerces_required_tool_choice_to_any(self) -> None:
+        driver = OpenAICompatibleDriver("mistral-ai", "https://api.openai.com/v1")
+        payload = driver.build_payload(
+            {
+                "messages": [],
+                "tools": [{"type": "function", "function": {"name": "demo", "parameters": {}}}],
+                "tool_choice": "required",
+            },
+            "mistral-small-2503",
+        )
+        self.assertEqual(payload["tool_choice"], "any")
+
+    def test_mistral_driver_strips_parallel_tool_calls(self) -> None:
+        driver = OpenAICompatibleDriver("mistral-ai", "https://api.openai.com/v1")
+        payload = driver.build_payload(
+            {
+                "messages": [],
+                "parallel_tool_calls": False,
+            },
+            "mistral-small-2503",
+        )
+        self.assertNotIn("parallel_tool_calls", payload)
+
 
 class GoogleDriverAliasTest(unittest.TestCase):
     def test_google_driver_maps_alias_to_real_model_id(self) -> None:

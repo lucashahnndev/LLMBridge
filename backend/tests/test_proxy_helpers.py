@@ -6,6 +6,7 @@ from fastapi import HTTPException
 
 from backend.app.services.queues import ResolvedRouteCandidate
 from backend.app.services.proxy import (
+    coerce_response_body,
     determine_upstream_protocol,
     extract_usage_metrics,
     filter_chat_compatible_routes,
@@ -56,6 +57,35 @@ class ProxyHelperTest(unittest.TestCase):
         self.assertEqual(selection.gateway_model_name, "microsoft/phi-4")
         self.assertEqual(selection.adapter_model_name, "phi-4")
 
+    def test_resolve_route_driver_selection_uses_openai_adapter_for_openrouter_subpath(self) -> None:
+        selection = resolve_route_driver_selection("openrouter/openai/gpt-4.1")
+        self.assertEqual(selection.gateway_provider, "openrouter")
+        self.assertEqual(selection.adapter_provider, "openai")
+        self.assertEqual(selection.gateway_model_name, "openai/gpt-4.1")
+        self.assertEqual(selection.adapter_model_name, "gpt-4.1")
+        self.assertEqual(selection.resolved_route_model, "openrouter/openai/gpt-4.1")
+
+    def test_resolve_route_driver_selection_uses_meta_adapter_for_openrouter_subpath(self) -> None:
+        selection = resolve_route_driver_selection("openrouter/meta/llama-3.3-70b-instruct")
+        self.assertEqual(selection.gateway_provider, "openrouter")
+        self.assertEqual(selection.adapter_provider, "meta")
+        self.assertEqual(selection.gateway_model_name, "meta/llama-3.3-70b-instruct")
+        self.assertEqual(selection.adapter_model_name, "llama-3.3-70b-instruct")
+
+    def test_resolve_route_driver_selection_normalizes_openrouter_meta_llama_alias(self) -> None:
+        selection = resolve_route_driver_selection("openrouter/meta-llama/llama-3.3-70b-instruct:free")
+        self.assertEqual(selection.gateway_provider, "openrouter")
+        self.assertEqual(selection.adapter_provider, "meta")
+        self.assertEqual(selection.gateway_model_name, "meta-llama/llama-3.3-70b-instruct:free")
+        self.assertEqual(selection.adapter_model_name, "llama-3.3-70b-instruct:free")
+
+    def test_resolve_route_driver_selection_normalizes_openrouter_mistralai_alias(self) -> None:
+        selection = resolve_route_driver_selection("openrouter/mistralai/mistral-small-3.2-24b-instruct")
+        self.assertEqual(selection.gateway_provider, "openrouter")
+        self.assertEqual(selection.adapter_provider, "mistral-ai")
+        self.assertEqual(selection.gateway_model_name, "mistralai/mistral-small-3.2-24b-instruct")
+        self.assertEqual(selection.adapter_model_name, "mistral-small-3.2-24b-instruct")
+
     def test_determine_upstream_protocol_reports_google_native_when_applicable(self) -> None:
         self.assertEqual(
             determine_upstream_protocol(gateway_provider="google", use_google_native=True),
@@ -65,6 +95,10 @@ class ProxyHelperTest(unittest.TestCase):
     def test_determine_upstream_protocol_reports_openai_for_brokered_routes(self) -> None:
         self.assertEqual(
             determine_upstream_protocol(gateway_provider="github", use_google_native=False),
+            "openai",
+        )
+        self.assertEqual(
+            determine_upstream_protocol(gateway_provider="openrouter", use_google_native=False),
             "openai",
         )
 
@@ -101,6 +135,16 @@ class ProxyHelperTest(unittest.TestCase):
         self.assertEqual(route_parts["downstream_model_name"], "gpt-4.1")
         self.assertEqual(route_parts["operational_route"], "github/openai/gpt-4.1")
 
+    def test_derive_operational_route_parts_for_openrouter_brokered_provider(self) -> None:
+        route_parts = derive_operational_route_parts(
+            provider_used="openrouter",
+            resolved_model="openrouter/meta/llama-3.3-70b-instruct",
+        )
+        self.assertEqual(route_parts["gateway_provider"], "openrouter")
+        self.assertEqual(route_parts["downstream_provider"], "meta")
+        self.assertEqual(route_parts["downstream_model_name"], "llama-3.3-70b-instruct")
+        self.assertEqual(route_parts["operational_route"], "openrouter/meta/llama-3.3-70b-instruct")
+
     def test_extract_usage_metrics_reads_usage_payload(self) -> None:
         prompt_tokens, completion_tokens, total_tokens = extract_usage_metrics(
             {
@@ -115,6 +159,15 @@ class ProxyHelperTest(unittest.TestCase):
 
     def test_extract_usage_metrics_defaults_when_usage_missing(self) -> None:
         self.assertEqual(extract_usage_metrics({}), (0, 0, 0))
+
+    def test_coerce_response_body_falls_back_to_text_when_json_is_invalid(self) -> None:
+        response = httpx.Response(
+            400,
+            headers={"content-type": "application/json"},
+            content=b"not-json",
+            request=httpx.Request("POST", "http://test"),
+        )
+        self.assertEqual(coerce_response_body(response), {"detail": "not-json"})
 
     def test_format_provider_pool_exhausted_message_reports_cooldown(self) -> None:
         message = format_provider_pool_exhausted_message(

@@ -154,6 +154,27 @@ DEFAULT_GITHUB_QUEUE_MODELS = (
     "openai/text-embedding-3-small",
 )
 
+DEFAULT_OPENROUTER_QUEUE_NAME = "openrouter"
+DEFAULT_OPENROUTER_QUEUE_DESCRIPTION = "Default OpenRouter queue"
+DEFAULT_OPENROUTER_QUEUE_MODELS = (
+    "openai/gpt-4.1",
+    "openai/gpt-4.1-mini",
+    "openai/gpt-oss-120b:free",
+    "openai/gpt-oss-20b:free",
+    "deepseek/deepseek-r1-0528",
+    "deepseek/deepseek-r1",
+    "meta-llama/llama-3.3-70b-instruct",
+    "meta-llama/llama-3.3-70b-instruct:free",
+    "mistralai/mistral-large-2512",
+    "mistralai/mistral-medium-3.1",
+    "mistralai/mistral-small-3.2-24b-instruct",
+    "microsoft/phi-4",
+    "microsoft/phi-4-mini-instruct",
+    "google/gemma-4-31b-it:free",
+    "google/gemma-4-26b-a4b-it:free",
+    "meta-llama/llama-3.2-3b-instruct:free",
+)
+
 
 def _normalize_model_name(model_name: str) -> str:
     cleaned = model_name.strip()
@@ -226,6 +247,38 @@ def _seed_default_github_queue(sync_conn) -> None:
     )
 
 
+def _seed_default_openrouter_queue(sync_conn) -> None:
+    existing_queue = sync_conn.execute(
+        select(ModelQueue.__table__.c.id).where(ModelQueue.__table__.c.name == DEFAULT_OPENROUTER_QUEUE_NAME)
+    ).scalar_one_or_none()
+    if existing_queue is not None:
+        return
+
+    result = sync_conn.execute(
+        insert(ModelQueue.__table__).values(
+            name=DEFAULT_OPENROUTER_QUEUE_NAME,
+            description=DEFAULT_OPENROUTER_QUEUE_DESCRIPTION,
+            strategy=QueueStrategy.ORDERED,
+            is_active=True,
+        )
+    )
+    queue_id = result.inserted_primary_key[0]
+
+    sync_conn.execute(
+        insert(ModelQueueCandidate.__table__),
+        [
+            {
+                "queue_id": queue_id,
+                "provider": "openrouter",
+                "model_name": model_name.strip(),
+                "position": position,
+                "is_active": True,
+            }
+            for position, model_name in enumerate(DEFAULT_OPENROUTER_QUEUE_MODELS)
+        ],
+    )
+
+
 def _upgrade_telemetry_and_seed_gemini_queue(sync_conn) -> None:
     _ensure_tables(sync_conn, ModelQueue.__table__, ModelQueueCandidate.__table__)
     _ensure_usage_log_telemetry_columns(sync_conn)
@@ -235,6 +288,16 @@ def _upgrade_telemetry_and_seed_gemini_queue(sync_conn) -> None:
 def _upgrade_seed_github_queue(sync_conn) -> None:
     _ensure_tables(sync_conn, ModelQueue.__table__, ModelQueueCandidate.__table__)
     _seed_default_github_queue(sync_conn)
+
+
+def _upgrade_seed_openrouter_queue(sync_conn) -> None:
+    _ensure_tables(sync_conn, ModelQueue.__table__, ModelQueueCandidate.__table__)
+    _seed_default_openrouter_queue(sync_conn)
+
+
+def _upgrade_seed_and_reorder_openrouter_queue(sync_conn) -> None:
+    _upgrade_seed_openrouter_queue(sync_conn)
+    _reorder_default_openrouter_queue(sync_conn)
 
 
 def _reorder_default_github_queue(sync_conn) -> None:
@@ -254,6 +317,33 @@ def _reorder_default_github_queue(sync_conn) -> None:
     current_by_key = {(row[2],): row[0] for row in current_rows}
 
     for position, model_name in enumerate(DEFAULT_GITHUB_QUEUE_MODELS):
+        candidate_id = current_by_key.get((model_name.strip(),))
+        if candidate_id is None:
+            continue
+        sync_conn.execute(
+            ModelQueueCandidate.__table__.update()
+            .where(ModelQueueCandidate.__table__.c.id == candidate_id)
+            .values(position=position)
+        )
+
+
+def _reorder_default_openrouter_queue(sync_conn) -> None:
+    queue_id = sync_conn.execute(
+        select(ModelQueue.__table__.c.id).where(ModelQueue.__table__.c.name == DEFAULT_OPENROUTER_QUEUE_NAME)
+    ).scalar_one_or_none()
+    if queue_id is None:
+        return
+
+    current_rows = sync_conn.execute(
+        select(
+            ModelQueueCandidate.__table__.c.id,
+            ModelQueueCandidate.__table__.c.provider,
+            ModelQueueCandidate.__table__.c.model_name,
+        ).where(ModelQueueCandidate.__table__.c.queue_id == queue_id)
+    ).fetchall()
+    current_by_key = {(row[2],): row[0] for row in current_rows}
+
+    for position, model_name in enumerate(DEFAULT_OPENROUTER_QUEUE_MODELS):
         candidate_id = current_by_key.get((model_name.strip(),))
         if candidate_id is None:
             continue
@@ -408,9 +498,14 @@ MIGRATION_STEPS: tuple[MigrationStep, ...] = (
         upgrade=_upgrade_usage_log_upstream_protocol,
     ),
     MigrationStep(
-        version=SCHEMA_VERSION,
+        version="0.3.7",
         description="Reorder GitHub Models queue by capability",
         upgrade=_reorder_default_github_queue,
+    ),
+    MigrationStep(
+        version="0.3.8",
+        description="Seed OpenRouter queue and reorder by capability",
+        upgrade=_upgrade_seed_and_reorder_openrouter_queue,
     ),
 )
 

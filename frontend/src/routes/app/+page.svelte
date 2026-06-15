@@ -184,6 +184,7 @@
   let selectedProviderKeyName = '';
   let selectedProviderKeyProvider = 'openai';
   let selectedProviderKeyDescription = '';
+  let selectedProviderKeyToken = '';
   let providerKeyProviderFilter = '';
   let providerKeyStatusFilter: ProviderKey['status'] | '' = '';
   let providerKeySearch = '';
@@ -877,6 +878,7 @@
     selectedProviderKeyName = providerKey.name;
     selectedProviderKeyProvider = providerKey.provider;
     selectedProviderKeyDescription = providerKey.description ?? '';
+    selectedProviderKeyToken = '';
     peekProviderKeyId = null;
     peekResult = '';
     peekError = '';
@@ -892,6 +894,7 @@
     selectedProviderKeyName = providerKey.name;
     selectedProviderKeyProvider = providerKey.provider;
     selectedProviderKeyDescription = providerKey.description ?? '';
+    selectedProviderKeyToken = '';
   }
 
   function clearPeekRequest() {
@@ -948,10 +951,12 @@
       await updateProviderKey(token, selectedProviderKeyId, {
         name: selectedProviderKeyName,
         provider: selectedProviderKeyProvider,
-        description: selectedProviderKeyDescription || null
+        description: selectedProviderKeyDescription || null,
+        tokenValue: selectedProviderKeyToken || undefined
       });
       await loadDashboard(token);
-      pushNotice('success', 'Provider key saved', 'Metadata updated successfully.');
+      selectedProviderKeyToken = '';
+      pushNotice('success', 'Provider key saved', 'Provider key updated successfully.');
     } catch (error) {
       metricsError = error instanceof Error ? error.message : 'Failed to update provider key';
       pushNotice('error', 'Provider key save failed', metricsError);
@@ -2078,6 +2083,10 @@
                         <label class="wide">
                           Description
                           <input bind:value={selectedProviderKeyDescription} type="text" />
+                        </label>
+                        <label class="wide">
+                          Replace token
+                          <input bind:value={selectedProviderKeyToken} type="password" placeholder="Leave blank to keep the current token" />
                         </label>
                       </div>
                       <div class="modal-section-actions">

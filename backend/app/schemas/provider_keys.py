@@ -20,6 +20,7 @@ class ProviderKeyUpdate(BaseModel):
     name: Optional[str] = Field(default=None, max_length=100)
     description: Optional[str] = None
     provider: Optional[str] = None
+    token: Optional[str] = Field(default=None, description="Novo token em texto claro para substituir o atual.")
     status: Optional[KeyStatusSchema] = None
     blocked_until: Optional[datetime] = None
     failure_count: Optional[int] = None
