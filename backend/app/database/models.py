@@ -279,17 +279,6 @@ class ProviderKeyRouteState(Base):
     in_flight_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     soft_reserved_until: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     next_available_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
-    # Legacy compatibility columns. The global adaptive score lives on
-    # ProviderModelRouteScore; these fields remain only for backward
-    # compatibility and should not drive routing decisions.
-    base_degradation: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
-    latency_score: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
-    error_score: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
-    final_rank: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
-    score: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
-    failure_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
-    success_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
-    avg_latency_ms: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.current_timestamp(),

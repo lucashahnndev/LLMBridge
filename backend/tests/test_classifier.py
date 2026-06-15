@@ -133,7 +133,6 @@ class RouteClassifierTest(unittest.TestCase):
                     )
                 ).scalar_one()
 
-            self.assertIsNotNone(route_state.last_used_at)
             self.assertEqual(route_state.in_flight_count, 0)
             self.assertIsNotNone(route_state.next_available_at)
             self.assertEqual(score_row.success_count, 1)

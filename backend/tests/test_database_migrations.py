@@ -306,7 +306,7 @@ class DatabaseMigrationTest(unittest.TestCase):
                 )
 
             applied = await apply_schema_migrations(engine)
-            self.assertEqual(applied, ["0.3.1", "0.3.2", "0.3.4", "0.3.6", "0.3.7", SCHEMA_VERSION])
+            self.assertEqual(applied, ["0.3.1", "0.3.2", "0.3.4", "0.3.6", "0.3.7", "0.3.8", SCHEMA_VERSION])
 
             async with engine.begin() as conn:
                 rows = await conn.exec_driver_sql(
