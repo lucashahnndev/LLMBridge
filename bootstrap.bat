@@ -4,6 +4,7 @@ title LLMBridge - One-Shot Installer
 
 set "ROOT=%~dp0"
 pushd "%ROOT%" >nul
+set "WORKDIR=%CD%"
 set "OK=[+]"
 set "STEP=[>]"
 set "WARN=[!]"
@@ -28,16 +29,11 @@ if /I "%ROOT_FULL%"=="%INSTALL_ROOT_FULL%" (
 )
 
 echo =======================================================
-color 0E
-echo █     █     █   █ ████  ████  ███ ████   ███  █████
-echo █     █     ██ ██ █   █ █   █  █  █   █ █     █
-echo █     █     █ █ █ ████  ████   █  █   █ █  ██ ████
-echo █     █     █   █ █   █ █  █   █  █   █ █   █ █
-echo █████ █████ █   █ ████  █   █ ███ ████   ███  █████
-echo.
-echo                          LLMBridge
-echo                    local one-shot installer
-color 07
+echo   LLMBridge Windows One-Shot Installer
+echo =======================================================
+echo   source root  : %ROOT%
+echo   workdir      : %WORKDIR%
+echo   install root : %INSTALL_ROOT%
 echo =======================================================
 echo.
 

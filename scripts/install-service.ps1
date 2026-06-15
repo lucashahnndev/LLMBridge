@@ -117,6 +117,12 @@ function Write-Fail {
 }
 
 Show-Banner
+Write-Host "  source root : $SourceRoot" -ForegroundColor DarkCyan
+Write-Host "  install root: $InstallRoot" -ForegroundColor DarkCyan
+if ($LogPath) {
+    Write-Host "  log path    : $LogPath" -ForegroundColor DarkCyan
+}
+Write-Host ""
 
 function Invoke-Nssm {
     param(
