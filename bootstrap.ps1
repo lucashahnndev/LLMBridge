@@ -2,7 +2,7 @@ $ErrorActionPreference = "Stop"
 $OutputEncoding = [System.Text.Encoding]::UTF8
 
 $ScriptPath = Split-Path -Parent $MyInvocation.MyCommand.Definition
-$RepoRoot = Split-Path -Parent $ScriptPath
+$RepoRoot = $ScriptPath
 $SourcePython = Join-Path $RepoRoot ".venv\Scripts\python.exe"
 $FrontendDir = Join-Path $RepoRoot "frontend"
 $FrontendStamp = Join-Path $FrontendDir ".llmbridge-build.sha256"
