@@ -306,12 +306,15 @@ def format_proxy_failure_alert(
     rotated: bool,
     error: str | dict[str, object] | list[object] | None,
 ) -> str:
+    final_route_label = final_route or "n/a"
+    if final_provider_key_name and final_route:
+        final_route_label = f"{final_provider_key_name} / {final_route}"
     summary = _format_summary_block(
         [
             ("Time", _now_utc()),
             ("App token", app_token_name),
             ("Requested model", requested_model),
-            ("Final route", final_route or "n/a"),
+            ("Final route", final_route_label),
             ("Final provider key", final_provider_key_name or "n/a"),
             ("Route kind", route_kind),
             ("Queue", queue_name or "n/a"),

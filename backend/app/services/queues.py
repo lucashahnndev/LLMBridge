@@ -92,76 +92,6 @@ async def get_model_queue_or_404(session: AsyncSession, queue_name: str) -> Mode
     return queue
 
 
-def _score_for_success(candidate: ModelQueueCandidate, latency_ms: float) -> float:
-    latency_bonus = max(0.1, min(1.0, 1.0 - (latency_ms / 5000.0)))
-    return candidate.score - latency_bonus
-
-
-def _score_for_failure(status_code: int, error_message: str | None = None) -> float:
-    lowered = error_message.lower() if error_message else ""
-    if status_code == status.HTTP_404_NOT_FOUND or any(
-        keyword in lowered
-        for keyword in ("not found", "not supported", "unsupported", "unknown model", "model unavailable")
-    ):
-        return 18.0
-    if status_code == status.HTTP_429_TOO_MANY_REQUESTS:
-        return 8.0
-    if status_code in {status.HTTP_401_UNAUTHORIZED, status.HTTP_403_FORBIDDEN}:
-        return 10.0
-    if status_code >= 500:
-        return 4.0
-    return 2.0
-
-
-def _latency_score(latency_ms: float) -> float:
-    return max(0.0, min(1.0, latency_ms / 10000.0))
-
-
-def _candidate_rank_value(candidate: ModelQueueCandidate) -> float:
-    if candidate.final_rank == 0.0 and candidate.score != 0.0:
-        return candidate.score
-    return candidate.final_rank
-
-
-def _refresh_candidate_rank(candidate: ModelQueueCandidate) -> None:
-    candidate.final_rank = candidate.base_degradation + candidate.latency_score + candidate.error_score
-    # Preserve the legacy field during the transition so older callers and UI
-    # surfaces keep working while we move everything to final_rank.
-    candidate.score = candidate.final_rank
-
-
-def _apply_queue_sort(strategy: QueueStrategy, candidates: list[ModelQueueCandidate]) -> list[ModelQueueCandidate]:
-    active_candidates = [candidate for candidate in candidates if candidate.is_active]
-    if strategy == QueueStrategy.LATENCY:
-        return sorted(
-            active_candidates,
-            key=lambda candidate: (
-                candidate.avg_latency_ms,
-                _candidate_rank_value(candidate),
-                candidate.position,
-                candidate.id,
-            ),
-        )
-    if strategy == QueueStrategy.SMART:
-        return sorted(
-            active_candidates,
-            key=lambda candidate: (
-                _candidate_rank_value(candidate),
-                candidate.position,
-                candidate.id,
-            ),
-        )
-    return sorted(
-        active_candidates,
-        key=lambda candidate: (
-            candidate.position,
-            _candidate_rank_value(candidate),
-            candidate.failure_count,
-            candidate.id,
-        ),
-    )
-
-
 def _interleave_queue_routes(
     route_groups: list[list[ResolvedRouteCandidate]],
 ) -> list[ResolvedRouteCandidate]:
@@ -290,10 +220,17 @@ async def materialize_model_route_snapshot(session: AsyncSession, model: str) ->
         )
         if not availability.eligible_keys:
             continue
+        global_rank = _global_route_rank(availability)
+        if queue.strategy == QueueStrategy.SMART:
+            queue_rank = global_rank + candidate.base_degradation
+        elif queue.strategy == QueueStrategy.LATENCY:
+            queue_rank = global_rank
+        else:
+            queue_rank = float(candidate.position)
         candidate_rows.append(
             (
                 candidate,
-                _global_route_rank(availability),
+                queue_rank,
                 RouteMaterializationSummary(**availability.summary),
                 availability,
             )
@@ -302,12 +239,10 @@ async def materialize_model_route_snapshot(session: AsyncSession, model: str) ->
     if not candidate_rows:
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=f"Queue '{queue_name}' has no active candidates")
 
-    if queue.strategy == QueueStrategy.LATENCY:
-        candidate_rows.sort(key=lambda item: (item[1], item[0].position, item[0].id))
-    elif queue.strategy == QueueStrategy.SMART:
-        candidate_rows.sort(key=lambda item: (item[1], item[0].position, item[0].id))
+    if queue.strategy == QueueStrategy.ORDERED:
+        candidate_rows.sort(key=lambda item: (item[0].position, item[0].id))
     else:
-        candidate_rows.sort(key=lambda item: (item[0].position, item[1], item[0].id))
+        candidate_rows.sort(key=lambda item: (item[1], item[0].position, item[0].id))
 
     summary = RouteMaterializationSummary()
     resolved_route_groups: list[list[ResolvedRouteCandidate]] = []

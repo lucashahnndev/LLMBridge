@@ -33,7 +33,7 @@ class TelegramAlertFormattingTest(unittest.TestCase):
         self.assertIn("```text", message)
         self.assertIn("• *App token:* `Atlas`", message)
         self.assertIn("• *Requested model:* `queue/gemini`", message)
-        self.assertIn("• *Final route:* `google/gemini-3-flash-preview`", message)
+        self.assertIn("• *Final route:* `Key B / google/gemini-3-flash-preview`", message)
         self.assertIn("• *Final provider key:* `Key B`", message)
         self.assertIn("• *Tool calling:* `yes`", message)
         self.assertIn("*Error log*", message)

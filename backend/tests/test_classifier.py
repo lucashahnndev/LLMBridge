@@ -353,7 +353,6 @@ class RouteClassifierTest(unittest.TestCase):
                     retry_hint_seconds=30,
                 )
                 await classify_route_classification_event(session, event)
-                refreshed_candidate = await session.get(ModelQueueCandidate, candidate.id)
                 state = (
                     await session.execute(
                         select(ProviderKeyRouteState).where(
@@ -363,7 +362,7 @@ class RouteClassifierTest(unittest.TestCase):
                     )
                 ).scalar_one()
 
-            self.assertGreater(refreshed_candidate.error_score, 0.0)
+            self.assertGreater(state.error_score, 0.0)
             self.assertIsNotNone(state.cooldown_until)
             self.assertIsNotNone(state.next_available_at)
         finally:
@@ -388,9 +387,16 @@ class RouteClassifierTest(unittest.TestCase):
                     error_message="adapter mismatch",
                 )
                 await classify_route_classification_event(session, event)
-                refreshed_candidate = await session.get(ModelQueueCandidate, candidate.id)
+                state = (
+                    await session.execute(
+                        select(ProviderKeyRouteState).where(
+                            ProviderKeyRouteState.provider_key_id == key.id,
+                            ProviderKeyRouteState.model_name == "flash",
+                        )
+                    )
+                ).scalar_one()
 
-            self.assertEqual(refreshed_candidate.error_score, 0.0)
+            self.assertEqual(state.error_score, 0.0)
         finally:
             await engine.dispose()
             temp_dir.cleanup()
@@ -436,7 +442,7 @@ class RouteClassifierTest(unittest.TestCase):
                     )
                 ).scalar_one()
 
-            self.assertGreater(refreshed_candidate.error_score, 0.0)
+            self.assertGreater(state.error_score, 0.0)
             self.assertTrue(state.disabled)
             self.assertEqual(state.disabled_reason, "not_found")
         finally:

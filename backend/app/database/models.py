@@ -279,6 +279,9 @@ class ProviderKeyRouteState(Base):
     in_flight_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     soft_reserved_until: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     next_available_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Legacy compatibility column; the global adaptive score is computed from
+    # latency_score and error_score and then mirrored across all rows for the
+    # same provider/model pair.
     base_degradation: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
     latency_score: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
     error_score: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
@@ -325,6 +328,7 @@ class ModelQueueCandidate(Base):
     model_name: Mapped[str] = mapped_column(String(120), nullable=False)
     position: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    # Local queue penalty used only when ordering queue/SMART candidates.
     base_degradation: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
     latency_score: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
     error_score: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
