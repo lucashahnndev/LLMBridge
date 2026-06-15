@@ -57,16 +57,72 @@ function Invoke-LoggedProcess {
         Remove-Item -LiteralPath $LogPath -Force -ErrorAction SilentlyContinue
     }
 
-    $process = Start-Process -FilePath $FilePath -ArgumentList $ArgumentList -WorkingDirectory $WorkingDirectory -NoNewWindow -Wait -PassThru -RedirectStandardOutput $LogPath -RedirectStandardError $LogPath
+    $stdoutLogPath = $LogPath
+    $stderrLogPath = ""
+    if ($LogPath) {
+        $logDirectory = Split-Path -Parent $LogPath
+        $logBaseName = [System.IO.Path]::GetFileNameWithoutExtension($LogPath)
+        $logExtension = [System.IO.Path]::GetExtension($LogPath)
+        if (-not $logExtension) {
+            $logExtension = ".log"
+        }
+        $stdoutLogPath = Join-Path $logDirectory "$logBaseName.stdout$logExtension"
+        $stderrLogPath = Join-Path $logDirectory "$logBaseName.stderr$logExtension"
+
+        foreach ($path in @($stdoutLogPath, $stderrLogPath, $LogPath)) {
+            if ($path -and (Test-Path -LiteralPath $path)) {
+                Remove-Item -LiteralPath $path -Force -ErrorAction SilentlyContinue
+            }
+        }
+    }
+
+    $startProcessArgs = @{
+        FilePath = $FilePath
+        ArgumentList = $ArgumentList
+        WorkingDirectory = $WorkingDirectory
+        NoNewWindow = $true
+        Wait = $true
+        PassThru = $true
+    }
+    if ($stdoutLogPath) {
+        $startProcessArgs.RedirectStandardOutput = $stdoutLogPath
+    }
+    if ($stderrLogPath) {
+        $startProcessArgs.RedirectStandardError = $stderrLogPath
+    }
+
+    $process = Start-Process @startProcessArgs
     if ($process.ExitCode -ne 0) {
         Write-Fail $Label
-        if ($LogPath -and (Test-Path -LiteralPath $LogPath)) {
+        if ($LogPath) {
             Write-Host ""
             Write-Host "===== $Label log =====" -ForegroundColor DarkYellow
-            Get-Content -LiteralPath $LogPath -Tail 80
+            $combinedLines = @()
+            foreach ($path in @($stdoutLogPath, $stderrLogPath)) {
+                if ($path -and (Test-Path -LiteralPath $path)) {
+                    $combinedLines += Get-Content -LiteralPath $path
+                }
+            }
+            if ($combinedLines.Count -gt 0) {
+                $combinedLines | Select-Object -Last 80
+            } else {
+                Write-Host "(sem detalhes adicionais no log)"
+            }
             Write-Host "===== end log =====" -ForegroundColor DarkYellow
         }
         exit $process.ExitCode
+    }
+
+    if ($LogPath) {
+        $combinedLines = @()
+        foreach ($path in @($stdoutLogPath, $stderrLogPath)) {
+            if ($path -and (Test-Path -LiteralPath $path)) {
+                $combinedLines += Get-Content -LiteralPath $path
+            }
+        }
+        if ($combinedLines.Count -gt 0) {
+            Set-Content -LiteralPath $LogPath -Value $combinedLines -Encoding UTF8
+        }
     }
 
     Write-Ok $SuccessMessage
