@@ -490,6 +490,11 @@ def _upgrade_provider_key_route_states(sync_conn) -> None:
 
 def _upgrade_provider_model_route_scores(sync_conn) -> None:
     _ensure_provider_model_route_score_table(sync_conn)
+    _ensure_provider_key_route_state_rank_columns(sync_conn)
+
+    inspector = inspect(sync_conn)
+    if "provider_key_route_states" not in inspector.get_table_names():
+        return
 
     existing_rows = sync_conn.execute(
         select(
