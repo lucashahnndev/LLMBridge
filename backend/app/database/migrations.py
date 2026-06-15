@@ -94,6 +94,44 @@ def _ensure_model_queue_rank_columns(sync_conn) -> None:
     )
 
 
+def _ensure_provider_key_route_state_rank_columns(sync_conn) -> None:
+    inspector = inspect(sync_conn)
+    if "provider_key_route_states" not in inspector.get_table_names():
+        return
+
+    existing_columns = {column["name"] for column in inspector.get_columns("provider_key_route_states")}
+    additions: list[tuple[str, str]] = []
+    if "base_degradation" not in existing_columns:
+        additions.append(("base_degradation", "FLOAT NOT NULL DEFAULT 0"))
+    if "latency_score" not in existing_columns:
+        additions.append(("latency_score", "FLOAT NOT NULL DEFAULT 0"))
+    if "error_score" not in existing_columns:
+        additions.append(("error_score", "FLOAT NOT NULL DEFAULT 0"))
+    if "final_rank" not in existing_columns:
+        additions.append(("final_rank", "FLOAT NOT NULL DEFAULT 0"))
+    if "score" not in existing_columns:
+        additions.append(("score", "FLOAT NOT NULL DEFAULT 0"))
+    if "failure_count" not in existing_columns:
+        additions.append(("failure_count", "INTEGER NOT NULL DEFAULT 0"))
+    if "success_count" not in existing_columns:
+        additions.append(("success_count", "INTEGER NOT NULL DEFAULT 0"))
+    if "avg_latency_ms" not in existing_columns:
+        additions.append(("avg_latency_ms", "FLOAT NOT NULL DEFAULT 0"))
+
+    for column_name, column_def in additions:
+        sync_conn.execute(text(f"ALTER TABLE provider_key_route_states ADD COLUMN {column_name} {column_def}"))
+
+    sync_conn.execute(
+        text(
+            """
+            UPDATE provider_key_route_states
+            SET final_rank = score
+            WHERE final_rank IS NULL OR final_rank = 0
+            """
+        )
+    )
+
+
 def _ensure_tables(sync_conn, *tables) -> None:
     for table in tables:
         table.create(sync_conn, checkfirst=True)
@@ -387,6 +425,7 @@ def _upgrade_alert_settings(sync_conn) -> None:
 
 def _upgrade_provider_key_route_states(sync_conn) -> None:
     _ensure_tables(sync_conn, ProviderKeyRouteState.__table__)
+    _ensure_provider_key_route_state_rank_columns(sync_conn)
 
     inspector = inspect(sync_conn)
     if "provider_key_model_cooldowns" not in inspector.get_table_names():

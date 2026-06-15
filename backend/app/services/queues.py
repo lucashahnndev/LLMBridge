@@ -177,6 +177,16 @@ def _interleave_queue_routes(
     return interleaved
 
 
+def _global_route_rank(availability: object) -> float:
+    eligible_states = getattr(availability, "eligible_states", {}) or {}
+    route_ranks: list[float] = []
+    for route_state in eligible_states.values():
+        if route_state is None:
+            continue
+        route_ranks.append(route_state.final_rank)
+    return min(route_ranks) if route_ranks else 0.0
+
+
 async def resolve_model_routes(session: AsyncSession, model: str) -> list[ResolvedRouteCandidate]:
     snapshot = await resolve_model_route_snapshot(session, model)
     return snapshot.routes
@@ -270,36 +280,54 @@ async def materialize_model_route_snapshot(session: AsyncSession, model: str) ->
     if not queue.is_active:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=f"Queue '{queue_name}' is disabled")
 
-    sorted_candidates = _apply_queue_sort(queue.strategy, list(queue.candidates))
-    if not sorted_candidates:
-        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=f"Queue '{queue_name}' has no active candidates")
-
-    summary = RouteMaterializationSummary()
-    resolved_route_groups: list[list[ResolvedRouteCandidate]] = []
-    for candidate in sorted_candidates:
+    candidate_rows: list[tuple[ModelQueueCandidate, float, RouteMaterializationSummary, object]] = []
+    for candidate in list(queue.candidates):
         operational_model_name = normalize_provider_route_model_name(candidate.provider, candidate.model_name)
         availability = await summarize_provider_route_availability(
             session,
             provider=candidate.provider,
             model_name=operational_model_name,
         )
-        summary.merge(RouteMaterializationSummary(**availability.summary))
-        if availability.eligible_keys:
-            resolved_route_groups.append(
-                [
-                    ResolvedRouteCandidate(
-                        provider=candidate.provider,
-                        model_name=operational_model_name,
-                        queue_name=queue.name,
-                        queue_id=queue.id,
-                        candidate_id=candidate.id,
-                        provider_key_id=provider_key.id,
-                        provider_key_name=provider_key.name,
-                    )
-                    for provider_key in availability.eligible_keys
-                ]
-            )
+        if not availability.eligible_keys:
             continue
+        candidate_rows.append(
+            (
+                candidate,
+                _global_route_rank(availability),
+                RouteMaterializationSummary(**availability.summary),
+                availability,
+            )
+        )
+
+    if not candidate_rows:
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=f"Queue '{queue_name}' has no active candidates")
+
+    if queue.strategy == QueueStrategy.LATENCY:
+        candidate_rows.sort(key=lambda item: (item[1], item[0].position, item[0].id))
+    elif queue.strategy == QueueStrategy.SMART:
+        candidate_rows.sort(key=lambda item: (item[1], item[0].position, item[0].id))
+    else:
+        candidate_rows.sort(key=lambda item: (item[0].position, item[1], item[0].id))
+
+    summary = RouteMaterializationSummary()
+    resolved_route_groups: list[list[ResolvedRouteCandidate]] = []
+    for candidate, _, candidate_summary, availability in candidate_rows:
+        summary.merge(candidate_summary)
+        operational_model_name = normalize_provider_route_model_name(candidate.provider, candidate.model_name)
+        resolved_route_groups.append(
+            [
+                ResolvedRouteCandidate(
+                    provider=candidate.provider,
+                    model_name=operational_model_name,
+                    queue_name=queue.name,
+                    queue_id=queue.id,
+                    candidate_id=candidate.id,
+                    provider_key_id=provider_key.id,
+                    provider_key_name=provider_key.name,
+                )
+                for provider_key in availability.eligible_keys
+            ]
+        )
 
     resolved_routes = _interleave_queue_routes(resolved_route_groups)
 

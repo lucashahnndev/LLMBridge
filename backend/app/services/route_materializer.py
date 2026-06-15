@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Iterable, Literal
 
 from fastapi import HTTPException, status
@@ -40,6 +40,14 @@ class RouteMaterializer:
 
     def invalidate_model(self, model: str) -> None:
         self._catalog.snapshots.pop(model, None)
+
+    def _snapshot_has_expired_recoverable_cooldown(self, snapshot: ResolvedRouteSnapshot) -> bool:
+        if snapshot.summary.recoverable_cooldowns <= 0:
+            return False
+        cooldown_until = snapshot.summary.smallest_cooldown_until
+        if cooldown_until is None:
+            return False
+        return cooldown_until <= datetime.now(timezone.utc)
 
     def mark_route_unavailable(
         self,
@@ -179,6 +187,11 @@ class RouteMaterializer:
     async def ensure_snapshot(self, model: str) -> ResolvedRouteSnapshot:
         snapshot = self.get_snapshot(model)
         if snapshot is not None:
+            if self._snapshot_has_expired_recoverable_cooldown(snapshot):
+                snapshot = await self.refresh_model(model)
+                if snapshot is None:
+                    raise RuntimeError(f"Unable to materialize route snapshot for '{model}'")
+                return snapshot
             return snapshot
         snapshot = await self.refresh_model(model)
         if snapshot is None:
@@ -255,6 +268,17 @@ def schedule_route_materializer_refresh_all() -> None:
 
 def invalidate_materialized_route_snapshot(model: str) -> None:
     _route_materializer.invalidate_model(model)
+
+
+def invalidate_all_materialized_route_snapshots() -> None:
+    _route_materializer.set_snapshots({})
+
+
+def invalidate_and_refresh_materialized_route_snapshots() -> None:
+    # Drop every cached snapshot immediately so the next request rehydrates from the DB,
+    # then rebuild the catalog in the background to keep the hot path adaptive.
+    invalidate_all_materialized_route_snapshots()
+    schedule_route_materializer_refresh_all()
 
 
 def apply_materialized_route_unavailability(

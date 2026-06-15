@@ -12,6 +12,7 @@ import httpx
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from fastapi.responses import StreamingResponse
+from starlette.background import BackgroundTask
 from sqlalchemy import and_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -48,7 +49,11 @@ from backend.app.services.queues import (
 from backend.app.services.trace import ProxyTraceRecorder
 from backend.app.services.records import ensure_utc_datetime
 from backend.app.services.retry_parser import parse_retry_after_seconds
-from backend.app.services.route_materializer import ensure_materialized_route_snapshot
+from backend.app.services.route_materializer import (
+    ensure_materialized_route_snapshot,
+    invalidate_all_materialized_route_snapshots,
+    schedule_route_materializer_refresh_all,
+)
 
 
 logger = logging.getLogger(__name__)
@@ -69,6 +74,11 @@ NON_CHAT_MODEL_MARKERS = (
     "tts",
     "whisper",
 )
+
+
+def _refresh_route_materializer_catalog() -> None:
+    invalidate_all_materialized_route_snapshots()
+    schedule_route_materializer_refresh_all()
 
 
 @dataclass(frozen=True)
@@ -394,12 +404,14 @@ async def _send_resolution_alert(
     rotated: bool,
     tool_calling: bool,
     final_route: str | None,
+    final_provider_key_name: str | None,
     error: str | dict[str, object] | list[object] | None,
 ) -> None:
     alert_message = format_proxy_failure_alert(
         app_token_name=app_token.name,
         requested_model=requested_model,
         final_route=final_route,
+        final_provider_key_name=final_provider_key_name,
         route_kind=route_kind,
         queue_name=queue_name,
         protocol_in=protocol_in,
@@ -1183,9 +1195,11 @@ async def proxy_chat_completion(
             )
         last_status_code = status.HTTP_502_BAD_GATEWAY
         last_body: dict[str, object] | list[object] | str = {"detail": "Proxy request failed"}
+        last_provider_key_name: str | None = None
 
         for attempt_index, route in enumerate(routes):
             route_payload = payload.model_copy(update={"model": route.route})
+            last_provider_key_name = route.provider_key_name
             if trace.enabled:
                 trace.record_resolution(
                     route={**asdict(route), "route": route.route},
@@ -1211,7 +1225,6 @@ async def proxy_chat_completion(
                 detail = exc.detail if isinstance(exc.detail, (dict, list)) else {"detail": str(exc.detail)}
                 body = detail
                 latency_ms = 0.0
-
             if 200 <= status_code < 300:
                 if trace.enabled:
                     trace.record_final_response(status_code=status_code, body=body)
@@ -1238,6 +1251,7 @@ async def proxy_chat_completion(
                 rotated=len(routes) > 1,
                 tool_calling=is_tool_calling_payload(payload.model_dump(exclude_none=True, exclude={"model"})),
                 final_route=routes[-1].route if routes else None,
+                final_provider_key_name=last_provider_key_name,
                 error=_extract_error_text(last_body),
             )
 
@@ -1248,6 +1262,7 @@ async def proxy_chat_completion(
     finally:
         if owns_client:
             await client.aclose()
+        _refresh_route_materializer_catalog()
 
 
 async def proxy_chat_completion_stream(
@@ -1321,6 +1336,7 @@ async def proxy_chat_completion_stream(
                 )
         if trace.enabled:
             trace.write()
+        _refresh_route_materializer_catalog()
         raise
 
     if trace.enabled:
@@ -1335,8 +1351,10 @@ async def proxy_chat_completion_stream(
 
     last_error: str | dict[str, object] | list[object] | None = None
     last_status_code = status.HTTP_502_BAD_GATEWAY
+    last_provider_key_name: str | None = None
     for attempt_index, route in enumerate(routes):
         route_payload = payload.model_copy(update={"model": route.route})
+        last_provider_key_name = route.provider_key_name
         if trace.enabled:
             trace.record_resolution(
                 route={**asdict(route), "route": route.route},
@@ -1378,12 +1396,14 @@ async def proxy_chat_completion_stream(
             rotated=len(routes) > 1,
             tool_calling=is_tool_calling_payload(payload.model_dump(exclude_none=True, exclude={"model"})),
             final_route=routes[-1].route if routes else None,
+            final_provider_key_name=last_provider_key_name,
             error=last_error,
         )
 
     if trace.enabled:
         trace.record_final_response(status_code=last_status_code, body=last_error or {"detail": "Proxy request failed"})
         trace.write()
+    _refresh_route_materializer_catalog()
     raise HTTPException(status_code=last_status_code, detail=last_error or "Proxy request failed")
 
 
@@ -1667,6 +1687,7 @@ async def _proxy_chat_completion_stream_for_route(
                 google_native_stream_generator(),
                 media_type="text/event-stream",
                 headers=stream_headers,
+                background=BackgroundTask(_refresh_route_materializer_catalog),
             )
 
         if not use_google_native:
@@ -1910,6 +1931,7 @@ async def _proxy_chat_completion_stream_for_route(
                 stream_generator(),
                 media_type="text/event-stream",
                 headers=stream_headers,
+                background=BackgroundTask(_refresh_route_materializer_catalog),
             )
 
     raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="Proxy request failed")

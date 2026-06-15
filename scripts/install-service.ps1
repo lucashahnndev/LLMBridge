@@ -32,9 +32,7 @@ trap {
     throw
 }
 
-Write-Host "=======================================================" -ForegroundColor Cyan
-Write-Host "   Configurando Servico Windows - LLMBridge" -ForegroundColor Cyan
-Write-Host "=======================================================" -ForegroundColor Cyan
+Write-Host "Configurando servico Windows - LLMBridge" -ForegroundColor Cyan
 Write-Host ""
 
 $ScriptPath = Split-Path -Parent $MyInvocation.MyCommand.Definition
@@ -78,21 +76,21 @@ if (-not (Test-IsAdministrator)) {
     exit 1
 }
 
+function Set-ConsoleTheme {
+    if ($Host.UI -and $Host.UI.RawUI) {
+        try {
+            $Host.UI.RawUI.BackgroundColor = "DarkGray"
+            $Host.UI.RawUI.ForegroundColor = "DarkYellow"
+            Clear-Host
+        } catch {}
+    }
+}
+
+Set-ConsoleTheme
+
 function Show-Banner {
-    Write-Host "      _      _     ____    ____  ____  ____  _____  ____  _____ " -ForegroundColor Cyan
-    Write-Host "     | |    | |   |  _ \  | __ )| __ )|  _ \| ____|/ ___|| ____|" -ForegroundColor Cyan
-    Write-Host "     | |    | |   | | | | |  _ \|  _ \| |_) |  _|  \___ \|  _|  " -ForegroundColor Cyan
-    Write-Host "     | |___ | |___| |_| | | |_) | |_) |  _ <| |___  ___) | |___ " -ForegroundColor Cyan
-    Write-Host "     |_____|_____|____/  |____/|____/|_| \_\_____| |____/|_____|" -ForegroundColor Cyan
-    Write-Host ""
-    Write-Host "                         __" -ForegroundColor Yellow
-    Write-Host "                        /o \_____" -ForegroundColor Yellow
-    Write-Host "                        \__/-=' ='" -ForegroundColor Yellow
-    Write-Host "                        o/   __/" -ForegroundColor Yellow
-    Write-Host "                        /___/" -ForegroundColor Yellow
-    Write-Host ""
-    Write-Host "        LLMBridge Windows Installer" -ForegroundColor Magenta
-    Write-Host "        local, clean, fast" -ForegroundColor DarkCyan
+    Write-Host "LLMBridge Windows Service Installer" -ForegroundColor DarkYellow
+    Write-Host "local, safe, stateful" -ForegroundColor DarkYellow
     Write-Host ""
 }
 
@@ -461,7 +459,7 @@ function Remove-InstallFiles {
         return
     }
 
-    Write-Warn "Limpando arquivos antigos."
+    Write-Warn "Limpando arquivos antigos do install root."
     Remove-Item -LiteralPath $InstallRoot -Recurse -Force
 }
 

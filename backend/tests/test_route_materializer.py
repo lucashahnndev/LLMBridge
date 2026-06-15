@@ -5,6 +5,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from fastapi import HTTPException, status
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from backend.app.database.base import Base
@@ -24,6 +25,9 @@ class RouteMaterializerTest(unittest.TestCase):
 
     def test_cached_snapshot_removes_unavailable_route_immediately(self) -> None:
         asyncio.run(self._run_cached_snapshot_patch_test())
+
+    def test_cached_snapshot_refreshes_after_cooldown_expires(self) -> None:
+        asyncio.run(self._run_cached_snapshot_refresh_after_cooldown_test())
 
     def test_materialized_queue_routes_use_operational_model_name_for_aliases(self) -> None:
         asyncio.run(self._run_alias_materialization_test())
@@ -154,6 +158,71 @@ class RouteMaterializerTest(unittest.TestCase):
                 self.assertEqual(patched_queue_snapshot.summary.cooldown_count, 1)
             finally:
                 invalidate_materialized_route_snapshot("google/flash")
+                invalidate_materialized_route_snapshot("queue/prod")
+                await engine.dispose()
+
+    async def _run_cached_snapshot_refresh_after_cooldown_test(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            db_path = Path(temp_dir) / "route-materializer-refresh.sqlite"
+            engine = create_async_engine(f"sqlite+aiosqlite:///{db_path}")
+            session_factory = async_sessionmaker(bind=engine, expire_on_commit=False)
+
+            async with engine.begin() as conn:
+                await conn.run_sync(Base.metadata.create_all)
+
+            try:
+                async with session_factory() as session:
+                    queue = ModelQueue(name="prod", description=None, strategy=QueueStrategy.ORDERED, is_active=True)
+                    session.add(queue)
+                    await session.flush()
+                    session.add(ModelQueueCandidate(queue_id=queue.id, provider="google", model_name="flash", position=0))
+                    await session.flush()
+
+                    key = ProviderKey(
+                        name="Key A",
+                        description=None,
+                        provider="google",
+                        encrypted_token="cipher-a",
+                        status=KeyStatus.ACTIVE,
+                        blocked_until=None,
+                        failure_count=0,
+                    )
+                    session.add(key)
+                    await session.flush()
+                    route_state = ProviderKeyRouteState(
+                        provider_key_id=key.id,
+                        provider="google",
+                        model_name="flash",
+                        cooldown_until=datetime.now(timezone.utc) + timedelta(seconds=60),
+                    )
+                    session.add(route_state)
+                    await session.commit()
+
+                    snapshot = await materialize_model_route_snapshot(session, "queue/prod")
+                    self.assertEqual(snapshot.routes, [])
+                    snapshot.summary.smallest_cooldown_until = datetime.now(timezone.utc) - timedelta(seconds=1)
+
+                    materializer = get_route_materializer()
+                    invalidate_materialized_route_snapshot("queue/prod")
+                    materializer.set_snapshot("queue/prod", snapshot)
+
+                    refreshed_state = (
+                        await session.execute(
+                            select(ProviderKeyRouteState).where(
+                                ProviderKeyRouteState.provider_key_id == key.id,
+                                ProviderKeyRouteState.provider == "google",
+                                ProviderKeyRouteState.model_name == "flash",
+                            )
+                        )
+                    ).scalar_one()
+                    refreshed_state.cooldown_until = None
+                    await session.commit()
+
+                    refreshed_snapshot = await ensure_materialized_route_snapshot(session, "queue/prod")
+
+                self.assertEqual([route.provider_key_name for route in refreshed_snapshot.routes], ["Key A"])
+                self.assertEqual(refreshed_snapshot.summary.recoverable_cooldowns, 0)
+            finally:
                 invalidate_materialized_route_snapshot("queue/prod")
                 await engine.dispose()
 

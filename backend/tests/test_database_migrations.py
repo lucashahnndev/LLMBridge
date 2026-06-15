@@ -77,6 +77,14 @@ class DatabaseMigrationTest(unittest.TestCase):
                 self.assertIn("in_flight_count", route_state_column_names)
                 self.assertIn("soft_reserved_until", route_state_column_names)
                 self.assertIn("next_available_at", route_state_column_names)
+                self.assertIn("base_degradation", route_state_column_names)
+                self.assertIn("latency_score", route_state_column_names)
+                self.assertIn("error_score", route_state_column_names)
+                self.assertIn("final_rank", route_state_column_names)
+                self.assertIn("score", route_state_column_names)
+                self.assertIn("failure_count", route_state_column_names)
+                self.assertIn("success_count", route_state_column_names)
+                self.assertIn("avg_latency_ms", route_state_column_names)
 
                 queue_candidate_columns = await conn.exec_driver_sql("PRAGMA table_info(model_queue_candidates)")
                 queue_candidate_column_names = {row[1] for row in queue_candidate_columns.fetchall()}

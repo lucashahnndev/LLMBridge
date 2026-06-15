@@ -17,6 +17,7 @@ class TelegramAlertFormattingTest(unittest.TestCase):
             app_token_name="Atlas",
             requested_model="queue/gemini",
             final_route="google/gemini-3-flash-preview",
+            final_provider_key_name="Key B",
             route_kind="queue",
             queue_name="gemini",
             protocol_in="anthropic",
@@ -33,6 +34,7 @@ class TelegramAlertFormattingTest(unittest.TestCase):
         self.assertIn("• *App token:* `Atlas`", message)
         self.assertIn("• *Requested model:* `queue/gemini`", message)
         self.assertIn("• *Final route:* `google/gemini-3-flash-preview`", message)
+        self.assertIn("• *Final provider key:* `Key B`", message)
         self.assertIn("• *Tool calling:* `yes`", message)
         self.assertIn("*Error log*", message)
         self.assertIn("Provider timeout", message)

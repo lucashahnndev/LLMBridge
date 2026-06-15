@@ -8,7 +8,7 @@ from typing import Any
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.app.core.config import get_settings
-from backend.app.database.models import KeyStatus, ModelQueueCandidate, ProviderKey
+from backend.app.database.models import KeyStatus, ModelQueueCandidate, ProviderKey, ProviderKeyRouteState
 from backend.app.services.availability import (
     apply_route_block,
     apply_route_cooldown,
@@ -81,6 +81,43 @@ class RouteClassificationEvent:
 
 def _latency_score(latency_ms: float) -> float:
     return max(0.0, min(1.0, latency_ms / 10000.0))
+
+
+def _refresh_route_state_rank(route_state: ProviderKeyRouteState) -> None:
+    route_state.final_rank = route_state.base_degradation + route_state.latency_score + route_state.error_score
+    route_state.score = route_state.final_rank
+
+
+def _update_route_state_for_success(route_state: ProviderKeyRouteState, latency_ms: float, event_time: datetime) -> None:
+    route_state.last_used_at = event_time
+    route_state.success_count = route_state.success_count + 1
+    route_state.avg_latency_ms = (
+        latency_ms
+        if route_state.success_count <= 1
+        else ((route_state.avg_latency_ms * (route_state.success_count - 1)) + latency_ms) / route_state.success_count
+    )
+    route_state.latency_score = _latency_score(route_state.avg_latency_ms)
+    recovery = max(SUCCESS_RECOVERY_FLOOR, min(SUCCESS_RECOVERY_CEILING, 0.18 - (latency_ms / 10000.0)))
+    route_state.error_score = max(0.0, route_state.error_score - recovery)
+    _refresh_route_state_rank(route_state)
+
+
+def _update_route_state_for_failure(route_state: ProviderKeyRouteState, event: RouteClassificationEvent) -> None:
+    failure_weight = _provider_model_failure_weight(event)
+    route_state.last_used_at = event.finished_at
+    if failure_weight <= 0.0:
+        return
+
+    route_state.failure_count = route_state.failure_count + 1
+    total_observations = route_state.success_count + route_state.failure_count
+    route_state.avg_latency_ms = (
+        event.latency_ms
+        if total_observations <= 1
+        else ((route_state.avg_latency_ms * max(total_observations - 1, 0)) + event.latency_ms) / total_observations
+    )
+    route_state.latency_score = _latency_score(route_state.avg_latency_ms)
+    route_state.error_score = route_state.error_score + failure_weight
+    _refresh_route_state_rank(route_state)
 
 
 def _provider_model_failure_weight(event: RouteClassificationEvent) -> float:
@@ -200,7 +237,7 @@ async def classify_route_classification_event(session: AsyncSession, event: Rout
             route_state.cooldown_until = None
             if not route_state.disabled:
                 route_state.blocked_until = None
-            route_state.last_used_at = finished_at
+            _update_route_state_for_success(route_state, event.latency_ms, finished_at)
         if provider_key is not None and provider_key.status != KeyStatus.ACTIVE:
             provider_key.status = KeyStatus.ACTIVE
             provider_key.blocked_until = None
@@ -221,6 +258,7 @@ async def classify_route_classification_event(session: AsyncSession, event: Rout
                 else float(settings.key_cooldown_seconds)
             )
             apply_route_cooldown(route_state, delay_seconds=delay, now=finished_at)
+            _update_route_state_for_failure(route_state, event)
         await session.commit()
         _patch_event_snapshots_for_unavailability(
             event,
@@ -233,6 +271,7 @@ async def classify_route_classification_event(session: AsyncSession, event: Rout
     if event.status_code in {401, 403} and provider_key is not None and route_state is not None:
         provider_key.failure_count = provider_key.failure_count + 1
         provider_key.blocked_until = None
+        _update_route_state_for_failure(route_state, event)
         if event.status_code == 401:
             provider_key.status = KeyStatus.INVALID
             apply_route_block(route_state, disabled=True, disabled_reason="unauthorized")
@@ -250,6 +289,7 @@ async def classify_route_classification_event(session: AsyncSession, event: Rout
 
     if _is_route_access_404(event) and route_state is not None:
         apply_route_block(route_state, disabled=True, disabled_reason="not_found")
+        _update_route_state_for_failure(route_state, event)
         await session.commit()
         _patch_event_snapshots_for_unavailability(event, reason="disabled")
         _schedule_event_snapshot_refresh(event)
@@ -262,8 +302,10 @@ async def classify_route_classification_event(session: AsyncSession, event: Rout
         _schedule_event_snapshot_refresh(event)
         return
 
-    if event.status_code >= 500 and route_state is not None and retry_result is not None:
-        apply_route_cooldown(route_state, delay_seconds=retry_result.retry_after_seconds, now=finished_at)
+    if event.status_code >= 500 and route_state is not None:
+        if retry_result is not None:
+            apply_route_cooldown(route_state, delay_seconds=retry_result.retry_after_seconds, now=finished_at)
+        _update_route_state_for_failure(route_state, event)
 
     if candidate is not None:
         await _update_candidate_for_failure(session, candidate, event)

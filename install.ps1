@@ -7,22 +7,30 @@ $InstallRoot = if ($env:LLMBRIDGE_INSTALL_DIR) {
     Join-Path (Join-Path $HOME "apps") "LLMBridge"
 }
 
+function Set-InstallerTheme {
+    if ($Host.UI -and $Host.UI.RawUI) {
+        try {
+            $Host.UI.RawUI.BackgroundColor = "DarkGray"
+            $Host.UI.RawUI.ForegroundColor = "DarkYellow"
+            Clear-Host
+        } catch {}
+    }
+}
+
 function Write-Stage {
     param([string]$Message)
-    Write-Host "[>] $Message" -ForegroundColor Yellow
+    Write-Host "[>] $Message" -ForegroundColor DarkYellow
 }
 
 function Write-Ok {
     param([string]$Message)
-    Write-Host "[+] $Message" -ForegroundColor Green
+    Write-Host "[+] $Message" -ForegroundColor DarkYellow
 }
 
-Write-Host "======================================================="
-Write-Host "  LLMBridge Windows installer"
-Write-Host "======================================================="
-Write-Host "  source repo : $RepoUrl"
-Write-Host "  target path : $InstallRoot"
-Write-Host "======================================================="
+Set-InstallerTheme
+Write-Host "LLMBridge Windows installer" -ForegroundColor DarkYellow
+Write-Host "source repo : $RepoUrl" -ForegroundColor DarkYellow
+Write-Host "clone path  : $InstallRoot" -ForegroundColor DarkYellow
 Write-Host ""
 
 if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
@@ -37,7 +45,7 @@ if ($InstallParent -and -not (Test-Path $InstallParent)) {
 }
 
 if (Test-Path $InstallRoot) {
-    Write-Stage "removendo instalacao anterior em $InstallRoot"
+    Write-Stage "removendo clone local anterior em $InstallRoot"
     Remove-Item $InstallRoot -Recurse -Force
 }
 
@@ -50,4 +58,4 @@ if ($LASTEXITCODE -ne 0) {
 
 Set-Location $InstallRoot
 Write-Ok "Executando bootstrap em $PWD"
-& .\bootstrap.bat
+& .\bootstrap.ps1

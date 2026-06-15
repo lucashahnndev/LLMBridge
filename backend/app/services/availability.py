@@ -25,6 +25,16 @@ def normalize_provider_route_model_name(provider: str, model_name: str) -> str:
     return resolve_model_name(cleaned_model_name)
 
 
+def _route_state_rank_value(route_state: ProviderKeyRouteState | None) -> tuple[float, int, datetime]:
+    if route_state is None:
+        return (0.0, 0, datetime.min.replace(tzinfo=timezone.utc))
+    return (
+        route_state.final_rank,
+        route_state.in_flight_count,
+        ensure_utc_datetime(route_state.last_used_at) or datetime.min.replace(tzinfo=timezone.utc),
+    )
+
+
 async def get_provider_key_route_state(
     session: AsyncSession,
     *,
@@ -217,7 +227,7 @@ async def summarize_provider_route_availability(
         for route_state in route_states_result.scalars().all()
     }
 
-    eligible_rows: list[tuple[int, datetime, datetime, int, ProviderKey]] = []
+    eligible_rows: list[tuple[float, int, datetime, int, ProviderKey]] = []
     eligible_states: dict[int, ProviderKeyRouteState | None] = {}
     cooldown_count = 0
     disabled_count = 0
@@ -261,12 +271,8 @@ async def summarize_provider_route_availability(
 
         eligible_rows.append(
             (
-                route_state.in_flight_count if route_state is not None else 0,
-                (
-                    ensure_utc_datetime(route_state.last_used_at) or datetime.min.replace(tzinfo=timezone.utc)
-                    if route_state is not None
-                    else datetime.min.replace(tzinfo=timezone.utc)
-                ),
+                _route_state_rank_value(route_state)[0],
+                _route_state_rank_value(route_state)[1],
                 ensure_utc_datetime(provider_key.updated_at) or datetime.min.replace(tzinfo=timezone.utc),
                 provider_key.id,
                 provider_key,

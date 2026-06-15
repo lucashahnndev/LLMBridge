@@ -61,8 +61,16 @@ try {
     Write-Host "[*] Iniciando frontend preview em $FrontendHost`:$FrontendPort..." -ForegroundColor Yellow
     $frontendProcess = Start-Process -FilePath "npm.cmd" -ArgumentList @("run", "preview", "--", "--host", $FrontendHost, "--port", $FrontendPort, "--strictPort") -WorkingDirectory $FrontendDir -PassThru
 
+    Write-Host "[*] Servico em execucao. Aguardando processos..." -ForegroundColor Yellow
+    Write-Host "    backend: $($backendProcess.Id) | frontend: $($frontendProcess.Id)" -ForegroundColor DarkYellow
+
+    $lastHeartbeat = Get-Date
     while ($true) {
         Start-Sleep -Seconds 2
+        if (((Get-Date) - $lastHeartbeat).TotalSeconds -ge 30) {
+            Write-Host "[*] Ainda em execucao: backend e frontend continuam ativos." -ForegroundColor DarkYellow
+            $lastHeartbeat = Get-Date
+        }
         if ($backendProcess.HasExited -or $frontendProcess.HasExited) {
             if ($backendProcess.HasExited) {
                 Write-Host "[!] Backend finalizou; encerrando frontend." -ForegroundColor Yellow

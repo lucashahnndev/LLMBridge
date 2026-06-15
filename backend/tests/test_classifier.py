@@ -41,6 +41,9 @@ class RouteClassifierTest(unittest.TestCase):
     def test_success_event_updates_latency_and_distribution(self) -> None:
         asyncio.run(self._run_success_event_test())
 
+    def test_global_route_state_rank_reorders_queue_candidates(self) -> None:
+        asyncio.run(self._run_global_route_state_rank_test())
+
     def test_429_with_retry_after_updates_cooldown_until(self) -> None:
         asyncio.run(self._run_retry_after_test())
 
@@ -126,6 +129,75 @@ class RouteClassifierTest(unittest.TestCase):
             self.assertIsNotNone(route_state.last_used_at)
             self.assertEqual(route_state.in_flight_count, 0)
             self.assertIsNotNone(route_state.next_available_at)
+        finally:
+            await engine.dispose()
+            temp_dir.cleanup()
+
+    async def _run_global_route_state_rank_test(self) -> None:
+        temp_dir, engine, session_factory = await self._create_session_factory("classifier-global-rank.sqlite")
+        try:
+            async with session_factory() as session:
+                queue = ModelQueue(name="prod", description=None, strategy=QueueStrategy.SMART, is_active=True)
+                session.add(queue)
+                await session.flush()
+                google_candidate = ModelQueueCandidate(queue_id=queue.id, provider="google", model_name="flash", position=0)
+                openai_candidate = ModelQueueCandidate(queue_id=queue.id, provider="openai", model_name="gpt-4o-mini", position=1)
+                google_key = ProviderKey(
+                    name="Google Key",
+                    description=None,
+                    provider="google",
+                    encrypted_token="cipher-google",
+                    status=KeyStatus.ACTIVE,
+                    blocked_until=None,
+                    failure_count=0,
+                )
+                openai_key = ProviderKey(
+                    name="OpenAI Key",
+                    description=None,
+                    provider="openai",
+                    encrypted_token="cipher-openai",
+                    status=KeyStatus.ACTIVE,
+                    blocked_until=None,
+                    failure_count=0,
+                )
+                session.add_all([google_candidate, openai_candidate, google_key, openai_key])
+                await session.commit()
+
+                event = RouteClassificationEvent(
+                    provider="google",
+                    model_name="flash",
+                    key_id=google_key.id,
+                    candidate_id=None,
+                    success=False,
+                    status_code=500,
+                    latency_ms=3200.0,
+                    started_at=google_key.created_at,
+                    finished_at=google_key.created_at,
+                    route_kind="provider",
+                    requested_model="google/flash",
+                    resolved_model="google/flash",
+                    error_message="Upstream provider error",
+                )
+                await classify_route_classification_event(session, event)
+
+                google_route_state = (
+                    await session.execute(
+                        select(ProviderKeyRouteState).where(
+                            ProviderKeyRouteState.provider_key_id == google_key.id,
+                            ProviderKeyRouteState.provider == "google",
+                            ProviderKeyRouteState.model_name == "flash",
+                        )
+                    )
+                ).scalar_one()
+                refreshed_google_candidate = await session.get(ModelQueueCandidate, google_candidate.id)
+                snapshot = await materialize_model_route_snapshot(session, "queue/prod")
+
+            self.assertGreater(google_route_state.final_rank, 0.0)
+            self.assertEqual(refreshed_google_candidate.final_rank, 0.0)
+            self.assertEqual(
+                [route.provider_key_name for route in snapshot.routes],
+                ["OpenAI Key", "Google Key"],
+            )
         finally:
             await engine.dispose()
             temp_dir.cleanup()
