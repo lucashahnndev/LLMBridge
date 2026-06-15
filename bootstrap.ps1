@@ -199,7 +199,7 @@ if (-not (Test-Path -LiteralPath (Join-Path $RepoRoot "bin"))) {
 }
 
 Invoke-LoggedProcess -Label "4/7 [RUN] preparando backend.env e banco SQLite" -SuccessMessage "4/7 [DONE] backend.env e SQLite prontos" -FilePath $SourcePython -ArgumentList @($BootstrapEnvScript) -WorkingDirectory $RepoRoot -LogPath (Join-Path $env:TEMP "llmbridge-bootstrap-env.log")
-Invoke-LoggedProcess -Label "4/7 [RUN] validando banco SQLite" -SuccessMessage "4/7 [DONE] banco SQLite validado" -FilePath $SourcePython -ArgumentList @("-c", "import sqlite3, pathlib; db = pathlib.Path('backend/database.db'); db.parent.mkdir(parents=True, exist_ok=True); sqlite3.connect(db).close()") -WorkingDirectory $RepoRoot -LogPath (Join-Path $env:TEMP "llmbridge-sqlite.log")
+Invoke-LoggedProcess -Label "4/7 [RUN] validando banco SQLite" -SuccessMessage "4/7 [DONE] banco SQLite validado" -FilePath $SourcePython -ArgumentList @("-c", "import sqlite3,pathlib;db=pathlib.Path(r'backend/database.db');db.parent.mkdir(parents=True,exist_ok=True);sqlite3.connect(db).close()") -WorkingDirectory $RepoRoot -LogPath (Join-Path $env:TEMP "llmbridge-sqlite.log")
 
 Invoke-LoggedProcess -Label "5/7 [RUN] aplicando migracoes automaticas" -SuccessMessage "5/7 [DONE] migracoes automaticas aplicadas" -FilePath $SourcePython -ArgumentList @("-m", "backend.migrate") -WorkingDirectory $RepoRoot -LogPath (Join-Path $env:TEMP "llmbridge-migrate.log")
 
