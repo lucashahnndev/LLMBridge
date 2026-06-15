@@ -13,6 +13,7 @@ class ModelQueueCandidateBase(BaseModel):
     model_name: str = Field(..., examples=["gemini-3-flash-preview", "gpt-4o-mini"])
     position: int = Field(default=0, ge=0)
     is_active: bool = True
+    base_degradation: float = Field(default=0.0, ge=0.0)
 
 
 class ModelQueueCandidateCreate(ModelQueueCandidateBase):
@@ -24,6 +25,7 @@ class ModelQueueCandidateUpdate(BaseModel):
     model_name: Optional[str] = None
     position: Optional[int] = Field(default=None, ge=0)
     is_active: Optional[bool] = None
+    base_degradation: Optional[float] = Field(default=None, ge=0.0)
 
 
 class ModelQueueCandidateResponse(ORMModel, ModelQueueCandidateBase):

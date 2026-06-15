@@ -53,7 +53,7 @@ class DatabaseMigrationTest(unittest.TestCase):
                 )
 
             applied = await apply_schema_migrations(engine)
-            self.assertEqual(applied, ["0.3.0", "0.3.1", "0.3.2", "0.3.4", "0.3.6", "0.3.7", SCHEMA_VERSION])
+            self.assertEqual(applied, ["0.3.0", "0.3.1", "0.3.2", "0.3.4", "0.3.6", "0.3.7", "0.3.8", SCHEMA_VERSION])
 
             async with engine.begin() as conn:
                 columns = await conn.exec_driver_sql("PRAGMA table_info(usage_logs)")
@@ -92,6 +92,18 @@ class DatabaseMigrationTest(unittest.TestCase):
                 self.assertIn("latency_score", queue_candidate_column_names)
                 self.assertIn("error_score", queue_candidate_column_names)
                 self.assertIn("final_rank", queue_candidate_column_names)
+
+                global_score_columns = await conn.exec_driver_sql("PRAGMA table_info(provider_model_route_scores)")
+                global_score_column_names = {row[1] for row in global_score_columns.fetchall()}
+                self.assertIn("provider", global_score_column_names)
+                self.assertIn("model_name", global_score_column_names)
+                self.assertIn("latency_score", global_score_column_names)
+                self.assertIn("error_score", global_score_column_names)
+                self.assertIn("final_rank", global_score_column_names)
+                self.assertIn("score", global_score_column_names)
+                self.assertIn("failure_count", global_score_column_names)
+                self.assertIn("success_count", global_score_column_names)
+                self.assertIn("avg_latency_ms", global_score_column_names)
 
                 queue_result = await conn.exec_driver_sql(
                     "SELECT id FROM model_queues WHERE name = 'gemini'"

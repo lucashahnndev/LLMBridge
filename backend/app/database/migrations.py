@@ -13,6 +13,7 @@ from backend.app.database.models import (
     ModelQueue,
     ModelQueueCandidate,
     ProviderKey,
+    ProviderModelRouteScore,
     ProviderKeyRouteState,
     QueueStrategy,
     SchemaVersion,
@@ -130,6 +131,10 @@ def _ensure_provider_key_route_state_rank_columns(sync_conn) -> None:
             """
         )
     )
+
+
+def _ensure_provider_model_route_score_table(sync_conn) -> None:
+    _ensure_tables(sync_conn, ProviderModelRouteScore.__table__)
 
 
 def _ensure_tables(sync_conn, *tables) -> None:
@@ -483,6 +488,59 @@ def _upgrade_provider_key_route_states(sync_conn) -> None:
         sync_conn.execute(insert(ProviderKeyRouteState.__table__), inserts)
 
 
+def _upgrade_provider_model_route_scores(sync_conn) -> None:
+    _ensure_provider_model_route_score_table(sync_conn)
+
+    existing_rows = sync_conn.execute(
+        select(
+            ProviderModelRouteScore.__table__.c.provider,
+            ProviderModelRouteScore.__table__.c.model_name,
+        )
+    ).fetchall()
+    existing_keys = {(row[0], row[1]) for row in existing_rows}
+
+    source_rows = sync_conn.execute(
+        text(
+            """
+            SELECT
+                provider,
+                model_name,
+                AVG(latency_score) AS latency_score,
+                AVG(error_score) AS error_score,
+                AVG(final_rank) AS final_rank,
+                AVG(score) AS score,
+                SUM(failure_count) AS failure_count,
+                SUM(success_count) AS success_count,
+                AVG(avg_latency_ms) AS avg_latency_ms
+            FROM provider_key_route_states
+            GROUP BY provider, model_name
+            """
+        )
+    ).fetchall()
+
+    inserts: list[dict[str, object]] = []
+    for row in source_rows:
+        composite_key = (row[0], row[1])
+        if composite_key in existing_keys:
+            continue
+        inserts.append(
+            {
+                "provider": row[0],
+                "model_name": row[1],
+                "latency_score": float(row[2] or 0.0),
+                "error_score": float(row[3] or 0.0),
+                "final_rank": float(row[4] or 0.0),
+                "score": float(row[5] or 0.0),
+                "failure_count": int(row[6] or 0),
+                "success_count": int(row[7] or 0),
+                "avg_latency_ms": float(row[8] or 0.0),
+            }
+        )
+
+    if inserts:
+        sync_conn.execute(insert(ProviderModelRouteScore.__table__), inserts)
+
+
 def _upgrade_model_queue_rank_fields(sync_conn) -> None:
     _ensure_model_queue_rank_columns(sync_conn)
 
@@ -545,6 +603,11 @@ MIGRATION_STEPS: tuple[MigrationStep, ...] = (
         version="0.3.8",
         description="Seed OpenRouter queue and reorder by capability",
         upgrade=_upgrade_seed_and_reorder_openrouter_queue,
+    ),
+    MigrationStep(
+        version="0.3.9",
+        description="Add global provider/model route scores",
+        upgrade=_upgrade_provider_model_route_scores,
     ),
 )
 

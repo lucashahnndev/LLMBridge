@@ -279,9 +279,9 @@ class ProviderKeyRouteState(Base):
     in_flight_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     soft_reserved_until: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     next_available_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
-    # Legacy compatibility column; the global adaptive score is computed from
-    # latency_score and error_score and then mirrored across all rows for the
-    # same provider/model pair.
+    # Legacy compatibility columns. The global adaptive score lives on
+    # ProviderModelRouteScore; these fields remain only for backward
+    # compatibility and should not drive routing decisions.
     base_degradation: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
     latency_score: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
     error_score: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
@@ -303,6 +303,43 @@ class ProviderKeyRouteState(Base):
     )
 
     provider_key: Mapped["ProviderKey"] = relationship(back_populates="route_states")
+
+
+class ProviderModelRouteScore(Base):
+    # Source of truth for adaptive scoring at the provider/model level.
+    __tablename__ = "provider_model_route_scores"
+    __table_args__ = (
+        Index(
+            "ix_provider_model_route_scores_provider_model",
+            "provider",
+            "model_name",
+            unique=True,
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    provider: Mapped[str] = mapped_column(String(50), nullable=False)
+    model_name: Mapped[str] = mapped_column(String(120), nullable=False)
+    latency_score: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
+    error_score: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
+    final_rank: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
+    score: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
+    failure_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    success_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    avg_latency_ms: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
+    last_success_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_error_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.current_timestamp(),
+        nullable=False,
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.current_timestamp(),
+        onupdate=func.current_timestamp(),
+        nullable=False,
+    )
 
 
 class ModelQueueCandidate(Base):

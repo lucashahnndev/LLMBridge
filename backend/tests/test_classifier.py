@@ -19,6 +19,7 @@ from backend.app.database.models import (
     ProviderKey,
     ProviderKeyModelCooldown,
     ProviderKeyRouteState,
+    ProviderModelRouteScore,
     QueueStrategy,
 )
 from backend.app.schemas.proxy import ChatCompletionRequest
@@ -27,6 +28,7 @@ from backend.app.services.classifier import (
     classify_route_classification_event,
 )
 from backend.app.services.crypto import encrypt_text
+from backend.app.services.queues import materialize_model_route_snapshot
 from backend.app.services.proxy import (
     mark_provider_key_auth_failed,
     mark_provider_key_model_failure,
@@ -114,7 +116,6 @@ class RouteClassifierTest(unittest.TestCase):
                 )
                 await classify_route_classification_event(session, event)
 
-                refreshed_candidate = await session.get(ModelQueueCandidate, candidate.id)
                 route_state = (
                     await session.execute(
                         select(ProviderKeyRouteState).where(
@@ -123,12 +124,20 @@ class RouteClassifierTest(unittest.TestCase):
                         )
                     )
                 ).scalar_one()
+                score_row = (
+                    await session.execute(
+                        select(ProviderModelRouteScore).where(
+                            ProviderModelRouteScore.provider == "google",
+                            ProviderModelRouteScore.model_name == "flash",
+                        )
+                    )
+                ).scalar_one()
 
-            self.assertEqual(refreshed_candidate.success_count, 1)
-            self.assertGreater(refreshed_candidate.avg_latency_ms, 1200.0)
             self.assertIsNotNone(route_state.last_used_at)
             self.assertEqual(route_state.in_flight_count, 0)
             self.assertIsNotNone(route_state.next_available_at)
+            self.assertEqual(score_row.success_count, 1)
+            self.assertGreater(score_row.avg_latency_ms, 1200.0)
         finally:
             await engine.dispose()
             temp_dir.cleanup()
@@ -180,20 +189,17 @@ class RouteClassifierTest(unittest.TestCase):
                 )
                 await classify_route_classification_event(session, event)
 
-                google_route_state = (
+                score_row = (
                     await session.execute(
-                        select(ProviderKeyRouteState).where(
-                            ProviderKeyRouteState.provider_key_id == google_key.id,
-                            ProviderKeyRouteState.provider == "google",
-                            ProviderKeyRouteState.model_name == "flash",
+                        select(ProviderModelRouteScore).where(
+                            ProviderModelRouteScore.provider == "google",
+                            ProviderModelRouteScore.model_name == "flash",
                         )
                     )
                 ).scalar_one()
-                refreshed_google_candidate = await session.get(ModelQueueCandidate, google_candidate.id)
                 snapshot = await materialize_model_route_snapshot(session, "queue/prod")
 
-            self.assertGreater(google_route_state.final_rank, 0.0)
-            self.assertEqual(refreshed_google_candidate.final_rank, 0.0)
+            self.assertGreater(score_row.error_score, 0.0)
             self.assertEqual(
                 [route.provider_key_name for route in snapshot.routes],
                 ["OpenAI Key", "Google Key"],
@@ -269,7 +275,6 @@ class RouteClassifierTest(unittest.TestCase):
         try:
             async with session_factory() as session:
                 candidate, key = await self._seed_candidate(session)
-                before = await session.get(ModelQueueCandidate, candidate.id)
                 event = RouteClassificationEvent(
                     provider="google",
                     model_name="flash",
@@ -283,7 +288,6 @@ class RouteClassifierTest(unittest.TestCase):
                     response_body_preview={"error": {"message": "Please retry in 1.2s"}},
                 )
                 await classify_route_classification_event(session, event)
-                refreshed_candidate = await session.get(ModelQueueCandidate, candidate.id)
                 state = (
                     await session.execute(
                         select(ProviderKeyRouteState).where(
@@ -292,9 +296,16 @@ class RouteClassifierTest(unittest.TestCase):
                         )
                     )
                 ).scalar_one()
+                score_row = (
+                    await session.execute(
+                        select(ProviderModelRouteScore).where(
+                            ProviderModelRouteScore.provider == "google",
+                            ProviderModelRouteScore.model_name == "flash",
+                        )
+                    )
+                ).scalar_one()
 
-            self.assertEqual(refreshed_candidate.error_score, before.error_score)
-            self.assertEqual(refreshed_candidate.final_rank, before.final_rank)
+            self.assertEqual(score_row.score, 0.0)
             self.assertIsNotNone(state.cooldown_until)
         finally:
             await engine.dispose()
@@ -361,8 +372,16 @@ class RouteClassifierTest(unittest.TestCase):
                         )
                     )
                 ).scalar_one()
+                score_row = (
+                    await session.execute(
+                        select(ProviderModelRouteScore).where(
+                            ProviderModelRouteScore.provider == "google",
+                            ProviderModelRouteScore.model_name == "flash",
+                        )
+                    )
+                ).scalar_one()
 
-            self.assertGreater(state.error_score, 0.0)
+            self.assertGreater(score_row.error_score, 0.0)
             self.assertIsNotNone(state.cooldown_until)
             self.assertIsNotNone(state.next_available_at)
         finally:
@@ -387,16 +406,16 @@ class RouteClassifierTest(unittest.TestCase):
                     error_message="adapter mismatch",
                 )
                 await classify_route_classification_event(session, event)
-                state = (
+                score_row = (
                     await session.execute(
-                        select(ProviderKeyRouteState).where(
-                            ProviderKeyRouteState.provider_key_id == key.id,
-                            ProviderKeyRouteState.model_name == "flash",
+                        select(ProviderModelRouteScore).where(
+                            ProviderModelRouteScore.provider == "google",
+                            ProviderModelRouteScore.model_name == "flash",
                         )
                     )
                 ).scalar_one()
 
-            self.assertEqual(state.error_score, 0.0)
+            self.assertEqual(score_row.score, 0.0)
         finally:
             await engine.dispose()
             temp_dir.cleanup()
@@ -419,7 +438,14 @@ class RouteClassifierTest(unittest.TestCase):
                     error_message="models/gemini-2.5 is not found",
                 )
                 await classify_route_classification_event(session, model_missing_event)
-                refreshed_candidate = await session.get(ModelQueueCandidate, candidate.id)
+                score_row = (
+                    await session.execute(
+                        select(ProviderModelRouteScore).where(
+                            ProviderModelRouteScore.provider == "google",
+                            ProviderModelRouteScore.model_name == "flash",
+                        )
+                    )
+                ).scalar_one()
 
                 access_missing_event = RouteClassificationEvent(
                     provider="google",
@@ -442,7 +468,7 @@ class RouteClassifierTest(unittest.TestCase):
                     )
                 ).scalar_one()
 
-            self.assertGreater(state.error_score, 0.0)
+            self.assertGreater(score_row.error_score, 0.0)
             self.assertTrue(state.disabled)
             self.assertEqual(state.disabled_reason, "not_found")
         finally:

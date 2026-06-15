@@ -5,14 +5,16 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.app.core.config import get_settings
-from backend.app.database.models import KeyStatus, ProviderKey, ProviderKeyRouteState
+from backend.app.database.models import KeyStatus, ProviderKey, ProviderKeyRouteState, ProviderModelRouteScore
 from backend.app.services.availability import (
     apply_route_block,
     apply_route_cooldown,
     get_or_create_provider_key_route_state,
+    normalize_provider_route_model_name,
     mark_route_finished,
 )
 from backend.app.services.route_materializer import (
@@ -83,58 +85,71 @@ def _latency_score(latency_ms: float) -> float:
     return max(0.0, min(1.0, latency_ms / 10000.0))
 
 
-def _refresh_route_state_rank(route_state: ProviderKeyRouteState) -> None:
-    route_state.final_rank = route_state.latency_score + route_state.error_score
-    route_state.score = route_state.final_rank
+def _refresh_provider_model_score_rank(score_row: ProviderModelRouteScore) -> None:
+    score_row.final_rank = score_row.latency_score + score_row.error_score
+    score_row.score = score_row.final_rank
 
 
-def _update_route_state_for_success(route_state: ProviderKeyRouteState, latency_ms: float, event_time: datetime) -> None:
-    route_state.last_used_at = event_time
-    route_state.success_count = route_state.success_count + 1
-    route_state.avg_latency_ms = (
-        latency_ms
-        if route_state.success_count <= 1
-        else ((route_state.avg_latency_ms * (route_state.success_count - 1)) + latency_ms) / route_state.success_count
+async def _get_or_create_provider_model_score(
+    session: AsyncSession,
+    *,
+    provider: str,
+    model_name: str,
+) -> ProviderModelRouteScore:
+    normalized_model_name = normalize_provider_route_model_name(provider, model_name)
+    result = await session.execute(
+        select(ProviderModelRouteScore).where(
+            ProviderModelRouteScore.provider == provider,
+            ProviderModelRouteScore.model_name == normalized_model_name,
+        )
     )
-    route_state.latency_score = _latency_score(route_state.avg_latency_ms)
+    score_row = result.scalar_one_or_none()
+    if score_row is not None:
+        return score_row
+
+    score_row = ProviderModelRouteScore(provider=provider, model_name=normalized_model_name)
+    session.add(score_row)
+    await session.flush()
+    return score_row
+
+
+def _update_provider_model_score_for_success(
+    score_row: ProviderModelRouteScore,
+    latency_ms: float,
+    event_time: datetime,
+) -> None:
+    score_row.last_success_at = event_time
+    score_row.success_count = score_row.success_count + 1
+    score_row.avg_latency_ms = (
+        latency_ms
+        if score_row.success_count <= 1
+        else ((score_row.avg_latency_ms * (score_row.success_count - 1)) + latency_ms) / score_row.success_count
+    )
+    score_row.latency_score = _latency_score(score_row.avg_latency_ms)
     recovery = max(SUCCESS_RECOVERY_FLOOR, min(SUCCESS_RECOVERY_CEILING, 0.18 - (latency_ms / 10000.0)))
-    route_state.error_score = max(0.0, route_state.error_score - recovery)
-    _refresh_route_state_rank(route_state)
+    score_row.error_score = max(0.0, score_row.error_score - recovery)
+    _refresh_provider_model_score_rank(score_row)
 
 
-def _update_route_state_for_failure(route_state: ProviderKeyRouteState, event: RouteClassificationEvent) -> None:
+def _update_provider_model_score_for_failure(
+    score_row: ProviderModelRouteScore,
+    event: RouteClassificationEvent,
+) -> None:
     failure_weight = _provider_model_failure_weight(event)
-    route_state.last_used_at = event.finished_at
+    score_row.last_error_at = event.finished_at
     if failure_weight <= 0.0:
         return
 
-    route_state.failure_count = route_state.failure_count + 1
-    total_observations = route_state.success_count + route_state.failure_count
-    route_state.avg_latency_ms = (
+    score_row.failure_count = score_row.failure_count + 1
+    total_observations = score_row.success_count + score_row.failure_count
+    score_row.avg_latency_ms = (
         event.latency_ms
         if total_observations <= 1
-        else ((route_state.avg_latency_ms * max(total_observations - 1, 0)) + event.latency_ms) / total_observations
+        else ((score_row.avg_latency_ms * max(total_observations - 1, 0)) + event.latency_ms) / total_observations
     )
-    route_state.latency_score = _latency_score(route_state.avg_latency_ms)
-    route_state.error_score = route_state.error_score + failure_weight
-    _refresh_route_state_rank(route_state)
-
-
-async def _sync_route_state_score_across_provider_model(
-    session: AsyncSession,
-    route_state: ProviderKeyRouteState,
-) -> None:
-    result = await session.execute(
-        select(ProviderKeyRouteState).where(
-            ProviderKeyRouteState.provider == route_state.provider,
-            ProviderKeyRouteState.model_name == route_state.model_name,
-        )
-    )
-    for peer_route_state in result.scalars().all():
-        peer_route_state.latency_score = route_state.latency_score
-        peer_route_state.error_score = route_state.error_score
-        peer_route_state.final_rank = route_state.final_rank
-        peer_route_state.score = route_state.score
+    score_row.latency_score = _latency_score(score_row.avg_latency_ms)
+    score_row.error_score = score_row.error_score + failure_weight
+    _refresh_provider_model_score_rank(score_row)
 
 
 def _provider_model_failure_weight(event: RouteClassificationEvent) -> float:
@@ -192,6 +207,11 @@ async def classify_route_classification_event(session: AsyncSession, event: Rout
     finished_at = ensure_utc_datetime(event.finished_at) or datetime.now(timezone.utc)
     provider_key = await session.get(ProviderKey, event.key_id) if event.key_id is not None else None
     route_state = None
+    provider_model_score = await _get_or_create_provider_model_score(
+        session,
+        provider=event.provider,
+        model_name=event.model_name,
+    )
     if provider_key is not None:
         route_state = await get_or_create_provider_key_route_state(
             session,
@@ -209,8 +229,8 @@ async def classify_route_classification_event(session: AsyncSession, event: Rout
             route_state.cooldown_until = None
             if not route_state.disabled:
                 route_state.blocked_until = None
-            _update_route_state_for_success(route_state, event.latency_ms, finished_at)
-            await _sync_route_state_score_across_provider_model(session, route_state)
+        if provider_model_score is not None:
+            _update_provider_model_score_for_success(provider_model_score, event.latency_ms, finished_at)
         if provider_key is not None and provider_key.status != KeyStatus.ACTIVE:
             provider_key.status = KeyStatus.ACTIVE
             provider_key.blocked_until = None
@@ -229,8 +249,6 @@ async def classify_route_classification_event(session: AsyncSession, event: Rout
                 else float(settings.key_cooldown_seconds)
             )
             apply_route_cooldown(route_state, delay_seconds=delay, now=finished_at)
-            _update_route_state_for_failure(route_state, event)
-            await _sync_route_state_score_across_provider_model(session, route_state)
         await session.commit()
         _patch_event_snapshots_for_unavailability(
             event,
@@ -243,8 +261,6 @@ async def classify_route_classification_event(session: AsyncSession, event: Rout
     if event.status_code in {401, 403} and provider_key is not None and route_state is not None:
         provider_key.failure_count = provider_key.failure_count + 1
         provider_key.blocked_until = None
-        _update_route_state_for_failure(route_state, event)
-        await _sync_route_state_score_across_provider_model(session, route_state)
         if event.status_code == 401:
             provider_key.status = KeyStatus.INVALID
             apply_route_block(route_state, disabled=True, disabled_reason="unauthorized")
@@ -260,10 +276,17 @@ async def classify_route_classification_event(session: AsyncSession, event: Rout
         _schedule_event_snapshot_refresh(event)
         return
 
+    if _is_provider_model_404(event) and provider_model_score is not None:
+        _update_provider_model_score_for_failure(provider_model_score, event)
+        if route_state is not None:
+            apply_route_block(route_state, disabled=True, disabled_reason="not_found")
+        await session.commit()
+        _patch_event_snapshots_for_unavailability(event, reason="disabled")
+        _schedule_event_snapshot_refresh(event)
+        return
+
     if _is_route_access_404(event) and route_state is not None:
         apply_route_block(route_state, disabled=True, disabled_reason="not_found")
-        _update_route_state_for_failure(route_state, event)
-        await _sync_route_state_score_across_provider_model(session, route_state)
         await session.commit()
         _patch_event_snapshots_for_unavailability(event, reason="disabled")
         _schedule_event_snapshot_refresh(event)
@@ -276,11 +299,10 @@ async def classify_route_classification_event(session: AsyncSession, event: Rout
         _schedule_event_snapshot_refresh(event)
         return
 
-    if event.status_code >= 500 and route_state is not None:
-        if retry_result is not None:
+    if event.status_code >= 500 and provider_model_score is not None:
+        if retry_result is not None and route_state is not None:
             apply_route_cooldown(route_state, delay_seconds=retry_result.retry_after_seconds, now=finished_at)
-        _update_route_state_for_failure(route_state, event)
-        await _sync_route_state_score_across_provider_model(session, route_state)
+        _update_provider_model_score_for_failure(provider_model_score, event)
 
     await session.commit()
     if event.status_code >= 500 and route_state is not None and retry_result is not None:

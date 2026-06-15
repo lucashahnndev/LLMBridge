@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from sqlalchemy import select
 
-from backend.app.database.models import ModelQueue, ModelQueueCandidate, QueueStrategy
+from backend.app.database.models import ModelQueue, ModelQueueCandidate, ProviderModelRouteScore, QueueStrategy
 from backend.app.services.availability import normalize_provider_route_model_name, summarize_provider_route_availability
 
 
@@ -107,14 +107,15 @@ def _interleave_queue_routes(
     return interleaved
 
 
-def _global_route_rank(availability: object) -> float:
-    eligible_states = getattr(availability, "eligible_states", {}) or {}
-    route_ranks: list[float] = []
-    for route_state in eligible_states.values():
-        if route_state is None:
-            continue
-        route_ranks.append(route_state.final_rank)
-    return min(route_ranks) if route_ranks else 0.0
+async def _global_route_rank(session: AsyncSession, provider: str, model_name: str) -> float:
+    result = await session.execute(
+        select(ProviderModelRouteScore.score).where(
+            ProviderModelRouteScore.provider == provider,
+            ProviderModelRouteScore.model_name == model_name,
+        )
+    )
+    score = result.scalar_one_or_none()
+    return float(score or 0.0)
 
 
 async def resolve_model_routes(session: AsyncSession, model: str) -> list[ResolvedRouteCandidate]:
@@ -220,7 +221,7 @@ async def materialize_model_route_snapshot(session: AsyncSession, model: str) ->
         )
         if not availability.eligible_keys:
             continue
-        global_rank = _global_route_rank(availability)
+        global_rank = await _global_route_rank(session, candidate.provider, operational_model_name)
         if queue.strategy == QueueStrategy.SMART:
             queue_rank = global_rank + candidate.base_degradation
         elif queue.strategy == QueueStrategy.LATENCY:

@@ -110,6 +110,7 @@ async def create_model_queue_candidate(
         model_name=payload.model_name,
         position=payload.position,
         is_active=payload.is_active,
+        base_degradation=payload.base_degradation,
     )
     session.add(candidate)
     await session.commit()

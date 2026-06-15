@@ -25,13 +25,13 @@ def normalize_provider_route_model_name(provider: str, model_name: str) -> str:
     return resolve_model_name(cleaned_model_name)
 
 
-def _route_state_rank_value(route_state: ProviderKeyRouteState | None) -> tuple[float, int, datetime]:
+def _route_state_rank_value(route_state: ProviderKeyRouteState | None) -> tuple[int, datetime, datetime]:
     if route_state is None:
         return (0.0, 0, datetime.min.replace(tzinfo=timezone.utc))
     return (
-        route_state.final_rank,
         route_state.in_flight_count,
         ensure_utc_datetime(route_state.last_used_at) or datetime.min.replace(tzinfo=timezone.utc),
+        ensure_utc_datetime(route_state.updated_at) or datetime.min.replace(tzinfo=timezone.utc),
     )
 
 
