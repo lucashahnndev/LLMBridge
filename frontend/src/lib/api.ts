@@ -216,6 +216,48 @@ export type AlertTelegramTestResponse = {
   detail: string;
 };
 
+export class ApiError extends Error {
+  status: number;
+  constructor(message: string, status: number) {
+    super(message);
+    this.status = status;
+    this.name = 'ApiError';
+  }
+}
+
+const nativeFetch = globalThis.fetch;
+const fetchWrapper = async (input: RequestInfo | URL, init?: RequestInit) => {
+  const response = await nativeFetch(input, init);
+  if (!response.ok) {
+    let detail = '';
+    try {
+      const contentType = response.headers.get('content-type');
+      if (contentType && (contentType.includes('application/json') || contentType.includes('text/'))) {
+        detail = await response.clone().text();
+      }
+    } catch {
+      // ignore
+    }
+
+    const urlString = typeof input === 'string' ? input : (input instanceof URL ? input.toString() : input.url);
+    const isAuthRequest = urlString.includes('/admin/login') || urlString.includes('/admin/setup');
+
+    if ((response.status === 401 || response.status === 403) && !isAuthRequest) {
+      if (typeof localStorage !== 'undefined') {
+        localStorage.removeItem(ADMIN_TOKEN_KEY);
+      }
+      if (typeof window !== 'undefined' && window.location.pathname !== '/login') {
+        window.location.href = '/login';
+      }
+    }
+
+    throw new ApiError(detail || `HTTP error ${response.status}`, response.status);
+  }
+  return response;
+};
+
+const fetch = fetchWrapper;
+
 export function apiBaseUrl() {
   let baseUrl = '';
 
