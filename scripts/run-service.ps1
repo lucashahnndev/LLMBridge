@@ -8,6 +8,9 @@ $FrontendDir = Join-Path $RepoRoot "frontend"
 $FrontendHost = if ($env:FRONTEND_HOST) { $env:FRONTEND_HOST } else { "127.0.0.1" }
 $FrontendPort = if ($env:FRONTEND_PORT) { $env:FRONTEND_PORT } else { "4173" }
 
+$env:FRONTEND_HOST = $FrontendHost
+$env:FRONTEND_PORT = $FrontendPort
+
 if (-not (Test-Path $BackendPython)) {
     throw "Ambiente virtual do backend nao encontrado em $BackendPython"
 }

@@ -19,6 +19,8 @@ class Settings(BaseSettings):
     app_name: str = "LLMBridge"
     host: str = Field(default="127.0.0.1")
     port: int = Field(default=8000)
+    frontend_host: str = Field(default="127.0.0.1")
+    frontend_port: int = Field(default=4173)
     secret_key: str = Field(default="")
     admin_password: str = Field(default="")
     admin_token_ttl_minutes: int = Field(default=720)

@@ -30,6 +30,7 @@ from backend.app.routes.provider_keys import router as provider_keys_router
 from backend.app.routes.usage_logs import router as usage_logs_router
 from backend.app.database.session import get_sessionmaker
 from backend.app.services.route_materializer import warmup_route_materializer
+from backend.app.services.cors import build_local_frontend_origins
 from backend.app.services.telegram_bot import create_telegram_bot_worker
 
 
@@ -54,6 +55,11 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title=settings.app_name, version=APP_VERSION, lifespan=lifespan)
+
+cors_allowed_origins = build_local_frontend_origins(
+    frontend_host=settings.frontend_host,
+    frontend_port=settings.frontend_port,
+)
 
 
 @app.middleware("http")
@@ -98,9 +104,9 @@ async def request_logging_middleware(request: Request, call_next):
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origin_regex=r"https?://(localhost|127\.0\.0\.1)(:\d+)?",
+    allow_origins=cors_allowed_origins,
     allow_credentials=False,
-    allow_methods=["*"],
+    allow_methods=["DELETE", "GET", "HEAD", "OPTIONS", "PATCH", "POST", "PUT"],
     allow_headers=["*"],
 )
 

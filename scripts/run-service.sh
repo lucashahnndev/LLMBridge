@@ -16,6 +16,9 @@ FRONTEND_DIR="$REPO_ROOT/frontend"
 FRONTEND_PORT="${FRONTEND_PORT:-4173}"
 FRONTEND_HOST="${FRONTEND_HOST:-127.0.0.1}"
 
+export FRONTEND_HOST
+export FRONTEND_PORT
+
 if [[ ! -x "$BACKEND_PYTHON" ]]; then
   echo "[ERRO] Ambiente virtual do backend nao encontrado em $BACKEND_PYTHON_ROOT ou $BACKEND_PYTHON_LEGACY"
   exit 1
