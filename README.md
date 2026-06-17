@@ -50,13 +50,13 @@ It helps you:
 Linux:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/lucashahnndev/LLMKeyRotator/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/lucashahnndev/LLMBridge/main/install.sh | bash
 ```
 
 Windows PowerShell:
 
 ```powershell
-irm https://raw.githubusercontent.com/lucashahnndev/LLMKeyRotator/main/install.ps1 | iex
+irm https://raw.githubusercontent.com/lucashahnndev/LLMBridge/main/install.ps1 | iex
 ```
 
 These installers always start from a clean clone, so rerunning them pulls a fresh copy of the repository.
