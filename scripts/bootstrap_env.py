@@ -5,6 +5,8 @@ from pathlib import Path
 
 
 ENV_PATH = Path("backend/.env")
+DEFAULT_DATABASE_URL = "sqlite+aiosqlite:///./backend/data/database.db"
+LEGACY_DATABASE_URL = "sqlite+aiosqlite:///./backend/database.db"
 ENV_ORDER = [
     "SECRET_KEY",
     "ADMIN_PASSWORD",
@@ -80,8 +82,9 @@ def main() -> int:
         values["ADMIN_PASSWORD"] = generate_admin_password()
         generated_admin = True
 
-    if not values.get("DATABASE_URL", "").strip():
-        values["DATABASE_URL"] = "sqlite+aiosqlite:///./backend/database.db"
+    database_url = values.get("DATABASE_URL", "").strip()
+    if not database_url or database_url == LEGACY_DATABASE_URL:
+        values["DATABASE_URL"] = DEFAULT_DATABASE_URL
     if "TELEGRAM_BOT_TOKEN" not in values:
         values["TELEGRAM_BOT_TOKEN"] = ""
     if "TELEGRAM_CHAT_ID" not in values:

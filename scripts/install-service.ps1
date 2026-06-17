@@ -44,11 +44,13 @@ if (-not $InstallRoot) {
 }
 $InstallScriptsRoot = Join-Path $InstallRoot "scripts"
 $InstallBackendRoot = Join-Path $InstallRoot "backend"
+$InstallDataRoot = Join-Path $InstallBackendRoot "data"
 $InstallFrontendRoot = Join-Path $InstallRoot "frontend"
 $InstallPython = Join-Path $InstallRoot ".venv\Scripts\python.exe"
 $InstallRunScript = Join-Path $InstallScriptsRoot "run-service.ps1"
 $InstallEnvPath = Join-Path $InstallBackendRoot ".env"
-$InstallDbPath = Join-Path $InstallBackendRoot "database.db"
+$InstallDbPath = Join-Path $InstallDataRoot "database.db"
+$InstallLegacyDbPath = Join-Path $InstallBackendRoot "database.db"
 $SourcePython = Join-Path $SourceRoot ".venv\Scripts\python.exe"
 $InstallLogsFolder = Join-Path $InstallRoot "logs"
 $FrontendBuildStamp = Join-Path $InstallFrontendRoot ".llmkeyrotator-build.sha256"
@@ -59,7 +61,8 @@ $BootstrapEnvScript = Join-Path $InstallScriptsRoot "bootstrap_env.py"
 $BackendRequirements = Join-Path $InstallRoot "backend\requirements.txt"
 $FrontendPackageJson = Join-Path $InstallFrontendRoot "package.json"
 $SourceEnvPath = Join-Path $SourceRoot "backend\.env"
-$SourceDbPath = Join-Path $SourceRoot "backend\database.db"
+$SourceDbPath = Join-Path $SourceRoot "backend\data\database.db"
+$SourceLegacyDbPath = Join-Path $SourceRoot "backend\database.db"
 
 function Test-IsAdministrator {
     $currentIdentity = [System.Security.Principal.WindowsIdentity]::GetCurrent()
@@ -510,7 +513,8 @@ function Sync-SourceTree {
 
     $excludedFiles = @(
         "backend\.env",
-        "backend\database.db"
+        "backend\database.db",
+        "backend\data\database.db"
     )
 
     Write-Stage "Sincronizando workspace"
@@ -551,7 +555,8 @@ function Sync-SourceTree {
 function Restore-DataFiles {
     param(
         [string]$ExistingEnvBackup,
-        [string]$ExistingDbBackup
+        [string]$ExistingDbBackup,
+        [string]$ExistingLegacyDbBackup
     )
 
     if ($ExistingEnvBackup -and (Test-Path -LiteralPath $ExistingEnvBackup)) {
@@ -569,18 +574,21 @@ function Restore-DataFiles {
         Pop-Location
     }
 
+    Ensure-Directory -Path $InstallDataRoot
     if ($ExistingDbBackup -and (Test-Path -LiteralPath $ExistingDbBackup)) {
-        Ensure-Directory -Path $InstallBackendRoot
         Copy-Item -LiteralPath $ExistingDbBackup -Destination $InstallDbPath -Force
+    } elseif ($ExistingLegacyDbBackup -and (Test-Path -LiteralPath $ExistingLegacyDbBackup)) {
+        Copy-Item -LiteralPath $ExistingLegacyDbBackup -Destination $InstallDbPath -Force
     } elseif (-not (Test-Path -LiteralPath $InstallDbPath) -and (Test-Path -LiteralPath $SourceDbPath)) {
-        Ensure-Directory -Path $InstallBackendRoot
         Copy-Item -LiteralPath $SourceDbPath -Destination $InstallDbPath -Force
+    } elseif (-not (Test-Path -LiteralPath $InstallDbPath) -and (Test-Path -LiteralPath $SourceLegacyDbPath)) {
+        Copy-Item -LiteralPath $SourceLegacyDbPath -Destination $InstallDbPath -Force
     }
 
     if (-not (Test-Path -LiteralPath $InstallDbPath)) {
         Push-Location $InstallRoot
         try {
-            & $SourcePython -c "import sqlite3, pathlib; db = pathlib.Path('backend/database.db'); db.parent.mkdir(parents=True, exist_ok=True); sqlite3.connect(db).close()"
+            & $SourcePython -c "import pathlib, sqlite3; db = pathlib.Path('backend/data/database.db'); db.parent.mkdir(parents=True, exist_ok=True); sqlite3.connect(db).close()"
         } finally {
             Pop-Location
         }
@@ -803,6 +811,7 @@ try {
 
     $existingEnvBackup = $null
     $existingDbBackup = $null
+    $existingLegacyDbBackup = $null
     if (Test-Path $InstallEnvPath) {
         $existingEnvBackup = Join-Path $env:TEMP "llmkeyrotator-env-backup-$([Guid]::NewGuid().ToString('N')).env"
         Copy-Item -LiteralPath $InstallEnvPath -Destination $existingEnvBackup -Force
@@ -810,13 +819,16 @@ try {
     if (Test-Path $InstallDbPath) {
         $existingDbBackup = Join-Path $env:TEMP "llmkeyrotator-db-backup-$([Guid]::NewGuid().ToString('N')).db"
         Copy-Item -LiteralPath $InstallDbPath -Destination $existingDbBackup -Force
+    } elseif (Test-Path $InstallLegacyDbPath) {
+        $existingLegacyDbBackup = Join-Path $env:TEMP "llmkeyrotator-db-legacy-backup-$([Guid]::NewGuid().ToString('N')).db"
+        Copy-Item -LiteralPath $InstallLegacyDbPath -Destination $existingLegacyDbBackup -Force
     }
 
     Write-Stage "1/5 workspace"
     Sync-SourceTree
 
     Write-Stage "2/5 dados"
-    Restore-DataFiles -ExistingEnvBackup $existingEnvBackup -ExistingDbBackup $existingDbBackup
+    Restore-DataFiles -ExistingEnvBackup $existingEnvBackup -ExistingDbBackup $existingDbBackup -ExistingLegacyDbBackup $existingLegacyDbBackup
 
     Write-Stage "3/5 ambiente"
     Ensure-InstallPython
@@ -847,6 +859,9 @@ try {
         if ($tempFile -and (Test-Path $tempFile)) {
             Remove-Item -LiteralPath $tempFile -Force -ErrorAction SilentlyContinue
         }
+    }
+    if ($existingLegacyDbBackup -and (Test-Path $existingLegacyDbBackup)) {
+        Remove-Item -LiteralPath $existingLegacyDbBackup -Force -ErrorAction SilentlyContinue
     }
 
     if ($transcriptStarted) {

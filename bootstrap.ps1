@@ -203,7 +203,7 @@ $sqliteValidationScript = Join-Path $env:TEMP "llmbridge-validate-sqlite.py"
 import pathlib
 import sqlite3
 
-db = pathlib.Path("backend/database.db")
+db = pathlib.Path("backend/data/database.db")
 db.parent.mkdir(parents=True, exist_ok=True)
 sqlite3.connect(db).close()
 "@ | Set-Content -LiteralPath $sqliteValidationScript -Encoding ASCII

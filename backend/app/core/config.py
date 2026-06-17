@@ -25,7 +25,7 @@ class Settings(BaseSettings):
     admin_password: str = Field(default="")
     admin_token_ttl_minutes: int = Field(default=720)
     jwt_algorithm: str = Field(default="HS256")
-    database_url: str = Field(default="sqlite+aiosqlite:///./backend/database.db")
+    database_url: str = Field(default="sqlite+aiosqlite:///./backend/data/database.db")
     telegram_bot_token: str = Field(default="")
     telegram_chat_id: str = Field(default="")
     proxy_max_attempts: int = Field(default=3)
