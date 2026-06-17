@@ -373,6 +373,11 @@ function Resolve-NssmExe {
 }
 
 function Ensure-Nssm {
+    $resolved = Resolve-NssmExe
+    if ($resolved) {
+        return $resolved
+    }
+
     Copy-NssmAssets
     Expand-NssmArchives -SearchRoots @(
         (Join-Path $SourceRoot "bin"),
