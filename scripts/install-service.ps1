@@ -257,7 +257,23 @@ function Copy-NssmAssets {
     Ensure-Directory -Path $destinationBin
 
     Write-Stage "Preparando NSSM"
-    Copy-Item -Path (Join-Path $sourceBin "*") -Destination $destinationBin -Recurse -Force
+    $sourceFiles = Get-ChildItem -LiteralPath $sourceBin -Recurse -File -ErrorAction SilentlyContinue
+    foreach ($sourceFile in $sourceFiles) {
+        $relative = $sourceFile.FullName.Substring($sourceBin.Length).TrimStart([System.IO.Path]::DirectorySeparatorChar, [System.IO.Path]::AltDirectorySeparatorChar)
+        if (-not $relative) {
+            continue
+        }
+
+        $destinationFile = Join-Path $destinationBin $relative
+        $destinationParent = Split-Path -Parent $destinationFile
+        Ensure-Directory -Path $destinationParent
+
+        if (Test-Path -LiteralPath $destinationFile) {
+            continue
+        }
+
+        Copy-Item -LiteralPath $sourceFile.FullName -Destination $destinationFile -Force
+    }
 }
 
 function Get-NssmArchiveCandidates {
@@ -312,9 +328,12 @@ function Expand-NssmArchives {
 
     $archives = Get-NssmArchiveCandidates -SearchRoots $SearchRoots
     foreach ($archivePath in ($archives | Sort-Object)) {
-        $archiveItem = Get-Item -LiteralPath $archivePath
         Write-Stage "Descompactando NSSM"
-        Expand-Archive -LiteralPath $archivePath -DestinationPath $DestinationRoot -Force
+        try {
+            Expand-Archive -LiteralPath $archivePath -DestinationPath $DestinationRoot -Force
+        } catch {
+            Write-Warn "Ignorando expansao do NSSM ja instalado em uso."
+        }
     }
 }
 
