@@ -2026,6 +2026,7 @@
             {#if providerKeysViewMode === 'grid'}
               <div class="control-grid">
                 {#each filteredProviderKeys as providerKey}
+                  {@const brand = getProviderBrand(providerKey.provider)}
                   <div class="control-card">
                     <div class="control-card-header">
                       <div style="display: flex; align-items: center; gap: 0.5rem;">
@@ -2046,8 +2047,7 @@
                       <div class="control-card-row">
                         <span class="label">Provider</span>
                         <span class="value" style="display: inline-flex; align-items: center; gap: 0.25rem; justify-content: flex-end;">
-                          {#if getProviderBrand(providerKey.provider)}
-                            {@const brand = getProviderBrand(providerKey.provider)}
+                          {#if brand}
                             <span class="provider-mark" title={brand.label}>
                               <img class="provider-mark__image" src={brand.src} alt={brand.label} />
                             </span>
@@ -2101,6 +2101,7 @@
                 </div>
 
                 {#each filteredProviderKeys as providerKey}
+                  {@const brand = getProviderBrand(providerKey.provider)}
                   <div class="control-table-row grid-provider-keys">
                     <div class="control-table-cell">
                       <label class="select-check" style="margin: 0; display: inline-flex; align-items: center;">
@@ -2115,8 +2116,7 @@
                       <strong>{providerKey.name}</strong>
                     </div>
                     <div class="control-table-cell">
-                      {#if getProviderBrand(providerKey.provider)}
-                        {@const brand = getProviderBrand(providerKey.provider)}
+                      {#if brand}
                         <span class="provider-mark" title={brand.label}>
                           <img class="provider-mark__image" src={brand.src} alt={brand.label} />
                         </span>
@@ -3077,6 +3077,7 @@
           </div>
 
           {#each usageLogs as log}
+            {@const brand = getProviderBrand(log.provider_used)}
             <div
               class="control-table-row grid-usage-logs selectable"
               role="button"
@@ -3091,8 +3092,7 @@
                 <strong>{log.app_token_name ?? 'Unknown app'}</strong>
               </div>
               <div class="control-table-cell">
-                {#if getProviderBrand(log.provider_used)}
-                  {@const brand = getProviderBrand(log.provider_used)}
+                {#if brand}
                   <span class="provider-mark" title={brand.label}>
                     <img class="provider-mark__image" src={brand.src} alt={brand.label} />
                   </span>

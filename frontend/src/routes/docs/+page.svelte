@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { Copy, CheckCircle2, Info, AlertCircle, Moon, Sun } from 'lucide-svelte';
+  import { apiBaseUrl } from '$lib/api';
 
   let copiedId = '';
   let isDarkMode = false;
@@ -19,7 +20,9 @@
     }
   }
 
-  const curlExample = `curl -X POST http://127.0.0.1:8009/v1/messages \\
+  let proxyBase = 'http://127.0.0.1:8009';
+
+  $: curlExample = `curl -X POST ${proxyBase}/v1/messages \\
   -H "Authorization: Bearer my-app-token" \\
   -H "Content-Type: application/json" \\
   -d '{
@@ -29,12 +32,12 @@
     ]
   }'`;
 
-  const claudeCodeSettings = `{
+  $: claudeCodeSettings = `{
   "claudeCode.preferredLocation": "panel",
   "claudeCode.environmentVariables": [
     {
       "name": "ANTHROPIC_BASE_URL",
-      "value": "http://127.0.0.1:8009"
+      "value": "${proxyBase}"
     },
     {
       "name": "ANTHROPIC_AUTH_TOKEN",
@@ -47,23 +50,23 @@
   ]
 }`;
 
-  const claudeTerminalSession = `export ANTHROPIC_BASE_URL="http://127.0.0.1:8009"
+  $: claudeTerminalSession = `export ANTHROPIC_BASE_URL="${proxyBase}"
 export ANTHROPIC_AUTH_TOKEN="app-token-example"
 export ANTHROPIC_MODEL="queue/gemini"
 claude`;
 
-  const claudeBashrcSetup = `cat <<'EOF' >> ~/.bashrc
-export ANTHROPIC_BASE_URL="http://127.0.0.1:8009"
+  $: claudeBashrcSetup = `cat <<'EOF' >> ~/.bashrc
+export ANTHROPIC_BASE_URL="${proxyBase}"
 export ANTHROPIC_AUTH_TOKEN="app-token-example"
 export ANTHROPIC_MODEL="queue/gemini"
 EOF
 source ~/.bashrc`;
 
-  const claudeWindowsCmdSetup = `setx ANTHROPIC_BASE_URL "http://127.0.0.1:8009"
+  $: claudeWindowsCmdSetup = `setx ANTHROPIC_BASE_URL "${proxyBase}"
 setx ANTHROPIC_AUTH_TOKEN "app-token-example"
 setx ANTHROPIC_MODEL "queue/gemini"`;
 
-  const jsExample = `const response = await fetch('http://127.0.0.1:8009/v1/messages', {
+  $: jsExample = `const response = await fetch('${proxyBase}/v1/messages', {
   method: 'POST',
   headers: {
     'Authorization': 'Bearer my-app-token',
@@ -132,7 +135,7 @@ console.log(data.content[0].text);`;
   "usage": { "input_tokens": 120, "output_tokens": 34, "total_tokens": 154 }
 }`;
 
-  const openaiCurl = `curl -X POST http://127.0.0.1:8009/v1/chat/completions \\
+  $: openaiCurl = `curl -X POST ${proxyBase}/v1/chat/completions \\
   -H "Authorization: Bearer my-app-token" \\
   -H "Content-Type: application/json" \\
   -d '{
@@ -145,6 +148,8 @@ console.log(data.content[0].text);`;
   onMount(() => {
     document.documentElement.classList.add('docs-html');
     document.body.classList.add('docs-page');
+
+    proxyBase = apiBaseUrl().replace(/\/api\/v1$/, '');
 
     // Check local storage or system preference
     const storedTheme = localStorage.getItem('docs-theme');
@@ -252,7 +257,7 @@ console.log(data.content[0].text);`;
         <!-- Empty or introductory code block -->
         <div class="code-panel">
           <div class="code-header">BASE URL</div>
-          <pre><code>http://127.0.0.1:8009</code></pre>
+          <pre><code>{proxyBase}</code></pre>
         </div>
       </div>
     </div>

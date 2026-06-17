@@ -10,6 +10,7 @@
     fetchUsageLogs,
     peekAppToken,
     getStoredAdminToken,
+    apiBaseUrl,
     type AppToken,
     type ModelQueue,
     type ProviderKey,
@@ -54,8 +55,8 @@
   let requestError = '';
   let healthError = '';
   let healthStatus = '';
-  let runtimeBaseUrl = 'http://127.0.0.1:8009';
-  let runtimeHost = '127.0.0.1';
+  let runtimeBaseUrl = '';
+  let runtimeHost = '';
   let runtimePort = 8009;
   let catalogStats: CatalogStats = { appTokens: 0, providerKeys: 0, queues: 0, recentModels: 0 };
   let providerKeys: ProviderKey[] = [];
@@ -141,7 +142,31 @@
       : customModel.trim() || 'custom';
 
   function proxyBaseUrl() {
-    return runtimeBaseUrl.replace(/\/api\/v1$/, '');
+    let base = runtimeBaseUrl || apiBaseUrl().replace(/\/api\/v1$/, '');
+    if (typeof window !== 'undefined' && window.location) {
+      const currentHost = window.location.hostname;
+      const isLocalhost = currentHost === 'localhost' || currentHost === '127.0.0.1' || currentHost === '[::1]' || currentHost === '::1';
+
+      try {
+        const url = new URL(base);
+        if (url.hostname === '0.0.0.0' || url.hostname === '[::]' || url.hostname === '::') {
+          url.hostname = currentHost || '127.0.0.1';
+          base = url.toString().replace(/\/$/, '');
+        } else if ((url.hostname === '127.0.0.1' || url.hostname === 'localhost') && !isLocalhost) {
+          url.hostname = currentHost;
+          base = url.toString().replace(/\/$/, '');
+        }
+      } catch {
+        if (base.includes('://0.0.0.0')) {
+          base = base.replace('://0.0.0.0', `://${currentHost || '127.0.0.1'}`);
+        } else if ((base.includes('://127.0.0.1') || base.includes('://localhost')) && !isLocalhost) {
+          base = base
+            .replace('://127.0.0.1', `://${currentHost}`)
+            .replace('://localhost', `://${currentHost}`);
+        }
+      }
+    }
+    return base;
   }
 
   function normalizeText(value: string) {
@@ -668,6 +693,16 @@ console.log(data);`;
     }
 
     adminToken = savedToken;
+    runtimeBaseUrl = apiBaseUrl().replace(/\/api\/v1$/, '');
+    try {
+      const url = new URL(runtimeBaseUrl);
+      runtimeHost = url.hostname;
+      runtimePort = url.port ? parseInt(url.port) : (url.protocol === 'https:' ? 443 : 80);
+    } catch {
+      runtimeHost = '127.0.0.1';
+      runtimePort = 8009;
+    }
+
     void loadCatalog();
   });
   </script>

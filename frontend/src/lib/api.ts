@@ -217,13 +217,51 @@ export type AlertTelegramTestResponse = {
 };
 
 export function apiBaseUrl() {
+  let baseUrl = '';
+
   if (typeof localStorage !== 'undefined') {
     const runtimeBaseUrl = localStorage.getItem(RUNTIME_BASE_URL_KEY);
     if (runtimeBaseUrl) {
-      return runtimeBaseUrl;
+      baseUrl = runtimeBaseUrl;
     }
   }
-  return import.meta.env.VITE_API_BASE_URL || DEFAULT_BASE_URL;
+
+  if (!baseUrl) {
+    baseUrl = import.meta.env.VITE_API_BASE_URL || DEFAULT_BASE_URL;
+  }
+
+  // Resolve loopbacks/meta-addresses dynamically based on browser location
+  if (typeof window !== 'undefined' && window.location) {
+    const currentHost = window.location.hostname;
+    const isLocalhost = currentHost === 'localhost' || currentHost === '127.0.0.1' || currentHost === '[::1]' || currentHost === '::1';
+
+    try {
+      const url = new URL(baseUrl);
+      const urlHost = url.hostname;
+      const isUrlLocal = urlHost === '127.0.0.1' || urlHost === 'localhost' || urlHost === '0.0.0.0' || urlHost === '[::]' || urlHost === '::' || urlHost === '[::1]' || urlHost === '::1';
+
+      if (isUrlLocal && !isLocalhost) {
+        url.hostname = currentHost;
+        baseUrl = url.toString().replace(/\/$/, '');
+      } else if (urlHost === '0.0.0.0' || urlHost === '[::]' || urlHost === '::') {
+        url.hostname = currentHost || '127.0.0.1';
+        baseUrl = url.toString().replace(/\/$/, '');
+      }
+    } catch {
+      if (baseUrl.startsWith('http://127.0.0.1') || baseUrl.startsWith('http://localhost') || baseUrl.startsWith('http://0.0.0.0')) {
+        if (!isLocalhost) {
+          baseUrl = baseUrl
+            .replace('://127.0.0.1', `://${currentHost}`)
+            .replace('://localhost', `://${currentHost}`)
+            .replace('://0.0.0.0', `://${currentHost}`);
+        } else {
+          baseUrl = baseUrl.replace('://0.0.0.0', '://127.0.0.1');
+        }
+      }
+    }
+  }
+
+  return baseUrl;
 }
 
 export function setRuntimeApiBaseUrl(apiBaseUrl: string) {
